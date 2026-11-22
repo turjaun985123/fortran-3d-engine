@@ -68,7 +68,10 @@ def _fallback_class(name):
 
 _NODE_NAMES = ("Program", "SceneStmt", "CameraStmt", "LightStmt", "ObjectStmt",
                "GroupStmt", "AnimStmt", "LoadStmt", "RepeatStmt",
-               "ControlsStmt", "OutputStmt")
+               "ControlsStmt", "OutputStmt",
+               # Wave B (fallback node classes; semantics in validate)
+               "SpriteStmt", "TextStmt", "ParticlesStmt", "KeysStmt",
+               "KeyStmt")
 _NODES = {}
 for _n in _NODE_NAMES:
     _cls = getattr(_ast, _n, None) if _ast is not None else None
@@ -509,6 +512,16 @@ class Parser:
             return self._parse_anim(lp)
         if first == "load":
             return self._parse_load(lp)
+        if first == "sprite":
+            return self._parse_sprite(lp)
+        if first == "text":
+            return self._parse_text(lp)
+        if first == "particles":
+            return self._parse_particles(lp)
+        if first == "keys":
+            return self._parse_keys_header(lp)
+        if first == "key":
+            return self._parse_key(lp)
         if first == "controls":
             return self._parse_controls(lp)
         if first in ("render", "export"):
@@ -862,6 +875,161 @@ class Parser:
         return _make("LoadStmt", path=path, file=path, name=name, props=props,
                      line=lp.no, span=None,
                      **{k: v for k, v in props.items() if k != "name"})
+
+    # -- Wave B statements (B67-B95; semantics live in the ext_*
+    #    modules + ext_keys, this layer only shapes the nodes) ---------
+
+    def _waveb_named_props(self, lp, extra_words=()):
+        """Shared [name] + object-prop tail for sprite/particles."""
+        name, colour = None, None
+        props, seen = {}, set()
+        while not lp.at_end():
+            w = lp.peek_word()
+            if w == "named":
+                lp.next(); name = lp.ident(); continue
+            if lp.peek_kind() == "COLOR" or w == "rgb":
+                lp.dup(seen, "colour"); colour = lp.colour(); continue
+            if (w is not None and w not in OBJECT_PROP_WORDS
+                    and w not in extra_words and w not in RESERVED):
+                if w in COLOUR_WORDS:
+                    lp.dup(seen, "colour"); colour = lp.colour(); continue
+                if name is None:
+                    name = lp.next_text(); continue
+                raise _LineError("E103", "unexpected word '%s'" % w)
+            break
+        while not lp.at_end():
+            if self._object_props(lp, props, seen):
+                continue
+            w = lp.peek_word()
+            if w in extra_words:
+                lp.next(); lp.dup(seen, w)
+                props[w] = lp.number(w); continue
+            if lp.peek_kind() == "COLOR" or w == "rgb" or w in COLOUR_WORDS:
+                lp.dup(seen, "colour"); colour = lp.colour(); continue
+            raise _LineError("E103", "unexpected '%s'" % lp.peek_text())
+        if colour is None:
+            colour = props.get("colour", props.get("color"))
+        if colour is not None:
+            props.setdefault("colour", colour)
+            props.setdefault("color", colour)
+        return name, colour, props
+
+    def _parse_sprite(self, lp):
+        lp.next()  # sprite
+        name, colour, props = self._waveb_named_props(lp)
+        return _make("SpriteStmt", name=name, colour=colour,
+                     color=colour, props=props, line=lp.no, span=None)
+
+    def _parse_particles(self, lp):
+        lp.next()  # particles
+        name, colour, props = self._waveb_named_props(
+            lp, extra_words=("count", "life", "speed", "spread",
+                             "gravity", "seed"))
+        if "count" in props:
+            props["count"] = int(props["count"])
+        if "seed" in props:
+            props["seed"] = int(props["seed"])
+        return _make("ParticlesStmt", name=name, colour=colour,
+                     color=colour, props=props, line=lp.no, span=None)
+
+    def _parse_text(self, lp):
+        lp.next()  # text
+        name = None
+        # Optional name: a word directly followed by the quoted string.
+        if lp.peek_kind() == "WORD" and lp.i + 1 < len(lp.toks) \
+                and _tkind(lp.toks[lp.i + 1]) == "STRING":
+            name = lp.next_text()
+        if lp.peek_kind() != "STRING":
+            raise _LineError("E101", "'text' needs a quoted string, "
+                                     "like: text \"HELLO\"")
+        content = lp.next_text()
+        colour = None
+        props, seen = {}, set()
+        while not lp.at_end():
+            if self._object_props(lp, props, seen):
+                continue
+            w = lp.peek_word()
+            if lp.peek_kind() == "COLOR" or w == "rgb" or w in COLOUR_WORDS:
+                lp.dup(seen, "colour"); colour = lp.colour(); continue
+            raise _LineError("E103", "unexpected '%s' in text statement"
+                                     % lp.peek_text())
+        if colour is None:
+            colour = props.get("colour", props.get("color"))
+        if colour is not None:
+            props.setdefault("colour", colour)
+            props.setdefault("color", colour)
+        props["content"] = content
+        return _make("TextStmt", name=name, content=content,
+                     colour=colour, color=colour, props=props,
+                     line=lp.no, span=None)
+
+    def _parse_keys_header(self, lp):
+        lp.next()  # keys
+        target = lp.ident()
+        if target is None:
+            raise _LineError("E101", "'keys' needs the name of the "
+                                     "object it animates")
+        duration, loop = None, None
+        props, seen = {}, set()
+        while not lp.at_end():
+            w = lp.peek_word()
+            if w == "duration":
+                lp.next(); lp.dup(seen, "duration")
+                duration = lp.number("duration")
+            elif w == "loop":
+                lp.next(); lp.dup(seen, "loop")
+                v = lp.peek_word()
+                if v in ("once", "forever", "pingpong"):
+                    loop = lp.next_text().lower()
+                else:
+                    raise _LineError("E103", "loop must be once, "
+                                             "forever or pingpong")
+            elif w in ("once", "forever", "pingpong"):
+                lp.dup(seen, "loop"); loop = lp.next_text().lower()
+            else:
+                raise _LineError("E103", "unexpected '%s' in keys "
+                                         "statement" % lp.peek_text())
+        if duration is not None:
+            props["duration"] = duration
+        if loop is not None:
+            props["loop"] = loop
+        props["target"] = target
+        return _make("KeysStmt", target=target, duration=duration,
+                     loop=loop, props=props, line=lp.no, span=None)
+
+    def _parse_key(self, lp):
+        lp.next()  # key
+        target = lp.ident()
+        if target is None:
+            raise _LineError("E101", "'key' needs the name of the "
+                                     "object it animates")
+        time_, pos, rot, scale, ease = None, None, None, None, None
+        props, seen = {}, set()
+        while not lp.at_end():
+            w = lp.peek_word()
+            if w == "at":
+                lp.next(); lp.dup(seen, "at")
+                time_ = lp.number("key time")
+            elif w in ("pos", "position"):
+                lp.next(); lp.dup(seen, "pos"); pos = lp.vec3()
+            elif w in ("rot", "rotate"):
+                lp.next(); lp.dup(seen, "rot"); rot = lp.vec3()
+            elif w == "scale":
+                lp.next(); lp.dup(seen, "scale")
+                scale = lp.number("scale")
+            elif w == "ease":
+                lp.next(); lp.dup(seen, "ease"); ease = lp.ident()
+            else:
+                raise _LineError("E103", "unexpected '%s' in key "
+                                         "statement" % lp.peek_text())
+        if time_ is None:
+            raise _LineError("E101", "'key' needs a time: key %s at 0 "
+                                     "..." % target)
+        props.update({"target": target, "time": time_, "pos": pos,
+                      "rot": rot, "scale": scale, "ease": ease})
+        return _make("KeyStmt", target=target, time=time_, pos=pos,
+                     rot=rot, scale=scale, ease=ease, props=props,
+                     line=lp.no, span=None)
 
     def _parse_repeat(self, lp):
         kind = lp.next_text().lower()

@@ -217,7 +217,23 @@ def _tri_parts(tri, obj_color):
                 if isinstance(it, (list, tuple)) and len(it) == 3
                 and all(isinstance(c, (int, float))
                         and not isinstance(c, bool) for c in it)]
-        if len(items) == 3 and len(seqs) == 3:
+        if len(items) == 2 and len(seqs) == 1 \
+                and isinstance(items[1], (list, tuple)) \
+                and len(items[1]) == 3 \
+                and all(isinstance(v, (list, tuple)) and len(v) == 3
+                        and all(isinstance(c, (int, float))
+                                and not isinstance(c, bool) for c in v)
+                        for v in items[1]):
+            # glTF shape (ext_gltf.load_gltf): (colour, [v1, v2, v3])
+            # -- a 2-item shape no existing shape uses (bare verts are
+            # 3 items, the colour+verts compat shape is 4), and the
+            # strict checks above (items[0] is the sole numeric
+            # 3-sequence, i.e. the colour; items[1] holds exactly 3
+            # numeric 3-sequence vertices) cannot match either of
+            # those, nor an incomplete 2-vertex list.
+            verts = list(items[1])
+            color = _color_ints(items[0])
+        elif len(items) == 3 and len(seqs) == 3:
             verts = items
         elif len(items) == 4 and len(seqs) == 4:
             # (color, v1, v2, v3) or (v1, v2, v3, color): the colour is
@@ -350,7 +366,16 @@ def emit_scene_text(ir) -> str:
 
         if prim == "tris":
             tris = _triangles(obj)
-            lines.append("tris %s %d" % (name, len(tris)))
+            # Wave B: a tris object with a non-default transform
+            # (e.g. a placed glTF load) appends PX PY PZ RX RY RZ
+            # SX SY SZ to the header; scene.f90 applies it. Default
+            # transforms keep the v1 3-token header byte-for-byte.
+            if (pos != (0.0, 0.0, 0.0) or rotate != (0.0, 0.0, 0.0)
+                    or scale != (1.0, 1.0, 1.0)):
+                lines.append("tris %s %d %s" % (name, len(tris),
+                                                transform))
+            else:
+                lines.append("tris %s %d" % (name, len(tris)))
             for tri_color, points in tris:
                 coords = " ".join(_fmt_vec(p) for p in points)
                 lines.append(
@@ -438,6 +463,39 @@ def emit_scene_text(ir) -> str:
             except Exception:
                 from . import ext_lights_env as _ele2  # type: ignore
             lines.extend(_ele2.env_lines(env))
+    except Exception:
+        pass
+
+    # Wave B: sprite / text / particles / keyframe lines. Absent for
+    # v1 + Wave A scenes, so their .scene output is unchanged.
+    try:
+        exts = _get(ir, "extensions", default={})
+        wb = exts.get("waveb") if isinstance(exts, dict) else None
+        if wb:
+            def _wb_import(modname):
+                try:
+                    return __import__(modname)
+                except Exception:
+                    import importlib
+                    return importlib.import_module(
+                        "." + modname, __package__)
+            if wb.get("sprites") or wb.get("texts"):
+                _est = _wb_import("ext_sprites_text")
+                for entry in wb.get("sprites") or []:
+                    lines.append(_est.sprite_line(
+                        str(entry.get("name", "sprite")), entry))
+                for entry in wb.get("texts") or []:
+                    lines.append(_est.text_line(
+                        str(entry.get("name", "text")), entry))
+            if wb.get("particles"):
+                _ep = _wb_import("ext_particles")
+                for entry in wb.get("particles") or []:
+                    lines.append(_ep.particles_line(
+                        str(entry.get("name", "particles")), entry))
+            if wb.get("keys"):
+                _ek = _wb_import("ext_keys")
+                for target, track in wb["keys"].items():
+                    lines.extend(_ek.track_lines(str(target), track))
     except Exception:
         pass
 

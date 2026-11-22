@@ -21,7 +21,13 @@ MODULE_OBJS = $(OBJ_DIR)/math_3d.o \
               $(OBJ_DIR)/lighting_3d.o \
               $(OBJ_DIR)/shadow_3d.o \
               $(OBJ_DIR)/obj_loader.o \
+              $(OBJ_DIR)/gltf_loader.o \
+              $(OBJ_DIR)/raycast_3d.o \
+              $(OBJ_DIR)/sprite_3d.o \
+              $(OBJ_DIR)/text_render_3d.o \
+              $(OBJ_DIR)/particles_3d.o \
               $(OBJ_DIR)/animation_3d.o \
+              $(OBJ_DIR)/keyframe_3d.o \
               $(OBJ_DIR)/scene_3d.o \
               $(OBJ_DIR)/renderer_3d.o \
               $(OBJ_DIR)/fog_3d.o \
@@ -72,11 +78,35 @@ $(OBJ_DIR)/obj_loader.o: $(SRC_DIR)/obj_loader.f90 $(OBJ_DIR)/math_3d.o $(OBJ_DI
 	@mkdir -p $(OBJ_DIR) $(MOD_DIR)
 	$(FC) $(FFLAGS) -c $< -o $@
 
+$(OBJ_DIR)/gltf_loader.o: $(SRC_DIR)/gltf_loader.f90 $(OBJ_DIR)/math_3d.o $(OBJ_DIR)/mesh_3d.o
+	@mkdir -p $(OBJ_DIR) $(MOD_DIR)
+	$(FC) $(FFLAGS) -c $< -o $@
+
+$(OBJ_DIR)/raycast_3d.o: $(SRC_DIR)/raycast.f90 $(OBJ_DIR)/math_3d.o $(OBJ_DIR)/mesh_3d.o
+	@mkdir -p $(OBJ_DIR) $(MOD_DIR)
+	$(FC) $(FFLAGS) -c $< -o $@
+
+$(OBJ_DIR)/sprite_3d.o: $(SRC_DIR)/sprite.f90 $(OBJ_DIR)/math_3d.o $(OBJ_DIR)/mesh_3d.o
+	@mkdir -p $(OBJ_DIR) $(MOD_DIR)
+	$(FC) $(FFLAGS) -c $< -o $@
+
+$(OBJ_DIR)/text_render_3d.o: $(SRC_DIR)/text_render.f90 $(OBJ_DIR)/math_3d.o $(OBJ_DIR)/mesh_3d.o
+	@mkdir -p $(OBJ_DIR) $(MOD_DIR)
+	$(FC) $(FFLAGS) -c $< -o $@
+
+$(OBJ_DIR)/particles_3d.o: $(SRC_DIR)/particles.f90 $(OBJ_DIR)/math_3d.o $(OBJ_DIR)/mesh_3d.o
+	@mkdir -p $(OBJ_DIR) $(MOD_DIR)
+	$(FC) $(FFLAGS) -c $< -o $@
+
 $(OBJ_DIR)/animation_3d.o: $(SRC_DIR)/animation.f90 $(OBJ_DIR)/math_3d.o
 	@mkdir -p $(OBJ_DIR) $(MOD_DIR)
 	$(FC) $(FFLAGS) -c $< -o $@
 
-$(OBJ_DIR)/scene_3d.o: $(SRC_DIR)/scene.f90 $(OBJ_DIR)/math_3d.o $(OBJ_DIR)/material_3d.o $(OBJ_DIR)/material_pbr_3d.o $(OBJ_DIR)/mesh_3d.o $(OBJ_DIR)/camera_3d.o $(OBJ_DIR)/texture_3d.o $(OBJ_DIR)/lighting_3d.o $(OBJ_DIR)/obj_loader.o
+$(OBJ_DIR)/keyframe_3d.o: $(SRC_DIR)/keyframe.f90 $(OBJ_DIR)/math_3d.o $(OBJ_DIR)/animation_3d.o
+	@mkdir -p $(OBJ_DIR) $(MOD_DIR)
+	$(FC) $(FFLAGS) -c $< -o $@
+
+$(OBJ_DIR)/scene_3d.o: $(SRC_DIR)/scene.f90 $(OBJ_DIR)/math_3d.o $(OBJ_DIR)/material_3d.o $(OBJ_DIR)/material_pbr_3d.o $(OBJ_DIR)/mesh_3d.o $(OBJ_DIR)/camera_3d.o $(OBJ_DIR)/texture_3d.o $(OBJ_DIR)/lighting_3d.o $(OBJ_DIR)/obj_loader.o $(OBJ_DIR)/sprite_3d.o $(OBJ_DIR)/text_render_3d.o $(OBJ_DIR)/particles_3d.o $(OBJ_DIR)/keyframe_3d.o
 	@mkdir -p $(OBJ_DIR) $(MOD_DIR)
 	$(FC) $(FFLAGS) -c $< -o $@
 

@@ -30,9 +30,14 @@ module scene_3d
     use texture_3d
     use lighting_3d
     use obj_loader, only: load_obj
+    use sprite_3d, only: sprite_build_mesh
+    use text_render_3d, only: text_build_mesh
+    use particles_3d, only: ParticleSystem, particle_system_init
+    use keyframe_3d, only: KeyFrame, KeyTrack
     implicit none
     private
     public :: SceneObject, SceneAnim, Scene
+    public :: SceneSprite, SceneText, SceneParticles
     public :: scene_load, scene_free, scene_find_object, scene_build_object_mesh
 
     integer, parameter :: MAX_TOKENS = 40
@@ -70,6 +75,29 @@ module scene_3d
         character(len=32) :: loop = 'forever'
     end type SceneAnim
 
+    ! Wave B entities (coordinator integration). Sprites/texts/
+    ! particles are stored as parameters; their meshes are built per
+    ! frame in main (billboards need the camera, particles need t).
+    type :: SceneSprite
+        character(len=64) :: name = ''
+        type(vec3) :: pos = vec3(0.0_dp, 0.0_dp, 0.0_dp)
+        real(dp) :: size = 1.0_dp
+        integer :: color(3) = [255, 255, 255]
+    end type SceneSprite
+
+    type :: SceneText
+        character(len=64) :: name = ''
+        type(vec3) :: pos = vec3(0.0_dp, 0.0_dp, 0.0_dp)
+        real(dp) :: size = 1.0_dp
+        integer :: color(3) = [255, 255, 255]
+        character(len=256) :: content = ''
+    end type SceneText
+
+    type :: SceneParticles
+        character(len=64) :: name = ''
+        type(ParticleSystem) :: sys
+    end type SceneParticles
+
     type :: Scene
         integer :: width = 640
         integer :: height = 480
@@ -98,6 +126,11 @@ module scene_3d
         real(dp) :: tonemap_exposure = 1.0_dp
         integer :: shadow_mode = 0          ! 0 off, 1 on (hard), 2 soft
         integer :: shadow_size = 512
+        ! Wave B entities (coordinator integration).
+        type(SceneSprite), allocatable :: sprites(:)
+        type(SceneText), allocatable :: texts(:)
+        type(SceneParticles), allocatable :: parts(:)
+        type(KeyTrack), allocatable :: tracks(:)
     end type Scene
 
 contains
@@ -220,6 +253,103 @@ contains
         call move_alloc(tmp, sc%anims)
     end subroutine append_anim
 
+    subroutine append_sprite(sc, sp)
+        type(Scene), intent(inout) :: sc
+        type(SceneSprite), intent(in) :: sp
+        type(SceneSprite), allocatable :: tmp(:)
+        integer :: n
+        n = 0
+        if (allocated(sc%sprites)) n = size(sc%sprites)
+        allocate(tmp(n + 1))
+        if (n > 0) tmp(1:n) = sc%sprites(1:n)
+        tmp(n + 1) = sp
+        if (allocated(sc%sprites)) deallocate(sc%sprites)
+        call move_alloc(tmp, sc%sprites)
+    end subroutine append_sprite
+
+    subroutine append_text(sc, tx)
+        type(Scene), intent(inout) :: sc
+        type(SceneText), intent(in) :: tx
+        type(SceneText), allocatable :: tmp(:)
+        integer :: n
+        n = 0
+        if (allocated(sc%texts)) n = size(sc%texts)
+        allocate(tmp(n + 1))
+        if (n > 0) tmp(1:n) = sc%texts(1:n)
+        tmp(n + 1) = tx
+        if (allocated(sc%texts)) deallocate(sc%texts)
+        call move_alloc(tmp, sc%texts)
+    end subroutine append_text
+
+    subroutine append_parts(sc, pa)
+        type(Scene), intent(inout) :: sc
+        type(SceneParticles), intent(in) :: pa
+        type(SceneParticles), allocatable :: tmp(:)
+        integer :: n
+        n = 0
+        if (allocated(sc%parts)) n = size(sc%parts)
+        allocate(tmp(n + 1))
+        if (n > 0) tmp(1:n) = sc%parts(1:n)
+        tmp(n + 1) = pa
+        if (allocated(sc%parts)) deallocate(sc%parts)
+        call move_alloc(tmp, sc%parts)
+    end subroutine append_parts
+
+    subroutine append_track(sc, tr)
+        type(Scene), intent(inout) :: sc
+        type(KeyTrack), intent(in) :: tr
+        type(KeyTrack), allocatable :: tmp(:)
+        integer :: n
+        n = 0
+        if (allocated(sc%tracks)) n = size(sc%tracks)
+        allocate(tmp(n + 1))
+        if (n > 0) tmp(1:n) = sc%tracks(1:n)
+        tmp(n + 1) = tr
+        if (allocated(sc%tracks)) deallocate(sc%tracks)
+        call move_alloc(tmp, sc%tracks)
+    end subroutine append_track
+
+    subroutine append_key(track, kf)
+        type(KeyTrack), intent(inout) :: track
+        type(KeyFrame), intent(in) :: kf
+        type(KeyFrame), allocatable :: tmp(:)
+        integer :: n
+        n = 0
+        if (allocated(track%keys)) n = size(track%keys)
+        allocate(tmp(n + 1))
+        if (n > 0) tmp(1:n) = track%keys(1:n)
+        tmp(n + 1) = kf
+        if (allocated(track%keys)) deallocate(track%keys)
+        call move_alloc(tmp, track%keys)
+    end subroutine append_key
+
+    ! The text after the first N whitespace-separated tokens of a
+    ! line (for the 'text' scene line, whose content is the rest of
+    ! the line, spaces included). '' when the line has <= N tokens.
+    function rest_after_tokens(line, ntok_skip) result(rest)
+        character(len=*), intent(in) :: line
+        integer, intent(in) :: ntok_skip
+        character(len=256) :: rest
+        integer :: i, n, seen
+        logical :: in_tok
+        rest = ''
+        n = len_trim(line)
+        seen = 0
+        in_tok = .false.
+        do i = 1, n
+            if (line(i:i) == ' ' .or. line(i:i) == achar(9)) then
+                in_tok = .false.
+            else if (.not. in_tok) then
+                in_tok = .true.
+                seen = seen + 1
+                if (seen == ntok_skip + 1) then
+                    rest = line(i:)
+                    return
+                end if
+            end if
+        end do
+    end function rest_after_tokens
+
     integer function scene_find_object(sc, name) result(idx)
         type(Scene), intent(in) :: sc
         character(len=*), intent(in) :: name
@@ -246,6 +376,16 @@ contains
         end if
         if (allocated(sc%lights%items)) deallocate(sc%lights%items)
         if (allocated(sc%anims)) deallocate(sc%anims)
+        if (allocated(sc%sprites)) deallocate(sc%sprites)
+        if (allocated(sc%texts)) deallocate(sc%texts)
+        if (allocated(sc%parts)) deallocate(sc%parts)
+        if (allocated(sc%tracks)) then
+            do i = 1, size(sc%tracks)
+                if (allocated(sc%tracks(i)%keys)) &
+                    deallocate(sc%tracks(i)%keys)
+            end do
+            deallocate(sc%tracks)
+        end if
     end subroutine scene_free
 
     ! ------------------------------------------------------------------
@@ -384,6 +524,12 @@ contains
         character(len=256) :: tokens(MAX_TOKENS)
         type(SceneObject) :: obj
         type(SceneAnim) :: anim
+        type(SceneSprite) :: spr
+        type(SceneText) :: txt
+        type(SceneParticles) :: prt
+        type(KeyTrack) :: trk
+        type(KeyFrame) :: kf
+        integer :: cur_track  ! track index receiving 'key' lines
         type(vec3) :: cam_pos, cam_tgt, cam_up
         real(dp) :: aspect
         integer :: cur_tris  ! object index receiving 'tri' lines, 0 = none
@@ -397,6 +543,7 @@ contains
         ok = .true.
         errmsg = ''
         cur_tris = 0
+        cur_track = 0
         n_extra = 0
         scene_dir = ''
         slash = index(trim(path), '/', back=.true.)
@@ -639,6 +786,13 @@ contains
                 obj%prim = 'tris'
                 obj%name = trim(tokens(2))
                 count = max(0, tok_int(tokens, 3))
+                ! Wave B: optional transform tail (tokens 4..12:
+                ! pos rot scl) for placed glTF loads.
+                if (ntok >= 12) then
+                    obj%pos = tok_vec3(tokens, 4)
+                    obj%rot_deg = tok_vec3(tokens, 7)
+                    obj%scl = tok_vec3(tokens, 10)
+                end if
                 obj%mesh%num_triangles = count
                 if (allocated(obj%mesh%triangles)) &
                     deallocate(obj%mesh%triangles)
@@ -687,6 +841,89 @@ contains
                 call append_object(sc, obj)
                 call free_mesh(obj%mesh)
                 cur_tris = 0
+            case ('sprite')
+                ! sprite NAME PX PY PZ SIZE R G B   (9 tokens)
+                if (ntok < 9) then
+                    call warn_line(lineno, line)
+                    cycle
+                end if
+                spr = SceneSprite()
+                spr%name = trim(tokens(2))
+                spr%pos = tok_vec3(tokens, 3)
+                spr%size = tok_real(tokens, 6)
+                spr%color = [tok_int(tokens, 7), tok_int(tokens, 8), &
+                             tok_int(tokens, 9)]
+                call append_sprite(sc, spr)
+                cur_tris = 0
+            case ('text')
+                ! text NAME PX PY PZ SIZE R G B CONTENT...
+                ! CONTENT is the rest of the raw line (spaces kept).
+                if (ntok < 9) then
+                    call warn_line(lineno, line)
+                    cycle
+                end if
+                txt = SceneText()
+                txt%name = trim(tokens(2))
+                txt%pos = tok_vec3(tokens, 3)
+                txt%size = tok_real(tokens, 6)
+                txt%color = [tok_int(tokens, 7), tok_int(tokens, 8), &
+                             tok_int(tokens, 9)]
+                txt%content = rest_after_tokens(line, 9)
+                call append_text(sc, txt)
+                cur_tris = 0
+            case ('particles')
+                ! particles NAME PX PY PZ COUNT LIFE SPEED SIZE
+                !           R G B SPREAD GRAVITY SEED   (15 tokens)
+                if (ntok < 15) then
+                    call warn_line(lineno, line)
+                    cycle
+                end if
+                prt = SceneParticles()
+                prt%name = trim(tokens(2))
+                call particle_system_init(prt%sys)
+                prt%sys%origin = tok_vec3(tokens, 3)
+                prt%sys%count = tok_int(tokens, 6)
+                prt%sys%life = tok_real(tokens, 7)
+                prt%sys%speed = tok_real(tokens, 8)
+                prt%sys%size = tok_real(tokens, 9)
+                prt%sys%color = [tok_int(tokens, 10), &
+                                 tok_int(tokens, 11), &
+                                 tok_int(tokens, 12)]
+                prt%sys%spread = tok_real(tokens, 13)
+                prt%sys%gravity = tok_real(tokens, 14)
+                prt%sys%seed = tok_int(tokens, 15)
+                call append_parts(sc, prt)
+                cur_tris = 0
+            case ('keys')
+                ! keys TARGET DURATION LOOP NKEYS   (5 tokens)
+                if (ntok < 5) then
+                    call warn_line(lineno, line)
+                    cycle
+                end if
+                trk = KeyTrack()
+                trk%target = trim(tokens(2))
+                trk%duration = tok_real(tokens, 3)
+                trk%loop = trim(tokens(4))
+                call append_track(sc, trk)
+                if (allocated(trk%keys)) deallocate(trk%keys)
+                cur_track = size(sc%tracks)
+                cur_tris = 0
+            case ('key')
+                ! key TIME PX PY PZ RX RY RZ SCALE EASE  (10 tokens)
+                if (ntok < 10 .or. cur_track == 0) then
+                    call warn_line(lineno, line)
+                    cycle
+                end if
+                kf = KeyFrame()
+                kf%time = tok_real(tokens, 2)
+                kf%pos = [tok_real(tokens, 3), tok_real(tokens, 4), &
+                          tok_real(tokens, 5)]
+                kf%rot_deg = [tok_real(tokens, 6), &
+                              tok_real(tokens, 7), &
+                              tok_real(tokens, 8)]
+                kf%scale = tok_real(tokens, 9)
+                kf%ease = trim(tokens(10))
+                call append_key(sc%tracks(cur_track), kf)
             case ('anim')
                 ! anim KIND TARGET AXIS SPEED DURATION FPS EASE LOOP
                 if (ntok < 9) then

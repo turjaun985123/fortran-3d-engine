@@ -1,0 +1,25 @@
+# Wave B showcase: glTF loading, sprites, text, particles and full
+# keyframe tracks, together in one scene (plus Wave A carry-over: PBR
+# standard materials under a directional light).
+# A gold pyramid loaded from a glTF file stands beside a standard-
+# material cube (spinning) and sphere (moved by a keyframe track);
+# a billboard sprite floats above it, a particle fountain plays in
+# front, and bitmap text names the engine overhead.
+# Run: python3 tools/f3dc/f3dc.py run examples/waveb-showcase.f3d
+# (2 seconds at 15 fps = 30 frames, 320x240, into build/)
+scene "waveb-showcase" size 320 240 background black
+camera at 5 3 8 look 0 0 0
+light directional dir -0.5 -1 -0.7 strength 1.2
+plane ground gray at 0 -2 0 size 20 material standard metalness 0 roughness 0.95
+cube standard_cube red at -3 -1.25 0 size 1.5 material standard metalness 0 roughness 0.6
+sphere mover blue at 0 -1.2 0 radius 0.8 material standard metalness 0 roughness 0.25
+load "assets/pyramid.gltf" pyramid at 3.2 -1 0
+sprite star at 3.2 1.4 0 size 1 color yellow
+text banner "FORGE 3D" at -2.3 2.3 0 size 0.7 color white
+particles fountain at 0 -2 2 count 60 life 2 speed 3 size 0.15 color orange spread 0.5 gravity 4 seed 7
+keys mover duration 2 loop pingpong
+key mover at 0 pos 0 -1.2 0 rot 0 0 0 scale 1
+key mover at 1 pos 1.5 -0.2 0 rot 0 90 0 scale 1.2 ease smooth
+key mover at 2 pos 0 -1.2 0 rot 0 180 0 scale 1
+animate standard_cube spin y speed 90 duration 2 fps 15
+render duration 2 fps 15

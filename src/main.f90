@@ -5,6 +5,11 @@ program main
     use renderer_3d
     use scene_3d
     use animation_3d
+    use keyframe_3d, only: key_eval
+    use sprite_3d, only: sprite_build_mesh
+    use text_render_3d, only: text_build_mesh
+    use particles_3d, only: particles_build_mesh
+    use material_3d, only: Material, material_default
     use shadow_3d
     use fog_3d
     use tonemapping_3d
@@ -35,6 +40,10 @@ program main
     type(vec3) :: sh_pos, sh_tgt
     real(dp) :: extents(3)
     integer :: li
+    ! Wave B state (scene mode only)
+    integer :: track_i, ti
+    real(dp) :: k_pos(3), k_rot(3), k_scale
+    real(dp) :: sh_near, sh_far, sh_rad, sh_d
 
     nargs = command_argument_count()
 
@@ -130,6 +139,37 @@ program main
             call framebuffer_clear(fb, sc%bg(1), sc%bg(2), sc%bg(3))
 
             do obj_i = 1, n_objects
+                ! Wave B: a keyframe track targeting this object
+                ! REPLACES its base pose and closed-form animations
+                ! for this frame (absolute pos/rot/scale from
+                ! key_eval; scale is the track's uniform scale).
+                track_i = 0
+                if (allocated(sc%tracks)) then
+                    do ti = 1, size(sc%tracks)
+                        if (trim(sc%tracks(ti)%target) == &
+                            trim(sc%objects(obj_i)%name)) then
+                            track_i = ti
+                            exit
+                        end if
+                    end do
+                end if
+                if (track_i > 0) then
+                    call key_eval(sc%tracks(track_i), t_sec, k_pos, &
+                                  k_rot, k_scale)
+                    pos_v = vec3_create(k_pos(1), k_pos(2), k_pos(3))
+                    rot_v = vec3_create(k_rot(1), k_rot(2), k_rot(3))
+                    scl_v = vec3_create(k_scale, k_scale, k_scale)
+                    model = mat4_compose_trs(pos_v, rot_v, scl_v)
+                    if (sc%has_env) then
+                        models(obj_i) = model
+                    else
+                        call framebuffer_render_mesh_mat(fb, &
+                            sc%objects(obj_i)%mesh, model, sc%cam, &
+                            sc%light_dir, sc%objects(obj_i)%mat, &
+                            sc%ambient)
+                    end if
+                    cycle
+                end if
                 ! Accumulate animation deltas for this object: animations
                 ! target it by name, or target 'all'.
                 d_rot = 0.0_dp
@@ -174,6 +214,10 @@ program main
                 end if
             end do
 
+            ! Wave B entities on the plain path (the env path renders
+            ! them after its object loop, before fog/tonemap).
+            if (.not. sc%has_env) call render_waveb(sc, fb, t_sec)
+
             if (sc%has_env) then
                 ! Wave A: shadow map from the first shadow-casting
                 ! light (spot/point position, else the directional
@@ -182,6 +226,8 @@ program main
                 if (sc%shadow_mode > 0) then
                     sh_pos = vec3_create(0.0_dp, 0.0_dp, 0.0_dp)
                     sh_tgt = vec3_create(0.0_dp, 0.0_dp, 0.0_dp)
+                    sh_near = 0.5_dp
+                    sh_far = 80.0_dp
                     if (allocated(sc%lights%items)) then
                         do li = 1, size(sc%lights%items)
                             if (sc%lights%items(li)%kind == 2 .or. &
@@ -193,13 +239,37 @@ program main
                                 exit
                             end if
                         end do
-                        if (li > size(sc%lights%items)) &
+                        if (li > size(sc%lights%items)) then
+                            ! Directional fallback (Wave B fix, B97):
+                            ! fit the shadow frustum to the scene
+                            ! bounds. The old fixed placement (30
+                            ! units away, near 0.5 / far 80) compressed
+                            ! NDC depth so much that the caster->
+                            ! receiver gap (~0.00135) fell under the
+                            ! 0.002 shadow bias and directional
+                            ! shadows vanished; fitting D = R + 10,
+                            ! near = D - R - 5, far = D + R + 5 raises
+                            ! the gap to ~0.015+ (probe-verified).
+                            sh_rad = 2.0_dp
+                            do li = 1, n_objects
+                                extents = object_extents( &
+                                    sc%objects(li))
+                                sh_rad = max(sh_rad, &
+                                    vec3_norm(sc%objects(li)%pos) &
+                                    + 0.5_dp * sqrt(extents(1)**2 &
+                                    + extents(2)**2 + extents(3)**2))
+                            end do
+                            sh_d = sh_rad + 10.0_dp
                             sh_pos = vec3_scale( &
-                                vec3_normalize(sc%light_dir), -30.0_dp)
+                                vec3_normalize(sc%light_dir), -sh_d)
+                            sh_near = max(0.5_dp, sh_d - sh_rad &
+                                          - 5.0_dp)
+                            sh_far = sh_d + sh_rad + 5.0_dp
+                        end if
                     end if
                     call shadow_begin(smap, sh_pos, sh_tgt, &
-                                      sc%shadow_size, 60.0_dp, 0.5_dp, &
-                                      80.0_dp)
+                                      sc%shadow_size, 60.0_dp, &
+                                      sh_near, sh_far)
                     do obj_i = 1, n_objects
                         call shadow_add_mesh(smap, &
                             sc%objects(obj_i)%mesh, models(obj_i))
@@ -216,6 +286,10 @@ program main
                         trim(sc%objects(obj_i)%prim), extents, smap, &
                         sc%shadow_mode)
                 end do
+
+                ! Wave B entities (before fog/tonemap so the post
+                ! passes treat them like everything else).
+                call render_waveb(sc, fb, t_sec)
 
                 if (sc%fog_mode == 1) then
                     call fog_apply(fb, 1, sc%fog_near, sc%fog_far, &
@@ -261,6 +335,59 @@ program main
     end if
 
 contains
+
+    ! Wave B entities (coordinator integration): build each sprite /
+    ! text / particle mesh for this frame (billboards face the scene
+    ! camera; particles are evaluated at t) and rasterise with the
+    ! per-triangle-colour material path under the scene's directional
+    ! light. Meshes are built in world space, so the model matrix is
+    ! the identity.
+    subroutine render_waveb(sc_arg, fb_arg, t_arg)
+        type(Scene), intent(in) :: sc_arg
+        type(FrameBuffer), intent(inout) :: fb_arg
+        real(dp), intent(in) :: t_arg
+        type(Mesh) :: tmp_mesh
+        type(Material) :: mat_tri
+        type(mat4) :: ident
+        integer :: wi
+
+        ident = mat4_identity()
+        mat_tri = material_default()
+        if (allocated(sc_arg%sprites)) then
+            do wi = 1, size(sc_arg%sprites)
+                call sprite_build_mesh(sc_arg%sprites(wi)%pos, &
+                    sc_arg%sprites(wi)%size, &
+                    sc_arg%sprites(wi)%color, sc_arg%cam%position, &
+                    tmp_mesh)
+                call framebuffer_render_mesh_mat(fb_arg, tmp_mesh, &
+                    ident, sc_arg%cam, sc_arg%light_dir, mat_tri, &
+                    sc_arg%ambient)
+                call free_mesh(tmp_mesh)
+            end do
+        end if
+        if (allocated(sc_arg%texts)) then
+            do wi = 1, size(sc_arg%texts)
+                call text_build_mesh( &
+                    trim(sc_arg%texts(wi)%content), &
+                    sc_arg%texts(wi)%pos, sc_arg%texts(wi)%size, &
+                    sc_arg%texts(wi)%color, tmp_mesh)
+                call framebuffer_render_mesh_mat(fb_arg, tmp_mesh, &
+                    ident, sc_arg%cam, sc_arg%light_dir, mat_tri, &
+                    sc_arg%ambient)
+                call free_mesh(tmp_mesh)
+            end do
+        end if
+        if (allocated(sc_arg%parts)) then
+            do wi = 1, size(sc_arg%parts)
+                call particles_build_mesh(sc_arg%parts(wi)%sys, &
+                    t_arg, sc_arg%cam%position, tmp_mesh)
+                call framebuffer_render_mesh_mat(fb_arg, tmp_mesh, &
+                    ident, sc_arg%cam, sc_arg%light_dir, mat_tri, &
+                    sc_arg%ambient)
+                call free_mesh(tmp_mesh)
+            end do
+        end if
+    end subroutine render_waveb
 
     ! Full extents (sx, sy, sz) of a scene object for the texture
     ! module's prim_uv contract; mirrors scene.f90's per-prim defaults.

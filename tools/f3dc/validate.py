@@ -47,6 +47,10 @@ try:  # package import (tools.f3dc.validate / f3dc_pkg style)
     from . import errors as _errors
     from . import ext_materials as _ext_materials
     from . import ext_lights_env as _ext_lights_env
+    from . import ext_gltf as _ext_gltf
+    from . import ext_sprites_text as _ext_sprites_text
+    from . import ext_particles as _ext_particles
+    from . import ext_keys as _ext_keys
 except Exception:  # plain module import (tools/f3dc on sys.path)
     import desugar as _desugar_mod  # type: ignore
     import ir_nodes as _ir  # type: ignore
@@ -57,6 +61,16 @@ except Exception:  # plain module import (tools/f3dc on sys.path)
     except Exception:  # Wave A extensions unavailable: v1 behaviour
         _ext_materials = None  # type: ignore
         _ext_lights_env = None  # type: ignore
+    try:
+        import ext_gltf as _ext_gltf  # type: ignore
+        import ext_sprites_text as _ext_sprites_text  # type: ignore
+        import ext_particles as _ext_particles  # type: ignore
+        import ext_keys as _ext_keys  # type: ignore
+    except Exception:  # Wave B extensions unavailable: Wave A behaviour
+        _ext_gltf = None  # type: ignore
+        _ext_sprites_text = None  # type: ignore
+        _ext_particles = None  # type: ignore
+        _ext_keys = None  # type: ignore
 
 __all__ = ["validate"]
 
@@ -494,6 +508,18 @@ def _classify(node):
     props = _props_dict(node)
     kind = _get(node, "kind", "type", "prim", "primitive", "stmt_kind")
     kind = str(kind).lower() if kind is not None else ""
+    # Wave B statement kinds (checked first: their class names and
+    # fields would otherwise trip the anim/object heuristics below).
+    if cname == "keysstmt":
+        return "keys", props
+    if cname == "keystmt":
+        return "key", props
+    if "sprite" in cname:
+        return "sprite", props
+    if "text" in cname:
+        return "text", props
+    if "particle" in cname:
+        return "particles", props
     if "camera" in cname or kind == "camera":
         return "camera", props
     if "light" in cname or kind == "light":
@@ -575,6 +601,8 @@ def validate(program, bag, base_dir="."):
     camera_node, light_nodes, output_nodes = None, [], []
     controls_node = None
     object_nodes, anim_nodes, load_nodes = [], [], []
+    sprite_nodes, text_nodes, particles_nodes = [], [], []
+    keys_header_nodes, key_nodes = [], []
     seen_singletons = {}
 
     def walk(nodes):
@@ -602,6 +630,16 @@ def validate(program, bag, base_dir="."):
                 nonlocal_set("controls", node)
             elif category == "load":
                 load_nodes.append(node)
+            elif category == "sprite":
+                sprite_nodes.append(node)
+            elif category == "text":
+                text_nodes.append(node)
+            elif category == "particles":
+                particles_nodes.append(node)
+            elif category == "keys":
+                keys_header_nodes.append(node)
+            elif category == "key":
+                key_nodes.append(node)
             elif category == "anim":
                 anim_nodes.append(node)
             elif category == "output":
@@ -959,6 +997,71 @@ def validate(program, bag, base_dir="."):
             _err(bag, "E501", "load needs the path of an .obj file",
                  span)
             continue
+        if path.lower().endswith((".gltf", ".glb")):
+            # Wave B (row 19): same `load` line as OBJ — ext_gltf
+            # converts at compile time to a 'tris' IR object, which
+            # the existing emit/scene path renders natively.
+            if _ext_gltf is None:
+                _err(bag, "E205", "glTF loading needs the Wave B "
+                                  "ext_gltf module", span)
+                continue
+            full = path if os.path.isabs(path) else os.path.join(
+                base_dir or ".", path)
+            if not os.path.isfile(full):
+                _err(bag, "E501", "I can't find the file %r (looked "
+                                  "for %s)" % (path, full), span)
+                continue
+            try:
+                gdata = _ext_gltf.load_gltf(full)
+            except Exception as exc:
+                _err(bag, "E501", "could not load glTF %r: %s"
+                                  % (path, exc), span)
+                continue
+            gname = _field(node, props, "name", "id")
+            if not isinstance(gname, str) or not gname:
+                gname = "gltf%d" % (len(ir_objects) + 1)
+            if gname in names:
+                _err(bag, "E201", "there are two objects called %r; "
+                                  "give each object its own name"
+                                  % gname, span)
+                continue
+            gmaterial = _field(node, props, "material")
+            if gmaterial is not None:
+                gmaterial = str(gmaterial).lower()
+                if gmaterial not in MATERIALS:
+                    _err(bag, "E205", "material %r is not built yet"
+                                      % gmaterial, span)
+                    gmaterial = "lambert"
+            else:
+                gmaterial = "lambert"
+            gpos = _vec3(_field(node, props, "at", "pos", "position"),
+                         (0.0, 0.0, 0.0))
+            grot = _vec3(_field(node, props, "rotate", "rotation",
+                                "rot"), (0.0, 0.0, 0.0))
+            gscale_raw = _field(node, props, "scale")
+            gscale_vec = _vec3(gscale_raw, None)
+            gscale_num = _num(gscale_raw, None)
+            if gscale_vec is not None:
+                gscale = tuple(float(c) for c in gscale_vec)
+            elif gscale_num is not None:
+                gscale = (float(gscale_num),) * 3
+            else:
+                gscale = (1.0, 1.0, 1.0)
+            names[gname] = node
+            total_tris += int(gdata.get("count", 0))
+            obj_cls = getattr(_ir, "IRObject", None)
+            gkwargs = dict(
+                name=gname, prim="tris", color=None, pos=gpos,
+                rotate=grot, scale=gscale, size=None, size3=None,
+                radius=None, height=None, segments=None,
+                detail="med", capped=True, material=gmaterial,
+                triangles=gdata.get("triangles"),
+                source_file=path, extensions={})
+            try:
+                ir_objects.append(obj_cls(**gkwargs))
+            except Exception:
+                ir_objects.append(_make(obj_cls, **gkwargs))
+            continue
         if not path.lower().endswith(".obj"):
             _err(bag, "E205", "only .obj files can be loaded in v1; "
                               "%r is not built yet" % path, span)
@@ -972,7 +1075,10 @@ def validate(program, bag, base_dir="."):
         add_object(node, forced_prim="load", load_path=path)
 
     # ---- structure + limits (E402 / E820) ---------------------------
-    if not ir_objects:
+    # Wave B: sprites / texts / particle systems are renderable
+    # content too — a scene made only of them is not empty.
+    if not ir_objects and not (sprite_nodes or text_nodes
+                               or particles_nodes):
         _err(bag, "E402", "this scene has no objects to render; "
                           "add a line like: cube red")
     if len(ir_objects) > MAX_OBJECTS:
@@ -1147,6 +1253,153 @@ def validate(program, bag, base_dir="."):
         for msg in _ext_lights_env.validate_env(scene_env):
             _err(bag, "E302", msg, None)
 
+    # ---- Wave B entities (rows 17/23/24/29/32) --------------------
+    # Sprites, texts, particle systems and keyframe tracks ride in
+    # IRScene.extensions["waveb"] (the Wave A env pattern); emit_
+    # fortran turns them into .scene lines via the ext_* modules.
+    waveb = {}
+    if _ext_sprites_text is not None:
+        wb_sprites, wb_texts = [], []
+        seen_wb_names = set()
+        for node in sprite_nodes:
+            props = _props_dict(node)
+            span = _span(node)
+            sname = _field(node, props, "name", "id")
+            if not isinstance(sname, str) or not sname:
+                sname = "sprite%d" % (len(wb_sprites) + 1)
+            if sname in seen_wb_names:
+                _err(bag, "E201", "there are two sprites/texts/"
+                                  "particles called %r" % sname, span)
+                continue
+            seen_wb_names.add(sname)
+            ext_in = {"at": _field(node, props, "at", "pos",
+                                   "position"),
+                      "size": _field(node, props, "size"),
+                      "color": _field(node, props, "color", "colour",
+                                      "color_raw")}
+            try:
+                ext = _ext_sprites_text.extract_sprite(ext_in)
+                for msg in _ext_sprites_text.validate_sprite(ext):
+                    _err(bag, "E301", msg, span)
+            except Exception as exc:
+                _err(bag, "E301", "bad sprite %r: %s" % (sname, exc),
+                     span)
+                continue
+            ext = dict(ext)
+            ext["name"] = sname
+            wb_sprites.append(ext)
+        for node in text_nodes:
+            props = _props_dict(node)
+            span = _span(node)
+            tname = _field(node, props, "name", "id")
+            if not isinstance(tname, str) or not tname:
+                tname = "text%d" % (len(wb_texts) + 1)
+            if tname in seen_wb_names:
+                _err(bag, "E201", "there are two sprites/texts/"
+                                  "particles called %r" % tname, span)
+                continue
+            seen_wb_names.add(tname)
+            ext_in = {"content": _field(node, props, "content",
+                                        "text"),
+                      "at": _field(node, props, "at", "pos",
+                                   "position"),
+                      "size": _field(node, props, "size"),
+                      "color": _field(node, props, "color", "colour",
+                                      "color_raw")}
+            try:
+                ext = _ext_sprites_text.extract_text(ext_in)
+                for msg in _ext_sprites_text.validate_text(ext):
+                    _err(bag, "E301", msg, span)
+            except Exception as exc:
+                _err(bag, "E301", "bad text %r: %s" % (tname, exc),
+                     span)
+                continue
+            ext = dict(ext)
+            ext["name"] = tname
+            wb_texts.append(ext)
+        if wb_sprites:
+            waveb["sprites"] = wb_sprites
+        if wb_texts:
+            waveb["texts"] = wb_texts
+    if _ext_particles is not None:
+        wb_parts = []
+        for node in particles_nodes:
+            props = _props_dict(node)
+            span = _span(node)
+            pname = _field(node, props, "name", "id")
+            if not isinstance(pname, str) or not pname:
+                pname = "particles%d" % (len(wb_parts) + 1)
+            ext_in = {}
+            for key in ("at", "count", "life", "speed", "size",
+                        "spread", "gravity", "seed"):
+                value = _field(node, props, key)
+                if value is not None:
+                    ext_in[key] = value
+            raw_col = _field(node, props, "color", "colour",
+                             "color_raw")
+            if raw_col is not None:
+                ext_in["color"] = raw_col
+            try:
+                ext = _ext_particles.extract_particles(ext_in)
+                for msg in _ext_particles.validate_particles(ext):
+                    _err(bag, "E301", msg, span)
+            except Exception as exc:
+                _err(bag, "E301", "bad particles %r: %s" % (pname, exc),
+                     span)
+                continue
+            ext = dict(ext)
+            ext["name"] = pname
+            wb_parts.append(ext)
+        if wb_parts:
+            waveb["particles"] = wb_parts
+    if _ext_keys is not None and (keys_header_nodes or key_nodes):
+        headers = {}
+        for node in keys_header_nodes:
+            props = _props_dict(node)
+            target = _field(node, props, "target")
+            if isinstance(target, str) and target:
+                headers[target] = {
+                    "duration": _num(_field(node, props, "duration"),
+                                     None),
+                    "loop": _field(node, props, "loop")}
+        raw_keys = []
+        for node in key_nodes:
+            props = _props_dict(node)
+            span = _span(node)
+            target = _field(node, props, "target")
+            if not isinstance(target, str) or not target:
+                _err(bag, "E201", "'key' needs the name of the "
+                                  "object it animates", span)
+                continue
+            if target not in names:
+                _err(bag, "E201", "key targets %r, but no object is "
+                                  "called that" % target, span)
+                continue
+            entry = {"target": target,
+                     "time": _num(_field(node, props, "time"), 0.0)}
+            pos = _vec3(_field(node, props, "pos", "position"), None)
+            if pos is not None:
+                entry["pos"] = pos
+            rot = _vec3(_field(node, props, "rot", "rotate"), None)
+            if rot is not None:
+                entry["rot"] = rot
+            scale = _num(_field(node, props, "scale"), None)
+            if scale is not None:
+                entry["scale"] = scale
+            ease = _field(node, props, "ease")
+            if ease is not None:
+                entry["ease"] = str(ease).lower()
+            raw_keys.append(entry)
+        try:
+            tracks = _ext_keys.build_tracks(headers, raw_keys)
+            for msg in _ext_keys.validate_tracks(tracks):
+                _err(bag, "E201", msg, None)
+        except Exception as exc:
+            _err(bag, "E201", "bad keyframe tracks: %s" % exc, None)
+            tracks = {}
+        if tracks:
+            waveb["keys"] = tracks
+
     if _has_errors(bag):
         return None
     scene = _make(getattr(_ir, "IRScene", None),
@@ -1164,6 +1417,13 @@ def validate(program, bag, base_dir="."):
             if not isinstance(scene.extensions, dict):
                 scene.extensions = {}
             scene.extensions["env"] = scene_env
+        except Exception:
+            pass
+    if waveb:
+        try:
+            if not isinstance(scene.extensions, dict):
+                scene.extensions = {}
+            scene.extensions["waveb"] = waveb
         except Exception:
             pass
     try:
