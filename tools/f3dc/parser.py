@@ -73,7 +73,10 @@ _NODE_NAMES = ("Program", "SceneStmt", "CameraStmt", "LightStmt", "ObjectStmt",
                "SpriteStmt", "TextStmt", "ParticlesStmt", "KeysStmt",
                "KeyStmt",
                # Wave C (fallback node classes; semantics in validate)
-               "FilterStmt", "InstanceStmt")
+               "FilterStmt", "InstanceStmt",
+               # Wave E (fallback node classes; semantics in
+               # ext_shader / ext_skin + validate)
+               "ShaderStmt", "MorphStmt", "BoneStmt", "SkinStmt")
 _NODES = {}
 for _n in _NODE_NAMES:
     _cls = getattr(_ast, _n, None) if _ast is not None else None
@@ -325,7 +328,7 @@ RESERVED_SECURITY = {"system", "eval", "import"}
 RESERVED = {"let", "if", "for", "function"} | RESERVED_SECURITY
 STARTERS = (("scene", "camera", "light", "group", "end", "animate", "load",
              "repeat", "grid", "ring", "controls", "render", "export",
-             "filter", "instance")
+             "filter", "instance", "shader", "morph", "bone", "skin")
             + PRIMS + ANIM_VERBS)
 # Extended (CSS-like) colour vocabulary used ONLY to tell a bare colour word
 # apart from an object name; membership here does not make a colour valid --
@@ -339,7 +342,7 @@ AXES = ("x", "y", "z")
 OBJECT_PROP_WORDS = {"at", "pos", "position", "size", "radius", "height",
                      "width", "depth", "rotate", "rot", "scale", "material",
                      "segments", "detail", "capped", "open", "texture",
-                     "colour", "color", "named", "name",
+                     "colour", "color", "named", "name", "shader",
                      # Wave D geometry props (ext_geometry). NOTE:
                      # plain "depth" was already taken by the generic
                      # prop above, so extrude uses "extrude_depth".
@@ -545,6 +548,14 @@ class Parser:
             return self._parse_filter(lp)
         if first == "instance":
             return self._parse_instance(lp)
+        if first == "shader":
+            return self._parse_shader(lp)
+        if first == "morph":
+            return self._parse_morph(lp)
+        if first == "bone":
+            return self._parse_bone(lp)
+        if first == "skin":
+            return self._parse_skin(lp)
         if first == "keys":
             return self._parse_keys_header(lp)
         if first == "key":
@@ -737,6 +748,9 @@ class Parser:
             lp.next(); lp.dup(seen, "scale"); props["scale"] = lp.num_or_vec3()
         elif w == "material":
             lp.next(); lp.dup(seen, "material"); props["material"] = lp.ident()
+        elif w == "shader":
+            # Wave E (C2): bind a named custom shader to this object.
+            lp.next(); lp.dup(seen, "shader"); props["shader"] = lp.ident()
         elif w in ("metalness", "roughness", "specular", "shininess"):
             lp.next(); lp.dup(seen, w); props[w] = lp.number(w)
         elif w == "segments":
@@ -1020,6 +1034,97 @@ class Parser:
             props["amount"] = amount
         return _make("FilterStmt", name=name.lower(), amount=amount,
                      props=props, line=lp.no, span=None)
+
+    # -- Wave E statements (C2 shaders / C1 skinning+morph; semantics
+    #    live in ext_shader / ext_skin + validate, this layer only
+    #    shapes the nodes) --
+
+    def _parse_shader(self, lp):
+        lp.next()  # shader
+        name = lp.ident()
+        if name is None:
+            raise _LineError("E101", "'shader' needs a name, like: "
+                                     "shader glow expr \"c * ndl\"")
+        if lp.peek_word() != "expr":
+            raise _LineError("E103", "'shader %s' expects 'expr' before "
+                                     "the quoted expression" % name)
+        lp.next()  # expr
+        if lp.peek_kind() != "STRING":
+            raise _LineError("E101", "'shader %s' needs a quoted "
+                                     "expression, like: shader %s expr "
+                                     "\"c * 0.5\"" % (name, name))
+        expr = lp.next_text()
+        if not lp.at_end():
+            raise _LineError("E103", "unexpected '%s' in shader "
+                                     "statement" % lp.peek_text())
+        props = {"name": name.lower(), "expr": expr}
+        return _make("ShaderStmt", name=name.lower(), expr=expr,
+                     props=props, line=lp.no, span=None)
+
+    def _parse_morph(self, lp):
+        lp.next()  # morph
+        target = lp.ident()
+        if target is None:
+            raise _LineError("E101", "'morph' needs an object name, "
+                                     "like: morph hero bulge 0.5")
+        kind = lp.ident()
+        if kind is None:
+            raise _LineError("E101", "'morph %s' needs a kind: bulge, "
+                                     "taper or squash" % target)
+        if lp.at_end():
+            raise _LineError("E101", "'morph %s %s' needs a factor, "
+                                     "like: morph %s %s 0.5"
+                                     % (target, kind, target, kind))
+        factor = lp.number("morph factor")
+        if not lp.at_end():
+            raise _LineError("E103", "unexpected '%s' in morph "
+                                     "statement" % lp.peek_text())
+        props = {"target": target, "kind": kind.lower(),
+                 "factor": factor}
+        return _make("MorphStmt", target=target, kind=kind.lower(),
+                     factor=factor, props=props, line=lp.no, span=None)
+
+    def _parse_bone(self, lp):
+        lp.next()  # bone
+        name = lp.ident()
+        if name is None:
+            raise _LineError("E101", "'bone' needs a name, like: "
+                                     "bone arm at 1,0,0 rotate 0,0,45")
+        props = {"name": name}
+        seen = set()
+        while not lp.at_end():
+            w = lp.peek_word()
+            if w in ("at", "pos", "position"):
+                lp.next(); lp.dup(seen, "at"); props["at"] = lp.vec3()
+            elif w in ("rotate", "rot"):
+                lp.next(); lp.dup(seen, "rotate")
+                props["rotate"] = lp.vec3()
+            elif w == "radius":
+                lp.next(); lp.dup(seen, "radius")
+                props["radius"] = lp.number("bone radius")
+            else:
+                raise _LineError("E103", "unexpected '%s' in bone "
+                                         "statement" % lp.peek_text())
+        return _make("BoneStmt", name=name, props=props, line=lp.no,
+                     span=None, **{k: v for k, v in props.items()
+                                   if k != "name"})
+
+    def _parse_skin(self, lp):
+        lp.next()  # skin
+        target = lp.ident()
+        if target is None:
+            raise _LineError("E101", "'skin' needs an object name, "
+                                     "like: skin hero arm")
+        bone = lp.ident()
+        if bone is None:
+            raise _LineError("E101", "'skin %s' needs a bone name, "
+                                     "like: skin %s arm" % (target, target))
+        if not lp.at_end():
+            raise _LineError("E103", "unexpected '%s' in skin "
+                                     "statement" % lp.peek_text())
+        props = {"target": target, "bone": bone}
+        return _make("SkinStmt", target=target, bone=bone, props=props,
+                     line=lp.no, span=None)
 
     def _parse_instance(self, lp):
         lp.next()  # instance

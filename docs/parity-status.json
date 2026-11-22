@@ -146,38 +146,38 @@
   },
   "C1": {
     "better_metric": "Same declarative .f3d form as other animation features",
-    "evidence": "Named as a continuous item in MASTER-PLAN sections 4/7 and BUILD-REPORT Known gaps Continuous (skinning/morph) and WAVE-B-REPORT Remaining Continuous list; no proof test in any wave report yet",
+    "evidence": "Wave E Done-verified: tests/fortran/test_skinning.f90 33/33 (factor-0 identity, barrel bulge on a real sphere - equator scales exactly 1+0.5*factor, taper/squash exact, skin_weight smoothstep values, pivot-rotation blends, far vertices bit-identical), tests/compiler/test_ext_skin.py 47, tests/compiler/test_f3d_skin_js.py 16 (JS vs Python reference 1e-9), tests/e2e/test_wavee_e2e.py (morph 0 == no-morph byte-identical; skin rotate-0 == unskinned byte-identical; skin 30deg differs; sphere bulge render 17548 -> 32625 non-bg px). .f3d: `morph <target> <bulge|taper|squash> <factor>`, `bone <name> at x,y,z rotate rx,ry,rz radius r`, `skin <target> <bone>`; src/skinning.f90 + runtime/f3d-skin.js mirrors.",
     "feature": "Skinning / morph targets",
-    "forge3d_equivalent": "Not yet specified - continuous seats B93+",
-    "proof_test": "To be minted with its B93+ seat",
-    "status": "Queued-continuous",
-    "wave": "Cont"
+    "forge3d_equivalent": ".f3d: `morph <target> <bulge|taper|squash> <factor>`, `bone <name> at x,y,z rotate rx,ry,rz radius r`, `skin <target> <bone>`; src/skinning.f90 + runtime/f3d-skin.js mirrors",
+    "proof_test": "tests/fortran/test_skinning.f90; tests/compiler/test_ext_skin.py; tests/compiler/test_f3d_skin_js.py; tests/e2e/test_wavee_e2e.py",
+    "status": "Done-verified",
+    "wave": "E"
   },
   "C2": {
     "better_metric": "Same declarative .f3d form; no silent fakes",
-    "evidence": "Named as a continuous item in MASTER-PLAN sections 4/7 and BUILD-REPORT Known gaps Continuous (custom shaders) and WAVE-B-REPORT Remaining Continuous list; no proof test in any wave report yet",
+    "evidence": "Wave E Done-verified: tests/fortran/test_shader.f90 69/69, tests/fortran/test_shader_render.f90 16/16 (identity shader == unlit render pixel-for-pixel; constant 0.5 -> every covered pixel 128; shader 0 -> black; checker -> 2 values), tests/compiler/test_ext_shader.py 65, tests/compiler/test_f3d_shader_js.py (59-case grid vs Python), tests/compiler/test_wavee_parity.py (shaderdef/shaderbind exact lines, E201/E301 errors), tests/e2e/test_wavee_e2e.py (two shaders differ, constant exact, checker two values, identity == material basic byte-identical). .f3d: `shader <name> expr \"<expr>\"` + object prop `shader <name>`; RPN evaluator identical in Fortran (src/shader.f90, src/renderer.f90 framebuffer_render_mesh_shader) and JS (runtime/f3d-shader.js).",
     "feature": "Custom shaders",
-    "forge3d_equivalent": "Not yet specified - continuous seats B93+",
-    "proof_test": "To be minted with its B93+ seat",
-    "status": "Queued-continuous",
-    "wave": "Cont"
+    "forge3d_equivalent": ".f3d: `shader <name> expr \"<expr>\"` + object prop `shader <name>`; RPN evaluator identical in Fortran (src/shader.f90, src/renderer.f90 framebuffer_render_mesh_shader) and JS (runtime/f3d-shader.js)",
+    "proof_test": "tests/fortran/test_shader.f90; tests/fortran/test_shader_render.f90; tests/compiler/test_ext_shader.py; tests/compiler/test_f3d_shader_js.py; tests/compiler/test_wavee_parity.py; tests/e2e/test_wavee_e2e.py",
+    "status": "Done-verified",
+    "wave": "E"
   },
   "C3": {
     "better_metric": "Same <f3d-view> API as the existing JS player",
-    "evidence": "Named as a continuous item in MASTER-PLAN sections 4/7 and BUILD-REPORT Known gaps Continuous (WebGL2/WebGL runtime path; v1 JS runtime is Canvas2D by deliberate choice) and WAVE-B-REPORT Remaining Continuous list; no proof test yet",
+    "evidence": "Wave E Done-verified for the headless-provable scope: tests/compiler/test_f3d_webgl2_js.py 15/15 (GLSL ES 3.00 sources exact, mock-GL call verification - buffer lengths, uniformMatrix4fv, drawArrays counts, DEPTH_TEST; projectPoint vs Fortran-convention expectations 1e-9; Lambert colour parity vs Python mirror of f3d.js formula within float32 tolerance; attach fallback 'canvas2d'). runtime/f3d-webgl2.js 12,522 B raw. Real GPU rasterization in a browser is not exercised on this VM (no browser/GPU) - the verified claim is API/plumbing + transform + shading-colour parity.",
     "feature": "WebGL2 backend",
-    "forge3d_equivalent": "Not yet specified - continuous seats B93+ (v1/v2 JS runtime is Canvas2D/WebGL1 player)",
-    "proof_test": "To be minted with its B93+ seat",
-    "status": "Queued-continuous",
-    "wave": "Cont"
+    "forge3d_equivalent": "runtime/f3d-webgl2.js (12,522 B raw), WebGL2 backend with Canvas2D attach fallback 'canvas2d'",
+    "proof_test": "tests/compiler/test_f3d_webgl2_js.py",
+    "status": "Done-verified",
+    "wave": "E"
   },
   "C4": {
     "better_metric": "Same scene file as non-XR renders",
-    "evidence": "Named as a continuous item in MASTER-PLAN sections 4/7 and BUILD-REPORT Known gaps Continuous (XR) and WAVE-B-REPORT Remaining Continuous list; no proof test in any wave report yet",
+    "evidence": "Wave E Blocked (not Done-verified). Proven: tests/compiler/test_f3d_xr_js.py 9/9 (detection with/without navigator.xr, requestSession plumbing with mode 'immersive-vr' + optionalFeatures, reference-space fallback order local-floor -> local -> viewer, stereoViews from mock poses incl. computed 4x4 inverse, end handling, graceful fallback) for runtime/f3d-xr.js (6,003 B). Blocker: a real immersive WebXR session on XR hardware cannot be run on this VM (no device, no browser); unblock = the user runs the sidecar on a real XR device and confirms session creation + presentation.",
     "feature": "XR",
-    "forge3d_equivalent": "Not yet specified - continuous seats B93+",
-    "proof_test": "To be minted with its B93+ seat",
-    "status": "Queued-continuous",
-    "wave": "Cont"
+    "forge3d_equivalent": "runtime/f3d-xr.js (6,003 B) WebXR sidecar: detection, session request, reference-space fallback, stereo views, with graceful fallback",
+    "proof_test": "tests/compiler/test_f3d_xr_js.py",
+    "status": "Blocked",
+    "wave": "E"
   }
 }

@@ -174,6 +174,13 @@ program main
                     model = mat4_compose_trs(pos_v, rot_v, scl_v)
                     if (sc%has_env) then
                         models(obj_i) = model
+                    else if (sc%objects(obj_i)%has_shader) then
+                        ! Wave E (C2): custom shader path.
+                        call framebuffer_render_mesh_shader(fb, &
+                            sc%objects(obj_i)%mesh, model, sc%cam, &
+                            sc%light_dir, sc%objects(obj_i)%mat, &
+                            sc%ambient, sc%objects(obj_i)%shader_prog, &
+                            t_sec)
                     else
                         call framebuffer_render_mesh_mat(fb, &
                             sc%objects(obj_i)%mesh, model, sc%cam, &
@@ -219,6 +226,12 @@ program main
 
                 if (sc%has_env) then
                     models(obj_i) = model
+                else if (sc%objects(obj_i)%has_shader) then
+                    ! Wave E (C2): custom shader path.
+                    call framebuffer_render_mesh_shader(fb, &
+                        sc%objects(obj_i)%mesh, model, sc%cam, &
+                        sc%light_dir, sc%objects(obj_i)%mat, sc%ambient, &
+                        sc%objects(obj_i)%shader_prog, t_sec)
                 else
                     call framebuffer_render_mesh_mat(fb, &
                         sc%objects(obj_i)%mesh, model, sc%cam, &
@@ -290,6 +303,18 @@ program main
                 end if
 
                 do obj_i = 1, n_objects
+                    if (sc%objects(obj_i)%has_shader) then
+                        ! Wave E (C2): a shader-bound object renders
+                        ! through the shader path even in env scenes
+                        ! (its shader replaces env shading for that
+                        ! object; fog/tonemap still apply after).
+                        call framebuffer_render_mesh_shader(fb, &
+                            sc%objects(obj_i)%mesh, models(obj_i), &
+                            sc%cam, sc%light_dir, &
+                            sc%objects(obj_i)%mat, sc%ambient, &
+                            sc%objects(obj_i)%shader_prog, t_sec)
+                        cycle
+                    end if
                     extents = object_extents(sc%objects(obj_i))
                     call framebuffer_render_mesh_env(fb, &
                         sc%objects(obj_i)%mesh, models(obj_i), sc%cam, &

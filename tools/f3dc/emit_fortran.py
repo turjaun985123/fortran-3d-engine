@@ -546,6 +546,38 @@ def emit_scene_text(ir) -> str:
     except Exception:
         pass
 
+    # Wave E: shader definitions + bindings (C2) and morph / bone /
+    # skin lines (C1). Absent for earlier waves, so their .scene
+    # output is unchanged. scene.f90 resolves these by name after
+    # the full parse, so emitting them last is safe.
+    try:
+        exts = _get(ir, "extensions", default={})
+        we = exts.get("wavee") if isinstance(exts, dict) else None
+        if we:
+            def _we_import(modname):
+                try:
+                    return __import__(modname)
+                except Exception:
+                    import importlib
+                    return importlib.import_module(
+                        "." + modname, __package__)
+            if we.get("shaders"):
+                _esh = _we_import("ext_shader")
+                defs = [(s.get("name", ""), s.get("rpn", []))
+                        for s in we["shaders"]]
+                lines.extend(_esh.scene_lines(defs))
+                for obj_name, shader_name in \
+                        (we.get("bindings") or {}).items():
+                    lines.append(_esh.binding_line(obj_name,
+                                                   shader_name))
+            if we.get("morphs") or we.get("bones") or we.get("skins"):
+                _esk = _we_import("ext_skin")
+                lines.extend(_esk.scene_lines(we.get("morphs") or [],
+                                              we.get("bones") or [],
+                                              we.get("skins") or []))
+    except Exception:
+        pass
+
     return "\n".join(lines) + "\n"
 
 

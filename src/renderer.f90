@@ -7,11 +7,13 @@ module renderer_3d
     use texture_3d, only: TextureImage, texture_sample, prim_uv
     use lighting_3d, only: LightSet, shade_rgb
     use shadow_3d, only: ShadowMap, shadow_factor, shadow_factor_pcf
+    use shader_3d, only: ShaderProg, shader_eval
     implicit none
     private
     public :: FrameBuffer, framebuffer_init, framebuffer_clear, &
               framebuffer_render_mesh, framebuffer_render_mesh_mat, &
               framebuffer_render_mesh_env, &
+              framebuffer_render_mesh_shader, &
               framebuffer_save_ppm, &
               ClipPoly, clip_triangle_frustum, CLIP_MAX_VERTS, &
               CLIP_ATTR_COUNT
@@ -558,6 +560,203 @@ contains
             end do
         end do
     end subroutine draw_triangle_env
+
+    ! Wave E custom-shader rendering (C2).
+    ! Mirrors framebuffer_render_mesh_mat's transform / backface
+    ! culling / homogeneous clipping structure, but rasterizes
+    ! per-pixel like draw_triangle_env: world position is
+    ! barycentric-interpolated per pixel and handed to the user
+    ! shader program (shader_3d) together with u = w1, v = w2
+    ! (the second / third barycentric weights), the per-triangle
+    ! diffuse ndl and the time t_sec.  Base colour follows _mat
+    ! exactly: the triangle colour when mat%use_tri_color, else
+    ! the material colour.  Per channel k the shader is evaluated
+    ! with c = base channel k (0..1) and r/g/b = the full base
+    ! colour (0..1); its result is clamped to 0..1 and rounded
+    ! with nint to 0..255.  ambient_level is accepted for signature
+    ! parity with framebuffer_render_mesh_mat: the shader program
+    ! itself decides how to use ndl, so the renderer deliberately
+    ! does NOT pre-scale by ambient / intensity -- that is what
+    ! makes the identity shader `c` reproduce the unlit flat
+    ! render exactly.  Default scenes never call this routine, so
+    ! existing renders are unaffected.
+    subroutine framebuffer_render_mesh_shader(fb, target_mesh, &
+            model_matrix, cam, light_dir, mat, ambient_level, &
+            prog, t_sec)
+        type(FrameBuffer), intent(inout) :: fb
+        type(Mesh), intent(in) :: target_mesh
+        type(mat4), intent(in) :: model_matrix
+        type(Camera), intent(in) :: cam
+        type(vec3), intent(in) :: light_dir
+        type(Material), intent(in) :: mat
+        real(dp), intent(in) :: ambient_level
+        type(ShaderProg), intent(in) :: prog
+        real(dp), intent(in) :: t_sec
+
+        type(mat4) :: mvp, model_view
+        type(Triangle) :: tri
+        type(vec3) :: world_v(3), proj_v(3), normal_world
+        type(vec3) :: norm_light
+        real(dp) :: diffuse
+        real(dp) :: base01(3)
+        integer :: i, k, sx(3), sy(3)
+        real(dp) :: z(3)
+        real(dp) :: clip_v(4, 3), attr_in(CLIP_ATTR_COUNT, 3)
+        real(dp) :: ndc(3)
+        type(vec3) :: world_piece(3)
+        type(ClipPoly) :: poly
+        integer :: piece, idx(3), q
+        real(dp) :: ambient_parity
+
+        ! Signature parity only (see header comment): referenced so
+        ! the dummy is not unused, with no effect on any pixel.
+        ambient_parity = ambient_level
+        if (ambient_parity > huge(1.0_dp)) return
+
+        norm_light = vec3_normalize(light_dir)
+        model_view = mat4_mult(cam%view_matrix, model_matrix)
+        mvp = mat4_mult(cam%proj_matrix, model_view)
+
+        do i = 1, target_mesh%num_triangles
+            tri = target_mesh%triangles(i)
+
+            world_v(1) = mat4_transform_vec3(model_matrix, tri%v(1), .true.)
+            world_v(2) = mat4_transform_vec3(model_matrix, tri%v(2), .true.)
+            world_v(3) = mat4_transform_vec3(model_matrix, tri%v(3), .true.)
+
+            normal_world = compute_triangle_normal(world_v(1), world_v(2), world_v(3))
+
+            diffuse = max(0.0_dp, vec3_dot(normal_world, vec3_scale(norm_light, -1.0_dp)))
+
+            if (mat%use_tri_color) then
+                do k = 1, 3
+                    base01(k) = real(tri%color(k), dp) / 255.0_dp
+                end do
+            else
+                base01 = mat%color
+            end if
+
+            clip_v(:, 1) = mat4_clip(mvp, tri%v(1))
+            clip_v(:, 2) = mat4_clip(mvp, tri%v(2))
+            clip_v(:, 3) = mat4_clip(mvp, tri%v(3))
+
+            if (clip_all_inside(clip_v)) then
+                proj_v(1) = mat4_transform_vec3(mvp, tri%v(1), .true.)
+                proj_v(2) = mat4_transform_vec3(mvp, tri%v(2), .true.)
+                proj_v(3) = mat4_transform_vec3(mvp, tri%v(3), .true.)
+
+                sx(1) = int((proj_v(1)%x + 1.0_dp) * 0.5_dp * fb%width)
+                sy(1) = int((1.0_dp - (proj_v(1)%y + 1.0_dp) * 0.5_dp) * fb%height)
+                z(1)  = proj_v(1)%z
+                sx(2) = int((proj_v(2)%x + 1.0_dp) * 0.5_dp * fb%width)
+                sy(2) = int((1.0_dp - (proj_v(2)%y + 1.0_dp) * 0.5_dp) * fb%height)
+                z(2)  = proj_v(2)%z
+                sx(3) = int((proj_v(3)%x + 1.0_dp) * 0.5_dp * fb%width)
+                sy(3) = int((1.0_dp - (proj_v(3)%y + 1.0_dp) * 0.5_dp) * fb%height)
+                z(3)  = proj_v(3)%z
+
+                if ((sx(2) - sx(1)) * (sy(3) - sy(1)) - &
+                    (sy(2) - sy(1)) * (sx(3) - sx(1)) <= 0) cycle
+
+                call draw_triangle_shader(fb, sx, sy, z, world_v, &
+                                          base01, diffuse, prog, t_sec)
+            else
+                do q = 1, 3
+                    attr_in(1, q) = world_v(q)%x
+                    attr_in(2, q) = world_v(q)%y
+                    attr_in(3, q) = world_v(q)%z
+                    attr_in(4, q) = 0.0_dp
+                    attr_in(5, q) = 0.0_dp
+                end do
+                call clip_triangle_frustum(clip_v, attr_in, poly)
+                if (poly%n < 3) cycle
+                do piece = 2, poly%n - 1
+                    idx = [1, piece, piece + 1]
+                    if (any(abs(poly%clip(4, idx)) <= 1.0e-12_dp)) cycle
+                    do q = 1, 3
+                        ndc = poly%clip(1:3, idx(q)) / poly%clip(4, idx(q))
+                        sx(q) = int((ndc(1) + 1.0_dp) * 0.5_dp * fb%width)
+                        sy(q) = int((1.0_dp - (ndc(2) + 1.0_dp) * 0.5_dp) * fb%height)
+                        z(q) = ndc(3)
+                        world_piece(q) = vec3_create(poly%attr(1, idx(q)), &
+                                                     poly%attr(2, idx(q)), &
+                                                     poly%attr(3, idx(q)))
+                    end do
+                    if ((sx(2) - sx(1)) * (sy(3) - sy(1)) - &
+                        (sy(2) - sy(1)) * (sx(3) - sx(1)) <= 0) cycle
+                    call draw_triangle_shader(fb, sx, sy, z, &
+                                              world_piece, base01, &
+                                              diffuse, prog, t_sec)
+                end do
+            end if
+        end do
+    end subroutine framebuffer_render_mesh_shader
+
+    ! Per-pixel rasteriser for the custom-shader path: same
+    ! barycentric / z-buffer discipline as draw_triangle_env.
+    subroutine draw_triangle_shader(fb, x, y, z, world_v, base01, &
+                                    ndl, prog, t_sec)
+        type(FrameBuffer), intent(inout) :: fb
+        integer, intent(in) :: x(3), y(3)
+        real(dp), intent(in) :: z(3), base01(3), ndl, t_sec
+        type(vec3), intent(in) :: world_v(3)
+        type(ShaderProg), intent(in) :: prog
+
+        integer :: min_x, max_x, min_y, max_y, px, py, k
+        real(dp) :: w0, w1, w2, denom, depth
+        real(dp) :: u_interp, v_interp, out_val
+        type(vec3) :: wp
+        integer :: rgb(3)
+
+        min_x = max(1, min(x(1), min(x(2), x(3))))
+        max_x = min(fb%width, max(x(1), max(x(2), x(3))))
+        min_y = max(1, min(y(1), min(y(2), y(3))))
+        max_y = min(fb%height, max(y(1), max(y(2), y(3))))
+
+        denom = real((y(2) - y(3)) * (x(1) - x(3)) + &
+                     (x(3) - x(2)) * (y(1) - y(3)), dp)
+        if (abs(denom) < 1.0e-6_dp) return
+
+        do py = min_y, max_y
+            do px = min_x, max_x
+                w0 = real((y(2) - y(3)) * (px - x(3)) + &
+                          (x(3) - x(2)) * (py - y(3)), dp) / denom
+                w1 = real((y(3) - y(1)) * (px - x(3)) + &
+                          (x(1) - x(3)) * (py - y(3)), dp) / denom
+                w2 = 1.0_dp - w0 - w1
+                if (w0 < 0.0_dp .or. w1 < 0.0_dp .or. w2 < 0.0_dp) cycle
+
+                depth = w0 * z(1) + w1 * z(2) + w2 * z(3)
+                if (depth < -1.0_dp .or. depth > 1.0_dp) cycle
+                if (depth >= fb%z_buffer(px, py)) cycle
+
+                wp = vec3_create( &
+                    w0 * world_v(1)%x + w1 * world_v(2)%x + &
+                    w2 * world_v(3)%x, &
+                    w0 * world_v(1)%y + w1 * world_v(2)%y + &
+                    w2 * world_v(3)%y, &
+                    w0 * world_v(1)%z + w1 * world_v(2)%z + &
+                    w2 * world_v(3)%z)
+
+                u_interp = w1
+                v_interp = w2
+
+                do k = 1, 3
+                    out_val = shader_eval(prog, base01(k), &
+                        base01(1), base01(2), base01(3), &
+                        wp%x, wp%y, wp%z, u_interp, v_interp, &
+                        ndl, t_sec)
+                    out_val = min(1.0_dp, max(0.0_dp, out_val))
+                    rgb(k) = min(255, max(0, nint(out_val * 255.0_dp)))
+                end do
+
+                fb%z_buffer(px, py) = depth
+                fb%pixels(1, px, py) = rgb(1)
+                fb%pixels(2, px, py) = rgb(2)
+                fb%pixels(3, px, py) = rgb(3)
+            end do
+        end do
+    end subroutine draw_triangle_shader
 
     subroutine framebuffer_save_ppm(fb, filename)
         type(FrameBuffer), intent(in) :: fb

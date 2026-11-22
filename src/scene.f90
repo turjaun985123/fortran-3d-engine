@@ -43,6 +43,10 @@ module scene_3d
     use geo_poly_3d, only: create_tetrahedron, create_octahedron, &
         create_icosahedron, create_dodecahedron
     use geo_torusknot_3d, only: create_torusknot
+    ! Wave E (coordinator integration): C2 shader programs + C1
+    ! skinning/morph application.
+    use shader_3d, only: ShaderProg, shader_parse
+    use skinning_3d, only: morph_apply, skin_apply
     implicit none
     private
     public :: SceneObject, SceneAnim, Scene
@@ -77,7 +81,27 @@ module scene_3d
         type(MaterialPBR) :: pbr
         type(TextureImage) :: tex
         character(len=512) :: texture_path = ''
+        ! Wave E (coordinator integration): C2 custom shader binding.
+        ! has_shader routes this object through
+        ! framebuffer_render_mesh_shader in main.
+        logical :: has_shader = .false.
+        character(len=64) :: shader_name = ''
+        type(ShaderProg) :: shader_prog
     end type SceneObject
+
+    ! Wave E: a named compiled shader definition (C2).
+    type :: SceneShaderDef
+        character(len=64) :: name = ''
+        type(ShaderProg) :: prog
+    end type SceneShaderDef
+
+    ! Wave E: a named skinning bone (C1).
+    type :: SceneBone
+        character(len=64) :: name = ''
+        type(vec3) :: pivot = vec3(0.0_dp, 0.0_dp, 0.0_dp)
+        type(vec3) :: rot_deg = vec3(0.0_dp, 0.0_dp, 0.0_dp)
+        real(dp) :: radius = 2.0_dp
+    end type SceneBone
 
     type :: SceneAnim
         character(len=32) :: kind = ''
@@ -153,6 +177,9 @@ module scene_3d
         integer :: n_post = 0
         character(len=32) :: post_names(16) = ''
         real(dp) :: post_amounts(16) = 0.0_dp
+        ! Wave E (coordinator integration): shader defs + bones.
+        type(SceneShaderDef), allocatable :: shader_defs(:)
+        type(SceneBone), allocatable :: bones(:)
     end type Scene
 
 contains
@@ -410,6 +437,8 @@ contains
             end do
             deallocate(sc%tracks)
         end if
+        if (allocated(sc%shader_defs)) deallocate(sc%shader_defs)
+        if (allocated(sc%bones)) deallocate(sc%bones)
     end subroutine scene_free
 
     ! ------------------------------------------------------------------
@@ -638,12 +667,39 @@ contains
         type(Light3) :: lt
         integer :: n_extra, slash, oi
         logical :: tex_ok
+        ! Wave E locals: shader defs are parsed in-line; bindings,
+        ! morphs and skins are PENDING (they name objects/bones that
+        ! may be defined later in the file) and resolved after the
+        ! read loop, before the LightSet assembly.
+        type(SceneShaderDef) :: def_list(64)
+        integer :: n_defs
+        type(SceneBone) :: bone_list(64)
+        integer :: n_bones
+        character(len=64) :: bind_obj(256), bind_shader(256)
+        integer :: n_binds
+        character(len=64) :: morph_obj(256)
+        character(len=32) :: morph_kind(256)
+        real(dp) :: morph_factor(256)
+        integer :: n_morphs
+        character(len=64) :: skin_obj(256), skin_bone(256)
+        integer :: n_skins
+        character(len=64) :: rtoks(512)
+        type(ShaderProg) :: tmp_prog
+        logical :: parse_ok
+        character(len=256) :: parse_err
+        integer :: j, bi
+        type(Mesh) :: new_mesh
 
         ok = .true.
         errmsg = ''
         cur_tris = 0
         cur_track = 0
         n_extra = 0
+        n_defs = 0
+        n_bones = 0
+        n_binds = 0
+        n_morphs = 0
+        n_skins = 0
         scene_dir = ''
         slash = index(trim(path), '/', back=.true.)
         if (slash > 1) scene_dir = path(1:slash - 1)
@@ -1098,6 +1154,76 @@ contains
                         call append_object(sc, iobj)
                     end if
                 end block
+            case ('shaderdef')
+                ! shaderdef NAME NTOK tok1 ... tokN (Wave E, C2).
+                ! RPN tokens are capped by MAX_TOKENS on the line.
+                if (ntok < 3) then
+                    call warn_line(lineno, line)
+                    cycle
+                end if
+                count = max(0, min(tok_int(tokens, 3), ntok - 3, 512))
+                rtoks = ''
+                do j = 1, count
+                    rtoks(j) = trim(tokens(3 + j))
+                end do
+                call shader_parse(rtoks(1:max(1, count)), tmp_prog, &
+                                  parse_ok, parse_err)
+                if (.not. parse_ok) then
+                    call warn_line(lineno, line)
+                    cycle
+                end if
+                if (n_defs < 64) then
+                    n_defs = n_defs + 1
+                    def_list(n_defs)%name = trim(tokens(2))
+                    def_list(n_defs)%prog = tmp_prog
+                end if
+            case ('shaderbind')
+                ! shaderbind OBJ SHADER (Wave E, C2; pending).
+                if (ntok < 3) then
+                    call warn_line(lineno, line)
+                    cycle
+                end if
+                if (n_binds < 256) then
+                    n_binds = n_binds + 1
+                    bind_obj(n_binds) = trim(tokens(2))
+                    bind_shader(n_binds) = trim(tokens(3))
+                end if
+            case ('morph')
+                ! morph OBJ KIND FACTOR (Wave E, C1; pending).
+                if (ntok < 4) then
+                    call warn_line(lineno, line)
+                    cycle
+                end if
+                if (n_morphs < 256) then
+                    n_morphs = n_morphs + 1
+                    morph_obj(n_morphs) = trim(tokens(2))
+                    morph_kind(n_morphs) = trim(tokens(3))
+                    morph_factor(n_morphs) = tok_real(tokens, 4)
+                end if
+            case ('bone')
+                ! bone NAME px py pz rx ry rz radius (Wave E, C1).
+                if (ntok < 9) then
+                    call warn_line(lineno, line)
+                    cycle
+                end if
+                if (n_bones < 64) then
+                    n_bones = n_bones + 1
+                    bone_list(n_bones)%name = trim(tokens(2))
+                    bone_list(n_bones)%pivot = tok_vec3(tokens, 3)
+                    bone_list(n_bones)%rot_deg = tok_vec3(tokens, 6)
+                    bone_list(n_bones)%radius = tok_real(tokens, 9)
+                end if
+            case ('skin')
+                ! skin OBJ BONENAME (Wave E, C1; pending).
+                if (ntok < 3) then
+                    call warn_line(lineno, line)
+                    cycle
+                end if
+                if (n_skins < 256) then
+                    n_skins = n_skins + 1
+                    skin_obj(n_skins) = trim(tokens(2))
+                    skin_bone(n_skins) = trim(tokens(3))
+                end if
             case ('anim')
                 ! anim KIND TARGET AXIS SPEED DURATION FPS EASE LOOP
                 if (ntok < 9) then
@@ -1119,6 +1245,93 @@ contains
             end select
         end do
         close(u)
+
+        ! Wave E: resolve pending shader bindings, morphs and skins
+        ! now that every object/bone/definition exists. Unknown
+        ! names are skipped with a printed warning, never a crash
+        ! (the compiler rejects them first with E201; this guards
+        ! hand-written .scene files).
+        if (n_defs > 0) then
+            allocate(sc%shader_defs(n_defs))
+            do i = 1, n_defs
+                sc%shader_defs(i) = def_list(i)
+            end do
+        end if
+        if (n_bones > 0) then
+            allocate(sc%bones(n_bones))
+            do i = 1, n_bones
+                sc%bones(i) = bone_list(i)
+            end do
+        end if
+        do i = 1, n_binds
+            oi = scene_find_object(sc, trim(bind_obj(i)))
+            if (oi == 0) then
+                print *, 'scene: warning: shaderbind for unknown ', &
+                    'object ', trim(bind_obj(i))
+                cycle
+            end if
+            bi = 0
+            if (allocated(sc%shader_defs)) then
+                do j = 1, size(sc%shader_defs)
+                    if (trim(sc%shader_defs(j)%name) == &
+                        trim(bind_shader(i))) then
+                        bi = j
+                        exit
+                    end if
+                end do
+            end if
+            if (bi == 0) then
+                print *, 'scene: warning: shaderbind names unknown ', &
+                    'shader ', trim(bind_shader(i))
+                cycle
+            end if
+            sc%objects(oi)%has_shader = .true.
+            sc%objects(oi)%shader_name = trim(bind_shader(i))
+            sc%objects(oi)%shader_prog = sc%shader_defs(bi)%prog
+        end do
+        do i = 1, n_morphs
+            oi = scene_find_object(sc, trim(morph_obj(i)))
+            if (oi == 0) then
+                print *, 'scene: warning: morph for unknown object ', &
+                    trim(morph_obj(i))
+                cycle
+            end if
+            call morph_apply(sc%objects(oi)%mesh, &
+                             trim(morph_kind(i)), morph_factor(i), &
+                             new_mesh)
+            call free_mesh(sc%objects(oi)%mesh)
+            sc%objects(oi)%mesh = new_mesh
+            call free_mesh(new_mesh)
+        end do
+        do i = 1, n_skins
+            oi = scene_find_object(sc, trim(skin_obj(i)))
+            if (oi == 0) then
+                print *, 'scene: warning: skin for unknown object ', &
+                    trim(skin_obj(i))
+                cycle
+            end if
+            bi = 0
+            if (allocated(sc%bones)) then
+                do j = 1, size(sc%bones)
+                    if (trim(sc%bones(j)%name) == &
+                        trim(skin_bone(i))) then
+                        bi = j
+                        exit
+                    end if
+                end do
+            end if
+            if (bi == 0) then
+                print *, 'scene: warning: skin names unknown bone ', &
+                    trim(skin_bone(i))
+                cycle
+            end if
+            call skin_apply(sc%objects(oi)%mesh, &
+                            sc%bones(bi)%pivot, sc%bones(bi)%rot_deg, &
+                            sc%bones(bi)%radius, new_mesh)
+            call free_mesh(sc%objects(oi)%mesh)
+            sc%objects(oi)%mesh = new_mesh
+            call free_mesh(new_mesh)
+        end do
 
         ! Wave A: assemble the unified LightSet (directional first,
         ! built from the legacy fields so defaults match v1 exactly,

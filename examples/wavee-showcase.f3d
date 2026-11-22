@@ -1,0 +1,48 @@
+# Wave E showcase: every Wave E feature in one scene.
+# Custom shaders (C2): a `shader ... expr "..."` line defines a per-pixel
+#   channel expression, and the object prop `shader <name>` binds it.
+# Skinning / morph targets (C1): `morph` reshapes a named object, and a
+#   `bone` plus a `skin` line bends a named object around a bone pivot.
+# WebGL2 (C3): no .f3d line -- the viewer's runtime/f3d-webgl2.js sidecar
+#   feature-detects WebGL2 for this same scene and falls back to Canvas2D.
+# XR (C4): no .f3d line -- runtime/f3d-xr.js offers this same scene as a
+#   WebXR immersive-vr session where available, and degrades gracefully.
+# Run: python3 tools/f3dc/f3dc.py run examples/wavee-showcase.f3d
+scene "wavee-showcase" size 800 600 background black
+camera at 0 0 16 look 0 0 0 fov 60
+light directional dir -0.5 -1 -0.7 strength 1.2
+
+# --- Wave E: custom shaders (C2) ------------------------------------
+# Two shaders, deliberately visibly different. `checker` multiplies
+# the channel by a 0/1 step over a fract() pattern in x and y, so the
+# cube comes out in hard light/dark checks. `stripes` multiplies the
+# channel by a smooth sine wave in x, so the sphere comes out in soft
+# light/dark bands. In both, `c` is the channel value being computed
+# and `ndl` (used in the manual's lit-shading example) is the Lambert
+# diffuse term; the shader result replaces the channel, clamped 0..1.
+shader checker expr "c * step(0.5, fract((x + y) * 2))"
+shader stripes expr "c * (0.5 + 0.5 * sin(x * 4))"
+
+# A shader-bound object: a red cube wearing the checker shader.
+cube checkered red at -6 0 0 size 2 shader checker
+# A second object with a different shader: a blue sphere in stripes.
+sphere striped blue at -2 0 0 radius 1 shader stripes
+
+# --- Wave E: morph targets (C1) -------------------------------------
+# A plain green sphere, then a `morph` line bulging it: factor 0 is
+# the identity (no change), so 0.5 is a clear, visible bulge.
+sphere bulgy green at 2 0 0 radius 1
+morph bulgy bulge 0.5
+
+# --- Wave E: skinning (C1) ------------------------------------------
+# A named cylinder, a bone placed at its position and tilted 20
+# degrees about z, and a `skin` line binding the cylinder to that
+# bone. Vertices near the bone pivot (within `radius`) follow the
+# bone's rotation with a smooth distance falloff; distant vertices
+# stay put, so the pillar bends instead of moving rigidly.
+cylinder pillar yellow at 6 0 0 radius 1 height 3
+bone spine at 6,0,0 rotate 0,0,20 radius 2.5
+skin pillar spine
+
+controls orbit
+render "wavee-showcase.ppm"

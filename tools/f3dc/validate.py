@@ -54,6 +54,8 @@ try:  # package import (tools.f3dc.validate / f3dc_pkg style)
     from . import ext_post as _ext_post
     from . import ext_cameras as _ext_cameras
     from . import ext_geometry as _ext_geometry
+    from . import ext_shader as _ext_shader
+    from . import ext_skin as _ext_skin
 except Exception:  # plain module import (tools/f3dc on sys.path)
     import desugar as _desugar_mod  # type: ignore
     import ir_nodes as _ir  # type: ignore
@@ -84,6 +86,12 @@ except Exception:  # plain module import (tools/f3dc on sys.path)
         import ext_geometry as _ext_geometry  # type: ignore
     except Exception:  # Wave D extension unavailable
         _ext_geometry = None  # type: ignore
+    try:
+        import ext_shader as _ext_shader  # type: ignore
+        import ext_skin as _ext_skin  # type: ignore
+    except Exception:  # Wave E extensions unavailable
+        _ext_shader = None  # type: ignore
+        _ext_skin = None  # type: ignore
 
 __all__ = ["validate"]
 
@@ -534,6 +542,17 @@ def _classify(node):
     # fields would otherwise trip the anim/object heuristics below).
     if cname == "filterstmt":
         return "filter", props
+    # Wave E statement kinds (C2/C1; checked first for the same
+    # reason -- a MorphStmt carries a 'kind' field, a BoneStmt a
+    # 'radius', both of which the heuristics below would misread).
+    if cname == "shaderstmt":
+        return "shaderdef", props
+    if cname == "morphstmt":
+        return "morph", props
+    if cname == "bonestmt":
+        return "bone", props
+    if cname == "skinstmt":
+        return "skin", props
     if cname == "instancestmt":
         return "instance", props
     if cname == "keysstmt":
@@ -634,6 +653,7 @@ def validate(program, bag, base_dir="."):
     sprite_nodes, text_nodes, particles_nodes = [], [], []
     keys_header_nodes, key_nodes = [], []
     filter_nodes, instance_nodes = [], []
+    shader_nodes, morph_nodes, bone_nodes, skin_nodes = [], [], [], []
     seen_singletons = {}
 
     def walk(nodes):
@@ -671,6 +691,14 @@ def validate(program, bag, base_dir="."):
                 filter_nodes.append(node)
             elif category == "instance":
                 instance_nodes.append(node)
+            elif category == "shaderdef":
+                shader_nodes.append(node)
+            elif category == "morph":
+                morph_nodes.append(node)
+            elif category == "bone":
+                bone_nodes.append(node)
+            elif category == "skin":
+                skin_nodes.append(node)
             elif category == "keys":
                 keys_header_nodes.append(node)
             elif category == "key":
@@ -1550,6 +1578,142 @@ def validate(program, bag, base_dir="."):
         if insts:
             wavec["instances"] = insts
 
+    # ---- Wave E entities (rows C2/C1) -----------------------------
+    # Custom shaders + skinning/morph ride in
+    # IRScene.extensions["wavee"]; emit_fortran turns them into
+    # .scene lines via ext_shader / ext_skin.
+    wavee = {}
+    _obj_names = set()
+    for _o in ir_objects:
+        _on = _get(_o, "name", "id")
+        if isinstance(_on, str) and _on:
+            _obj_names.add(_on)
+    if _ext_shader is not None and shader_nodes:
+        shaders = []
+        seen_shaders = set()
+        for node in shader_nodes:
+            props = _props_dict(node)
+            span = _span(node)
+            sname = _field(node, props, "name", "id")
+            expr = _field(node, props, "expr", "expression")
+            if not isinstance(sname, str) or not sname:
+                _err(bag, "E201", "'shader' needs a name", span)
+                continue
+            if sname in seen_shaders:
+                _err(bag, "E201", "there is already a shader called "
+                                  "%r" % sname, span)
+                continue
+            if not isinstance(expr, str) or not expr.strip():
+                _err(bag, "E301", "shader %r needs an expression, "
+                                  "like: shader %s expr \"c * ndl\""
+                                  % (sname, sname), span)
+                continue
+            try:
+                rpn = _ext_shader.to_rpn(_ext_shader.tokenize_expr(expr))
+            except ValueError as exc:
+                _err(bag, "E301", "shader %r: %s" % (sname, exc), span)
+                continue
+            for msg in _ext_shader.validate_shader(sname, rpn):
+                _err(bag, "E301", "shader %r: %s" % (sname, msg), span)
+            seen_shaders.add(sname)
+            shaders.append({"name": sname, "rpn": rpn, "expr": expr})
+        if shaders:
+            wavee["shaders"] = shaders
+    if _ext_shader is not None:
+        # Object-line `shader <name>` bindings (props on object
+        # nodes). The object must be named and the shader defined.
+        bindings = {}
+        defined = {s["name"] for s in wavee.get("shaders", [])}
+        for node in object_nodes:
+            props = _props_dict(node)
+            bound = _field(node, props, "shader")
+            if bound is None:
+                continue
+            span = _span(node)
+            oname = _field(node, props, "name", "id")
+            if not isinstance(oname, str) or not oname:
+                _err(bag, "E201", "an object using 'shader %s' needs "
+                                  "a name, like: cube hero red shader "
+                                  "%s" % (bound, bound), span)
+                continue
+            if bound not in defined:
+                _err(bag, "E201", "object %r uses shader %r, but no "
+                                  "shader is called that" % (oname,
+                                                             bound),
+                     span)
+                continue
+            bindings[oname] = bound
+        if bindings:
+            wavee["bindings"] = bindings
+    if _ext_skin is not None and (morph_nodes or bone_nodes
+                                  or skin_nodes):
+        bones, bone_names = [], set()
+        for node in bone_nodes:
+            props = _props_dict(node)
+            span = _span(node)
+            ext_in = {"name": _field(node, props, "name", "id"),
+                      "at": _field(node, props, "at", "pos",
+                                   "position"),
+                      "rotate": _field(node, props, "rotate", "rot"),
+                      "radius": _field(node, props, "radius")}
+            try:
+                ext = _ext_skin.extract_bone(ext_in)
+                for msg in _ext_skin.validate_bone(ext, bone_names):
+                    _err(bag, "E301", msg, span)
+            except Exception as exc:
+                _err(bag, "E301", "bad bone: %s" % exc, span)
+                continue
+            if isinstance(ext.get("name"), str) and ext["name"]:
+                bone_names.add(ext["name"])
+            bones.append(ext)
+        morphs = []
+        for node in morph_nodes:
+            props = _props_dict(node)
+            span = _span(node)
+            ext_in = {"target": _field(node, props, "target", "name"),
+                      "kind": _field(node, props, "kind"),
+                      "factor": _field(node, props, "factor")}
+            try:
+                ext = _ext_skin.extract_morph(ext_in)
+                for msg in _ext_skin.validate_morph(ext):
+                    _err(bag, "E301", msg, span)
+            except Exception as exc:
+                _err(bag, "E301", "bad morph: %s" % exc, span)
+                continue
+            target = ext.get("target")
+            if isinstance(target, str) and target \
+                    and target not in _obj_names:
+                _err(bag, "E201", "morph targets %r, but no object "
+                                  "is called that" % target, span)
+                continue
+            morphs.append(ext)
+        skins = []
+        for node in skin_nodes:
+            props = _props_dict(node)
+            span = _span(node)
+            ext_in = {"target": _field(node, props, "target", "name"),
+                      "bone": _field(node, props, "bone")}
+            try:
+                ext = _ext_skin.extract_skin(ext_in)
+                for msg in _ext_skin.validate_skin(ext, bone_names):
+                    _err(bag, "E301", msg, span)
+            except Exception as exc:
+                _err(bag, "E301", "bad skin: %s" % exc, span)
+                continue
+            target = ext.get("target")
+            if isinstance(target, str) and target \
+                    and target not in _obj_names:
+                _err(bag, "E201", "skin targets %r, but no object "
+                                  "is called that" % target, span)
+                continue
+            skins.append(ext)
+        if bones:
+            wavee["bones"] = bones
+        if morphs:
+            wavee["morphs"] = morphs
+        if skins:
+            wavee["skins"] = skins
+
     if _has_errors(bag):
         return None
     scene = _make(getattr(_ir, "IRScene", None),
@@ -1581,6 +1745,13 @@ def validate(program, bag, base_dir="."):
             if not isinstance(scene.extensions, dict):
                 scene.extensions = {}
             scene.extensions["wavec"] = wavec
+        except Exception:
+            pass
+    if wavee:
+        try:
+            if not isinstance(scene.extensions, dict):
+                scene.extensions = {}
+            scene.extensions["wavee"] = wavee
         except Exception:
             pass
     try:

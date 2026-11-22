@@ -37,6 +37,8 @@ MODULE_OBJS = $(OBJ_DIR)/math_3d.o \
               $(OBJ_DIR)/geo_extrude_3d.o \
               $(OBJ_DIR)/geo_poly_3d.o \
               $(OBJ_DIR)/geo_torusknot_3d.o \
+              $(OBJ_DIR)/shader_3d.o \
+              $(OBJ_DIR)/skinning_3d.o \
               $(OBJ_DIR)/scene_3d.o \
               $(OBJ_DIR)/renderer_3d.o \
               $(OBJ_DIR)/fog_3d.o \
@@ -156,11 +158,19 @@ $(OBJ_DIR)/geo_torusknot_3d.o: $(SRC_DIR)/geo_torusknot.f90 $(OBJ_DIR)/math_3d.o
 	@mkdir -p $(OBJ_DIR) $(MOD_DIR)
 	$(FC) $(FFLAGS) -c $< -o $@
 
-$(OBJ_DIR)/scene_3d.o: $(SRC_DIR)/scene.f90 $(OBJ_DIR)/math_3d.o $(OBJ_DIR)/material_3d.o $(OBJ_DIR)/material_pbr_3d.o $(OBJ_DIR)/mesh_3d.o $(OBJ_DIR)/camera_3d.o $(OBJ_DIR)/texture_3d.o $(OBJ_DIR)/lighting_3d.o $(OBJ_DIR)/obj_loader.o $(OBJ_DIR)/sprite_3d.o $(OBJ_DIR)/text_render_3d.o $(OBJ_DIR)/particles_3d.o $(OBJ_DIR)/keyframe_3d.o $(OBJ_DIR)/geo_flat_3d.o $(OBJ_DIR)/geo_capsule_3d.o $(OBJ_DIR)/geo_tube_3d.o $(OBJ_DIR)/geo_lathe_3d.o $(OBJ_DIR)/geo_extrude_3d.o $(OBJ_DIR)/geo_poly_3d.o $(OBJ_DIR)/geo_torusknot_3d.o
+$(OBJ_DIR)/shader_3d.o: $(SRC_DIR)/shader.f90 $(OBJ_DIR)/math_3d.o
 	@mkdir -p $(OBJ_DIR) $(MOD_DIR)
 	$(FC) $(FFLAGS) -c $< -o $@
 
-$(OBJ_DIR)/renderer_3d.o: $(SRC_DIR)/renderer.f90 $(OBJ_DIR)/math_3d.o $(OBJ_DIR)/material_3d.o $(OBJ_DIR)/material_pbr_3d.o $(OBJ_DIR)/mesh_3d.o $(OBJ_DIR)/camera_3d.o $(OBJ_DIR)/texture_3d.o $(OBJ_DIR)/lighting_3d.o $(OBJ_DIR)/shadow_3d.o
+$(OBJ_DIR)/skinning_3d.o: $(SRC_DIR)/skinning.f90 $(OBJ_DIR)/math_3d.o $(OBJ_DIR)/mesh_3d.o
+	@mkdir -p $(OBJ_DIR) $(MOD_DIR)
+	$(FC) $(FFLAGS) -c $< -o $@
+
+$(OBJ_DIR)/scene_3d.o: $(SRC_DIR)/scene.f90 $(OBJ_DIR)/math_3d.o $(OBJ_DIR)/material_3d.o $(OBJ_DIR)/material_pbr_3d.o $(OBJ_DIR)/mesh_3d.o $(OBJ_DIR)/camera_3d.o $(OBJ_DIR)/texture_3d.o $(OBJ_DIR)/lighting_3d.o $(OBJ_DIR)/obj_loader.o $(OBJ_DIR)/sprite_3d.o $(OBJ_DIR)/text_render_3d.o $(OBJ_DIR)/particles_3d.o $(OBJ_DIR)/keyframe_3d.o $(OBJ_DIR)/geo_flat_3d.o $(OBJ_DIR)/geo_capsule_3d.o $(OBJ_DIR)/geo_tube_3d.o $(OBJ_DIR)/geo_lathe_3d.o $(OBJ_DIR)/geo_extrude_3d.o $(OBJ_DIR)/geo_poly_3d.o $(OBJ_DIR)/geo_torusknot_3d.o $(OBJ_DIR)/shader_3d.o $(OBJ_DIR)/skinning_3d.o
+	@mkdir -p $(OBJ_DIR) $(MOD_DIR)
+	$(FC) $(FFLAGS) -c $< -o $@
+
+$(OBJ_DIR)/renderer_3d.o: $(SRC_DIR)/renderer.f90 $(OBJ_DIR)/math_3d.o $(OBJ_DIR)/material_3d.o $(OBJ_DIR)/material_pbr_3d.o $(OBJ_DIR)/mesh_3d.o $(OBJ_DIR)/camera_3d.o $(OBJ_DIR)/texture_3d.o $(OBJ_DIR)/lighting_3d.o $(OBJ_DIR)/shadow_3d.o $(OBJ_DIR)/shader_3d.o
 	@mkdir -p $(OBJ_DIR) $(MOD_DIR)
 	$(FC) $(FFLAGS) -c $< -o $@
 
