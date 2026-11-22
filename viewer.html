@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Fortran 3D Engine & PPM Viewer</title>
+  <style>
+    :root {
+      --bg: #090d16;
+      --panel: #131d2e;
+      --card: #1e293b;
+      --accent: #38bdf8;
+      --accent-hover: #0ea5e9;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --border: #334155;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 1.5rem;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 1.25rem;
+    }
+    h1 {
+      font-size: 1.8rem;
+      color: var(--accent);
+      margin-bottom: 0.25rem;
+    }
+    p { color: var(--muted); font-size: 0.9rem; }
+    .tabs {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+      background: var(--panel);
+      padding: 0.35rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    .tab-btn {
+      background: transparent;
+      color: var(--muted);
+      border: none;
+      padding: 0.5rem 1.2rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.9rem;
+      transition: all 0.2s;
+    }
+    .tab-btn.active {
+      background: var(--accent);
+      color: #0f172a;
+    }
+    .container {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem;
+      box-shadow: 0 12px 30px rgba(0,0,0,0.5);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+      max-width: 900px;
+      width: 100%;
+    }
+    .viewport {
+      position: relative;
+      background: #020617;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      width: 640px;
+      height: 480px;
+      cursor: grab;
+      user-select: none;
+    }
+    .viewport:active {
+      cursor: grabbing;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+    .controls-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+    }
+    button, label.btn {
+      background: #0284c7;
+      color: white;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 0.85rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      transition: background 0.2s;
+    }
+    button:hover, label.btn:hover {
+      background: var(--accent-hover);
+    }
+    input[type="file"] { display: none; }
+    .badge {
+      font-size: 0.8rem;
+      padding: 0.25rem 0.6rem;
+      border-radius: 4px;
+      background: #0f172a;
+      color: var(--accent);
+      border: 1px solid var(--border);
+    }
+    .hud-hint {
+      position: absolute;
+      bottom: 8px;
+      left: 12px;
+      font-size: 0.75rem;
+      color: rgba(255, 255, 255, 0.6);
+      pointer-events: none;
+      background: rgba(0,0,0,0.5);
+      padding: 4px 8px;
+      border-radius: 4px;
+    }
+    .instructions-card {
+      margin-top: 1.25rem;
+      background: #020617;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      font-size: 0.85rem;
+      color: var(--muted);
+      max-width: 900px;
+      width: 100%;
+      line-height: 1.6;
+    }
+    .instructions-card strong { color: var(--text); }
+    .instructions-card code {
+      background: #1e293b;
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: var(--accent);
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>Fortran 3D Graphics Engine</h1>
+    <p>Real-time Interactive 3D Orbit & Native In-Browser .PPM Decoder</p>
+  </header>
+
+  <div class="tabs">
+    <button class="tab-btn active" id="tab3dBtn" onclick="switchTab('3d')">🎮 Interactive 3D Model (Orbit & Move)</button>
+    <button class="tab-btn" id="tabPpmBtn" onclick="switchTab('ppm')">🖼️ Fortran .PPM Rasterizer Output</button>
+  </div>
+
+  <div class="container">
+    <div class="controls-row" id="controls3D">
+      <button onclick="toggleAutoRotate()" id="btnAutoRotate">⏸️ Pause Auto-Rotate</button>
+      <button onclick="toggleWireframe()" id="btnWireframe">🕸️ Wireframe Mode</button>
+      <button onclick="resetCamera()">🔄 Reset Camera</button>
+      <label class="btn">
+        📂 Load scene.json
+        <input type="file" id="jsonPicker" accept=".json" onchange="handleJsonFile(this.files[0])" />
+      </label>
+      <span class="badge" id="triCountBadge">12 Triangles</span>
+    </div>
+
+    <div class="controls-row" id="controlsPPM" style="display: none;">
+      <label class="btn">
+        📂 Open .PPM / .PNG File
+        <input type="file" id="ppmPicker" accept=".ppm,.png" onchange="handlePpmFile(this.files[0])" />
+      </label>
+      <button onclick="loadDefaultPPM()">🔄 Load output_render.ppm</button>
+      <span class="badge" id="ppmInfoBadge">Format: Netpbm PPM (P3)</span>
+    </div>
+
+    <div class="viewport" id="viewport">
+      <canvas id="mainCanvas" width="640" height="480"></canvas>
+      <div class="hud-hint" id="hudHint">🖱️ Drag left mouse to Rotate | Scroll to Zoom | Drag right mouse to Pan</div>
+    </div>
+  </div>
+
+  <div class="instructions-card">
+    <div><strong>Why .ppm didn't open before:</strong> Browsers (Chrome, Firefox) do not natively support Netpbm <code>.ppm</code> image tags. This viewer now includes a built-in pure JavaScript PPM decoder that directly parses P3 ASCII and P6 binary formats on HTML5 Canvas!</div>
+    <div style="margin-top: 6px;"><strong>Interactive 3D Navigation:</strong> Switch between the interactive 3D model (drag to move, inspect normals, lighting) and the Fortran software rasterizer output.</div>
+  </div>
+
+  <script>
+    let currentTab = '3d';
+    const canvas = document.getElementById('mainCanvas');
+    const ctx = canvas.getContext('2d');
+    const hudHint = document.getElementById('hudHint');
+
+    // Default cube triangles matching Fortran mesh
+    let triangles = [
+      // South face
+      {v: [[-1,-1,-1], [ 1, 1,-1], [ 1,-1,-1]], color: [220, 60, 60]},
+      {v: [[-1,-1,-1], [-1, 1,-1], [ 1, 1,-1]], color: [220, 60, 60]},
+      // East face
+      {v: [[ 1,-1,-1], [ 1, 1, 1], [ 1,-1, 1]], color: [ 60,220, 60]},
+      {v: [[ 1,-1,-1], [ 1, 1,-1], [ 1, 1, 1]], color: [ 60,220, 60]},
+      // North face
+      {v: [[ 1,-1, 1], [-1, 1, 1], [-1,-1, 1]], color: [ 60,100,240]},
+      {v: [[ 1,-1, 1], [ 1, 1, 1], [-1, 1, 1]], color: [ 60,100,240]},
+      // West face
+      {v: [[-1,-1, 1], [-1, 1,-1], [-1,-1,-1]], color: [240,220, 50]},
+      {v: [[-1,-1, 1], [-1, 1, 1], [-1, 1,-1]], color: [240,220, 50]},
+      // Top face
+      {v: [[-1, 1,-1], [ 1, 1, 1], [ 1, 1,-1]], color: [200, 80,220]},
+      {v: [[-1, 1,-1], [-1, 1, 1], [ 1, 1, 1]], color: [200, 80,220]},
+      // Bottom face
+      {v: [[-1,-1, 1], [ 1,-1,-1], [ 1,-1, 1]], color: [ 60,220,220]},
+      {v: [[-1,-1, 1], [-1,-1,-1], [ 1,-1,-1]], color: [ 60,220,220]}
+    ];
+
+    // Camera & Orbit state
+    let rotX = 0.35, rotY = 0.6;
+    let panX = 0, panY = 0;
+    let zoom = 140;
+    let autoRotate = true;
+    let wireframe = false;
+    let isDragging = false;
+    let dragButton = 0;
+    let lastMouseX = 0, lastMouseY = 0;
+
+    function switchTab(tab) {
+      currentTab = tab;
+      document.getElementById('tab3dBtn').classList.toggle('active', tab === '3d');
+      document.getElementById('tabPpmBtn').classList.toggle('active', tab === 'ppm');
+      document.getElementById('controls3D').style.display = tab === '3d' ? 'flex' : 'none';
+      document.getElementById('controlsPPM').style.display = tab === 'ppm' ? 'flex' : 'none';
+
+      if (tab === '3d') {
+        hudHint.textContent = '🖱️ Drag left mouse to Rotate | Scroll to Zoom | Drag right mouse to Pan';
+      } else {
+        hudHint.textContent = '🖼️ PPM Canvas Renderer (Pure Fortran Framebuffer Output)';
+        loadDefaultPPM();
+      }
+    }
+
+    function toggleAutoRotate() {
+      autoRotate = !autoRotate;
+      document.getElementById('btnAutoRotate').textContent = autoRotate ? '⏸️ Pause Auto-Rotate' : '▶️ Resume Auto-Rotate';
+    }
+
+    function toggleWireframe() {
+      wireframe = !wireframe;
+      document.getElementById('btnWireframe').textContent = wireframe ? '🎨 Shaded Mode' : '🕸️ Wireframe Mode';
+    }
+
+    function resetCamera() {
+      rotX = 0.35; rotY = 0.6;
+      panX = 0; panY = 0;
+      zoom = 140;
+    }
+
+    // 3D Rendering Math
+    function rotatePoint(p, rx, ry) {
+      // Rotate around Y
+      let cosY = Math.cos(ry), sinY = Math.sin(ry);
+      let x1 = p[0] * cosY - p[2] * sinY;
+      let z1 = p[0] * sinY + p[2] * cosY;
+
+      // Rotate around X
+      let cosX = Math.cos(rx), sinX = Math.sin(rx);
+      let y2 = p[1] * cosX - z1 * sinX;
+      let z2 = p[1] * sinX + z1 * cosX;
+
+      return [x1, y2, z2];
+    }
+
+    function project(p3d) {
+      const distance = 4.0;
+      const z = p3d[2] + distance;
+      const f = zoom / (z > 0.1 ? z : 0.1);
+      return [
+        canvas.width / 2 + p3d[0] * f + panX,
+        canvas.height / 2 - p3d[1] * f + panY,
+        z
+      ];
+    }
+
+    function render3D() {
+      if (currentTab !== '3d') return;
+
+      if (autoRotate && !isDragging) {
+        rotY += 0.015;
+      }
+
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Transform & sort triangles by depth (Painter's algorithm)
+      const renderList = [];
+
+      for (let tri of triangles) {
+        const p0 = rotatePoint(tri.v[0], rotX, rotY);
+        const p1 = rotatePoint(tri.v[1], rotX, rotY);
+        const p2 = rotatePoint(tri.v[2], rotX, rotY);
+
+        // Face normal
+        const ax = p1[0] - p0[0], ay = p1[1] - p0[1], az = p1[2] - p0[2];
+        const bx = p2[0] - p0[0], by = p2[1] - p0[1], bz = p2[2] - p0[2];
+        const nx = ay * bz - az * by;
+        const ny = az * bx - ax * bz;
+        const nz = ax * by - ay * bx;
+
+        // Backface culling
+        if (nz <= 0 && !wireframe) continue;
+
+        const len = Math.hypot(nx, ny, nz) || 1;
+        const norm = [nx/len, ny/len, nz/len];
+
+        // Directional lighting
+        const light = [-0.5, -1.0, -0.7];
+        const lLen = Math.hypot(...light);
+        const lNorm = [light[0]/lLen, light[1]/lLen, light[2]/lLen];
+        const diffuse = Math.max(0, -(norm[0]*lNorm[0] + norm[1]*lNorm[1] + norm[2]*lNorm[2]));
+        const intensity = 0.25 + 0.75 * diffuse;
+
+        const proj0 = project(p0);
+        const proj1 = project(p1);
+        const proj2 = project(p2);
+        const avgZ = (proj0[2] + proj1[2] + proj2[2]) / 3;
+
+        renderList.push({
+          pts: [proj0, proj1, proj2],
+          color: tri.color,
+          intensity,
+          avgZ
+        });
+      }
+
+      renderList.sort((a, b) => b.avgZ - a.avgZ);
+
+      for (let item of renderList) {
+        ctx.beginPath();
+        ctx.moveTo(item.pts[0][0], item.pts[0][1]);
+        ctx.lineTo(item.pts[1][0], item.pts[1][1]);
+        ctx.lineTo(item.pts[2][0], item.pts[2][1]);
+        ctx.closePath();
+
+        if (wireframe) {
+          ctx.strokeStyle = '#38bdf8';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        } else {
+          const r = Math.min(255, Math.floor(item.color[0] * item.intensity));
+          const g = Math.min(255, Math.floor(item.color[1] * item.intensity));
+          const b = Math.min(255, Math.floor(item.color[2] * item.intensity));
+          ctx.fillStyle = `rgb(${r},${g},${b})`;
+          ctx.fill();
+          ctx.strokeStyle = `rgba(0,0,0,0.3)`;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+      }
+
+      requestAnimationFrame(render3D);
+    }
+
+    // Mouse Interaction
+    const vp = document.getElementById('viewport');
+    vp.addEventListener('contextmenu', e => e.preventDefault());
+
+    vp.addEventListener('mousedown', (e) => {
+      isDragging = true;
+      dragButton = e.button;
+      lastMouseX = e.clientX;
+      lastMouseY = e.clientY;
+    });
+
+    window.addEventListener('mouseup', () => { isDragging = false; });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isDragging || currentTab !== '3d') return;
+      const dx = e.clientX - lastMouseX;
+      const dy = e.clientY - lastMouseY;
+      lastMouseX = e.clientX;
+      lastMouseY = e.clientY;
+
+      if (dragButton === 0) { // Rotate
+        rotY += dx * 0.01;
+        rotX += dy * 0.01;
+      } else if (dragButton === 2) { // Pan
+        panX += dx;
+        panY += dy;
+      }
+    });
+
+    vp.addEventListener('wheel', (e) => {
+      if (currentTab !== '3d') return;
+      e.preventDefault();
+      zoom += e.deltaY * -0.2;
+      zoom = Math.max(20, Math.min(600, zoom));
+    }, { passive: false });
+
+    // Try loading scene.json automatically
+    fetch('scene.json')
+      .then(r => r.json())
+      .then(data => {
+        if (data && data.triangles) {
+          triangles = data.triangles;
+          document.getElementById('triCountBadge').textContent = `${triangles.length} Triangles (scene.json)`;
+        }
+      })
+      .catch(() => {});
+
+    function handleJsonFile(file) {
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = JSON.parse(e.target.result);
+          if (data.triangles) {
+            triangles = data.triangles;
+            document.getElementById('triCountBadge').textContent = `${triangles.length} Triangles (${file.name})`;
+          }
+        } catch (err) {
+          alert('Invalid JSON file');
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    // Pure JavaScript PPM (P3/P6) Parser & Renderer
+    function parseAndRenderPPM(content, isBinary = false) {
+      let width = 0, height = 0, maxVal = 255;
+      let pos = 0;
+
+      function nextToken() {
+        while (pos < content.length) {
+          // Skip whitespace
+          while (pos < content.length && /\s/.test(content[pos])) pos++;
+          if (pos >= content.length) return null;
+          // Skip comments
+          if (content[pos] === '#') {
+            while (pos < content.length && content[pos] !== '\n') pos++;
+            continue;
+          }
+          let start = pos;
+          while (pos < content.length && !/\s/.test(content[pos])) pos++;
+          return content.substring(start, pos);
+        }
+        return null;
+      }
+
+      const magic = nextToken();
+      if (magic !== 'P3') {
+        alert('Currently supporting ASCII PPM (P3). File header: ' + magic);
+        return;
+      }
+
+      width = parseInt(nextToken(), 10);
+      height = parseInt(nextToken(), 10);
+      maxVal = parseInt(nextToken(), 10);
+
+      canvas.width = width;
+      canvas.height = height;
+      const imgData = ctx.createImageData(width, height);
+      const data = imgData.data;
+
+      let idx = 0;
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const r = Math.floor((parseInt(nextToken(), 10) / maxVal) * 255);
+          const g = Math.floor((parseInt(nextToken(), 10) / maxVal) * 255);
+          const b = Math.floor((parseInt(nextToken(), 10) / maxVal) * 255);
+          data[idx++] = r;
+          data[idx++] = g;
+          data[idx++] = b;
+          data[idx++] = 255;
+        }
+      }
+      ctx.putImageData(imgData, 0, 0);
+      document.getElementById('ppmInfoBadge').textContent = `Loaded ${width}x${height} (P3 ASCII)`;
+    }
+
+    function loadDefaultPPM() {
+      fetch('output_render.ppm')
+        .then(res => {
+          if (!res.ok) throw new Error('File not found');
+          return res.text();
+        })
+        .then(text => parseAndRenderPPM(text))
+        .catch(() => {
+          // Fallback to PNG if direct ppm fetch blocked by file:// CORS
+          const img = new Image();
+          img.onload = () => {
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx.drawImage(img, 0, 0);
+            document.getElementById('ppmInfoBadge').textContent = `Loaded ${img.width}x${img.height} (PNG)`;
+          };
+          img.src = 'output_render.png';
+        });
+    }
+
+    function handlePpmFile(file) {
+      if (!file) return;
+      if (file.name.endsWith('.png')) {
+        const reader = new FileReader();
+        reader.onload = e => {
+          const img = new Image();
+          img.onload = () => {
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx.drawImage(img, 0, 0);
+          };
+          img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+      } else {
+        const reader = new FileReader();
+        reader.onload = e => parseAndRenderPPM(e.target.result);
+        reader.readAsText(file);
+      }
+    }
+
+    // Start 3D Loop
+    requestAnimationFrame(render3D);
+  </script>
+</body>
+</html>

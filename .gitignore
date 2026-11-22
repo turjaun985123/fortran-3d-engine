@@ -1,0 +1,13 @@
+# Binaries and object files
+bin/
+obj/
+include/
+*.o
+*.mod
+
+# Large raw raster dumps (optional)
+# output_render.ppm
+
+# OS metadata
+.DS_Store
+Thumbs.db
