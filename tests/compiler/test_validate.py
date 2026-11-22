@@ -121,11 +121,36 @@ class TestValidateErrors(unittest.TestCase):
     def test_spin_unknown_target_e201(self):
         self.assert_rejected("cube red\nspin ghost\n", ["E201"])
 
-    def test_texture_property_e204(self):
-        self.assert_rejected('cube red texture "wood.png"\n', ["E204"])
+    def test_texture_property_wavea(self):
+        # Wave A: textures are real now (ext_materials replaces the
+        # v1 E204 reservation).  A .ppm texture validates clean and
+        # lands in the IR object's material extension (resolved to an
+        # absolute path when the file exists under base_dir); a .png
+        # texture is rejected by ext validation with E501.
+        with tempfile.TemporaryDirectory() as tmp:
+            checker = os.path.join(tmp, "checker.ppm")
+            with open(checker, "w", encoding="ascii") as fh:
+                fh.write("P3\n2 2\n255\n0 0 0 255 255 255\n"
+                         "255 255 255 0 0 0\n")
+            scene, codes = run('cube red texture "checker.ppm"\n',
+                               base_dir=tmp)
+            self.assertEqual(codes, [])
+            self.assertIsNotNone(scene)
+            ext = scene.objects[0].extensions["material"]
+            self.assertEqual(ext["texture"], os.path.abspath(checker))
+        self.assert_rejected('cube red texture "wood.png"\n', ["E501"])
 
-    def test_material_standard_not_built_yet_e205(self):
-        self.assert_rejected("cube red material standard\n", ["E205"])
+    def test_material_standard_wavea(self):
+        # Wave A: `material standard` is built (PBR).  It validates
+        # clean (no E205) and the IR material extension carries the
+        # metalness/roughness defaults (0.0 / 1.0).
+        scene, codes = run("cube red material standard\n")
+        self.assertEqual(codes, [])
+        self.assertIsNotNone(scene)
+        self.assertEqual(scene.objects[0].material, "standard")
+        ext = scene.objects[0].extensions["material"]
+        self.assertEqual(ext["metalness"], 0.0)
+        self.assertEqual(ext["roughness"], 1.0)
 
     def test_load_missing_file_e501(self):
         with tempfile.TemporaryDirectory() as tmp:

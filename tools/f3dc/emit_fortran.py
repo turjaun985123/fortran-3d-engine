@@ -291,6 +291,33 @@ def emit_scene_text(ir) -> str:
     for light in (_get(ir, "lights", default=[]) or []):
         kind = str(_get(light, "kind", default="directional")).lower()
         intensity = fmt_num(_get(light, "intensity", default=1.0))
+        if kind in ("point", "spot"):
+            # Wave A: full punctual-light line via ext_lights_env.
+            line = None
+            try:
+                try:
+                    import ext_lights_env as _ele  # type: ignore
+                except Exception:
+                    from . import ext_lights_env as _ele  # type: ignore
+                ext = {
+                    "position": _get(light, "position", "at"),
+                    "target": _get(light, "target", "look"),
+                    "distance": _get(light, "distance", default=0.0),
+                    "decay": _get(light, "decay", default=2.0),
+                    "angle": _get(light, "angle", default=45.0),
+                    "penumbra": _get(light, "penumbra", default=0.0),
+                }
+                lcol = _color_ints(
+                    _get(light, "color", "colour",
+                         default=(255, 255, 255))) or (255, 255, 255)
+                line = _ele.light_line(
+                    kind, ext, lcol,
+                    float(_get(light, "intensity", default=1.0)))
+            except Exception:
+                line = None
+            if line is not None:
+                lines.append(line)
+            continue
         if kind == "ambient":
             lines.append("light ambient %s" % intensity)
         else:
@@ -332,6 +359,18 @@ def emit_scene_text(ir) -> str:
         elif prim == "load":
             path = _get(obj, "source_file", "path", "file",
                         default=None) or "model.obj"
+            # Wave A housekeeping (v1 rough edge): resolve relative
+            # OBJ paths against the .f3d file's directory so the
+            # engine finds them regardless of its working directory.
+            try:
+                import os as _os
+                base = getattr(ir, "base_dir", None)
+                if base and not _os.path.isabs(str(path)):
+                    cand = _os.path.join(str(base), str(path))
+                    if _os.path.exists(cand):
+                        path = _os.path.abspath(cand)
+            except Exception:
+                pass
             lines.append(
                 "loadobj %s %s %s %s %s" % (
                     name, material, _color_text(color),
@@ -368,6 +407,39 @@ def emit_scene_text(ir) -> str:
                 str(_get(anim, "loop", default="forever")).lower(),
             )
         )
+
+    # Wave A: per-object material/texture lines (after the objects
+    # they name) and scene environment lines. Absent for v1 scenes,
+    # so v1 .scene output is unchanged byte-for-byte.
+    try:
+        try:
+            import ext_materials as _em  # type: ignore
+        except Exception:
+            from . import ext_materials as _em  # type: ignore
+        for obj in (_get(ir, "objects", default=[]) or []):
+            exts = _get(obj, "extensions", default={})
+            extd = exts.get("material") if isinstance(exts, dict) \
+                else None
+            if extd:
+                line = _em.objmat_line(
+                    str(_get(obj, "name", default="object")),
+                    str(_get(obj, "material",
+                             default="lambert")).lower(), extd)
+                if line is not None:
+                    lines.append(line)
+    except Exception:
+        pass
+    try:
+        exts = _get(ir, "extensions", default={})
+        env = exts.get("env") if isinstance(exts, dict) else None
+        if env:
+            try:
+                import ext_lights_env as _ele2  # type: ignore
+            except Exception:
+                from . import ext_lights_env as _ele2  # type: ignore
+            lines.extend(_ele2.env_lines(env))
+    except Exception:
+        pass
 
     return "\n".join(lines) + "\n"
 

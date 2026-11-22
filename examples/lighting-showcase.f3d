@@ -1,0 +1,15 @@
+# Lighting showcase: Wave A point/spot lights, soft shadows, ACES
+# tonemapping, linear fog, PBR standard materials and a PPM texture.
+# One still frame (no animation): a textured checker cube flanked by a
+# glossy dielectric sphere and a fully metallic sphere on a ground
+# plane that receives their shadows.
+scene "lighting-showcase" size 640 480 background black fog linear near 30 far 80 tonemap aces shadow soft
+camera at 5 3 7 look 0 -1 0
+light spot at -3 6 4 look 0 -1 0 angle 40 penumbra 0.5 intensity 60 decay 2
+light point orange at -5 1 4 intensity 40 distance 0 decay 2
+light ambient strength 0.15
+plane ground gray at 0 -2 0 size 16 material standard metalness 0 roughness 0.95
+cube checker_cube white at -3.2 -1 0 size 2 material standard metalness 0 roughness 0.8 texture "assets/checker.ppm"
+sphere glossy_ball blue at 0 -1 0 radius 1 material standard metalness 0 roughness 0.15
+sphere metal_ball gray at 2.8 -1.1 0 radius 0.9 material standard metalness 1 roughness 0.3
+render

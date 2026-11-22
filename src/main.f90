@@ -5,6 +5,9 @@ program main
     use renderer_3d
     use scene_3d
     use animation_3d
+    use shadow_3d
+    use fog_3d
+    use tonemapping_3d
     implicit none
 
     type(Mesh) :: cube
@@ -26,6 +29,12 @@ program main
     integer :: nargs, frame_i, obj_i, anim_i, n_frames, n_objects, dot_pos
     real(dp) :: fps_r, t_sec, scale_factor
     real(dp) :: d_rot(3), d_pos(3), a_rot(3), a_pos(3), a_scale
+    ! Wave A env-path state (scene mode only, when sc%has_env)
+    type(ShadowMap) :: smap
+    type(mat4), allocatable :: models(:)
+    type(vec3) :: sh_pos, sh_tgt
+    real(dp) :: extents(3)
+    integer :: li
 
     nargs = command_argument_count()
 
@@ -113,6 +122,7 @@ program main
         if (fps_r <= 0.0_dp) fps_r = 30.0_dp
 
         call framebuffer_init(fb, sc%width, sc%height)
+        if (sc%has_env) allocate(models(max(1, n_objects)))
 
         do frame_i = 1, n_frames
             t_sec = real(frame_i - 1, dp) / fps_r
@@ -155,10 +165,71 @@ program main
                                     sc%objects(obj_i)%scl%z * scale_factor)
                 model = mat4_compose_trs(pos_v, rot_v, scl_v)
 
-                call framebuffer_render_mesh_mat(fb, sc%objects(obj_i)%mesh, &
-                                                 model, sc%cam, sc%light_dir, &
-                                                 sc%objects(obj_i)%mat, sc%ambient)
+                if (sc%has_env) then
+                    models(obj_i) = model
+                else
+                    call framebuffer_render_mesh_mat(fb, &
+                        sc%objects(obj_i)%mesh, model, sc%cam, &
+                        sc%light_dir, sc%objects(obj_i)%mat, sc%ambient)
+                end if
             end do
+
+            if (sc%has_env) then
+                ! Wave A: shadow map from the first shadow-casting
+                ! light (spot/point position, else the directional
+                ! placed opposite its direction), then env rendering,
+                ! then fog / tonemapping post passes.
+                if (sc%shadow_mode > 0) then
+                    sh_pos = vec3_create(0.0_dp, 0.0_dp, 0.0_dp)
+                    sh_tgt = vec3_create(0.0_dp, 0.0_dp, 0.0_dp)
+                    if (allocated(sc%lights%items)) then
+                        do li = 1, size(sc%lights%items)
+                            if (sc%lights%items(li)%kind == 2 .or. &
+                                sc%lights%items(li)%kind == 1) then
+                                sh_pos = sc%lights%items(li)%pos
+                                if (sc%lights%items(li)%kind == 2) &
+                                    sh_tgt = vec3_add(sh_pos, &
+                                        sc%lights%items(li)%spot_dir)
+                                exit
+                            end if
+                        end do
+                        if (li > size(sc%lights%items)) &
+                            sh_pos = vec3_scale( &
+                                vec3_normalize(sc%light_dir), -30.0_dp)
+                    end if
+                    call shadow_begin(smap, sh_pos, sh_tgt, &
+                                      sc%shadow_size, 60.0_dp, 0.5_dp, &
+                                      80.0_dp)
+                    do obj_i = 1, n_objects
+                        call shadow_add_mesh(smap, &
+                            sc%objects(obj_i)%mesh, models(obj_i))
+                    end do
+                    call shadow_end(smap)
+                end if
+
+                do obj_i = 1, n_objects
+                    extents = object_extents(sc%objects(obj_i))
+                    call framebuffer_render_mesh_env(fb, &
+                        sc%objects(obj_i)%mesh, models(obj_i), sc%cam, &
+                        sc%lights, sc%objects(obj_i)%pbr, &
+                        sc%objects(obj_i)%tex, &
+                        trim(sc%objects(obj_i)%prim), extents, smap, &
+                        sc%shadow_mode)
+                end do
+
+                if (sc%fog_mode == 1) then
+                    call fog_apply(fb, 1, sc%fog_near, sc%fog_far, &
+                                   sc%fog_color, sc%cam%near_plane, &
+                                   sc%cam%far_plane)
+                else if (sc%fog_mode == 2) then
+                    call fog_apply(fb, 2, sc%fog_density, 0.0_dp, &
+                                   sc%fog_color, sc%cam%near_plane, &
+                                   sc%cam%far_plane)
+                end if
+                if (sc%tonemap_mode /= 0) &
+                    call tonemap_apply(fb, sc%tonemap_mode, &
+                                       sc%tonemap_exposure)
+            end if
 
             ! Frame 1 (frame 0 in t) always lands in sc%output_file.
             if (frame_i == 1) call framebuffer_save_ppm(fb, trim(sc%output_file))
@@ -188,5 +259,39 @@ program main
         print *, '   Output:  ', trim(sc%output_file)
         print *, '============================================'
     end if
+
+contains
+
+    ! Full extents (sx, sy, sz) of a scene object for the texture
+    ! module's prim_uv contract; mirrors scene.f90's per-prim defaults.
+    function object_extents(obj) result(ext)
+        type(SceneObject), intent(in) :: obj
+        real(dp) :: ext(3)
+        real(dp) :: sz, rad, hgt
+        sz = obj%dim_size
+        rad = obj%dim_radius
+        hgt = obj%dim_height
+        select case (trim(obj%prim))
+        case ('sphere')
+            if (rad <= 0.0_dp) rad = 1.0_dp
+            ext = [2.0_dp * rad, 2.0_dp * rad, 2.0_dp * rad]
+        case ('cylinder', 'cone')
+            if (rad <= 0.0_dp) rad = 1.0_dp
+            if (hgt <= 0.0_dp) hgt = 2.0_dp
+            ext = [2.0_dp * rad, hgt, 2.0_dp * rad]
+        case ('plane')
+            if (sz <= 0.0_dp) sz = 4.0_dp
+            ext = [sz, 0.0_dp, sz]
+        case ('torus')
+            if (rad <= 0.0_dp) rad = 1.5_dp
+            ext = [2.0_dp * (rad + rad * 0.35_dp), &
+                   2.0_dp * rad * 0.35_dp, &
+                   2.0_dp * (rad + rad * 0.35_dp)]
+        case default  ! cube / box / pyramid / tris / load
+            if (sz <= 0.0_dp) sz = 2.0_dp
+            if (hgt <= 0.0_dp) hgt = sz
+            ext = [sz, hgt, sz]
+        end select
+    end function object_extents
 
 end program main

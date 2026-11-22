@@ -525,12 +525,24 @@ class Parser:
     def _parse_scene(self, lp):
         lp.next()  # scene
         name, size, bg = None, None, None
+        env_clauses = {}
         seen = set()
+        clause_words = ("size", "bg", "background", "colour", "color",
+                        "fog", "tonemap", "tone", "shadow")
         while not lp.at_end():
             w = lp.peek_word()
             if w in ("size",):
                 lp.next(); lp.dup(seen, "size")
                 size = lp.size()
+            elif w in ("fog", "tonemap", "tone", "shadow"):
+                # Wave A environment clause: consume tokens up to the
+                # next clause keyword; ext_lights_env owns semantics.
+                key = "tonemap" if w in ("tonemap", "tone") else w
+                lp.next(); lp.dup(seen, key)
+                parts = [w]
+                while not lp.at_end() and lp.peek_word() not in clause_words:
+                    parts.append(lp.next_text())
+                env_clauses[key] = " ".join(parts)
             elif w in ("bg", "background", "colour", "color"):
                 lp.next(); lp.dup(seen, "background")
                 bg = lp.colour()
@@ -543,11 +555,16 @@ class Parser:
             else:
                 raise _LineError("E103", "unexpected '%s' in scene statement"
                                          % lp.peek_text())
+        scene_props = {"size": size, "background": bg}
+        scene_props.update(env_clauses)
         return _make("SceneStmt", name=name, size=size,
                      width=size[0] if size else None,
                      height=size[1] if size else None,
                      bg=bg, background=bg, colour=bg, color=bg,
-                     props={"size": size, "background": bg},
+                     fog=env_clauses.get("fog"),
+                     tonemap=env_clauses.get("tonemap"),
+                     shadow=env_clauses.get("shadow"),
+                     props=scene_props,
                      line=lp.no, span=None)
 
     def _parse_camera(self, lp):
@@ -573,6 +590,8 @@ class Parser:
     def _parse_light(self, lp):
         lp.next()
         kind, direction, frm, intensity, colour = None, None, None, None, None
+        position, target = None, None
+        extra = {}
         props, seen = {}, set()
         while not lp.at_end():
             w = lp.peek_word()
@@ -580,6 +599,12 @@ class Parser:
                 lp.next(); kind = w
             elif w in ("dir", "direction"):
                 lp.next(); lp.dup(seen, "dir"); direction = lp.vec3()
+            elif w in ("at", "pos", "position"):
+                lp.next(); lp.dup(seen, "at"); position = lp.vec3()
+            elif w in ("look", "target", "look_at"):
+                lp.next(); lp.dup(seen, "look"); target = lp.vec3()
+            elif w in ("distance", "decay", "angle", "penumbra"):
+                lp.next(); lp.dup(seen, w); extra[w] = lp.number(w)
             elif w == "from":
                 lp.next(); lp.dup(seen, "from"); frm = lp.vec3()
                 direction = tuple(-v for v in frm)
@@ -595,13 +620,22 @@ class Parser:
             else:
                 raise _LineError("E103", "unexpected '%s' in light statement"
                                          % lp.peek_text())
+        if position is None:
+            # For point/spot, `from <vec3>` names the light's position
+            # (ext_lights_env semantics), not a direction. For
+            # directional lights this preserves the v1 position=frm.
+            position = frm
         props.update({"direction": direction, "dir": direction, "from": frm,
                       "intensity": intensity, "strength": intensity,
-                      "colour": colour})
+                      "colour": colour, "at": position,
+                      "position": position, "look": target,
+                      "target": target})
+        props.update(extra)
         return _make("LightStmt", kind=kind or "directional",
                      type=kind or "directional", mode=kind or "directional",
                      direction=direction, dir=direction, from_=frm,
-                     position=frm, intensity=intensity, strength=intensity,
+                     position=position, target=target,
+                     intensity=intensity, strength=intensity,
                      colour=colour, color=colour, props=props,
                      line=lp.no, span=None)
 
@@ -622,6 +656,8 @@ class Parser:
             lp.next(); lp.dup(seen, "scale"); props["scale"] = lp.num_or_vec3()
         elif w == "material":
             lp.next(); lp.dup(seen, "material"); props["material"] = lp.ident()
+        elif w in ("metalness", "roughness", "specular", "shininess"):
+            lp.next(); lp.dup(seen, w); props[w] = lp.number(w)
         elif w == "segments":
             lp.next(); lp.dup(seen, "segments")
             v = lp.number("segments"); props["segments"] = int(v)

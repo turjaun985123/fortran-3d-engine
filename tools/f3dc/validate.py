@@ -45,10 +45,18 @@ try:  # package import (tools.f3dc.validate / f3dc_pkg style)
     from . import desugar as _desugar_mod
     from . import ir_nodes as _ir
     from . import errors as _errors
+    from . import ext_materials as _ext_materials
+    from . import ext_lights_env as _ext_lights_env
 except Exception:  # plain module import (tools/f3dc on sys.path)
     import desugar as _desugar_mod  # type: ignore
     import ir_nodes as _ir  # type: ignore
     import errors as _errors  # type: ignore
+    try:
+        import ext_materials as _ext_materials  # type: ignore
+        import ext_lights_env as _ext_lights_env  # type: ignore
+    except Exception:  # Wave A extensions unavailable: v1 behaviour
+        _ext_materials = None  # type: ignore
+        _ext_lights_env = None  # type: ignore
 
 __all__ = ["validate"]
 
@@ -67,9 +75,9 @@ MAX_SPEED = 10000.0
 
 PRIMITIVES = ("cube", "sphere", "cylinder", "plane", "pyramid",
               "cone", "torus", "tris")
-MATERIALS = ("lambert", "basic", "phong")
+MATERIALS = ("lambert", "basic", "phong", "standard")
 ANIM_KINDS = ("spin", "bob", "pulse", "orbit", "move", "turn", "grow")
-LIGHT_KINDS_V1 = ("directional", "ambient")
+LIGHT_KINDS_V1 = ("directional", "ambient", "point", "spot")
 CONTROLS_KINDS = ("orbit", "none")
 EASES = ("linear", "smooth", "in", "out", "ease", "ease-in", "ease-out",
          "ease-in-out")
@@ -609,9 +617,17 @@ def validate(program, bag, base_dir="."):
         else:
             controls_node = node
 
+    env_props = {}
+
     def walk_scene(node):
         nonlocal scene_name, width, height, bg
         props = _props_dict(node)
+        # Wave A environment clauses (scene-line `fog …` / `tonemap …`
+        # / `shadow …`), normalised after the walk via ext_lights_env.
+        for key in ("fog", "tonemap", "shadow"):
+            value = _field(node, props, key)
+            if value is not None:
+                env_props[key] = value
         name = _field(node, props, "name", "title")
         if isinstance(name, str) and name:
             scene_name = name
@@ -678,6 +694,7 @@ def validate(program, bag, base_dir="."):
     # ---- lights (E302 / E205) --------------------------------------
     ir_lights = []
     for node in light_nodes or [None]:
+        light_ext = None
         if node is None:
             kind, direction = "directional", _DEFAULT_LIGHT_DIR
             intensity, color, span = 1.0, (255, 255, 255), None
@@ -687,10 +704,32 @@ def validate(program, bag, base_dir="."):
             kind = str(_field(node, props, "kind", "type", "mode",
                               default="directional")).lower()
             if kind not in LIGHT_KINDS_V1:
-                _err(bag, "E205", "light %r is not built yet; v1 has "
-                                  "directional and ambient lights"
-                                  % kind, span)
+                _err(bag, "E205", "light %r is not built yet; lights "
+                                  "are: %s"
+                                  % (kind, ", ".join(LIGHT_KINDS_V1)),
+                     span)
                 continue
+            light_ext = None
+            if kind in ("point", "spot"):
+                if _ext_lights_env is not None:
+                    ext_in = {
+                        "at": _field(node, props, "at", "position"),
+                        "look": _field(node, props, "look", "target",
+                                       "look_at"),
+                        "distance": _field(node, props, "distance"),
+                        "decay": _field(node, props, "decay"),
+                        "angle": _field(node, props, "angle"),
+                        "penumbra": _field(node, props, "penumbra"),
+                    }
+                    light_ext = _ext_lights_env.extract_light_ext(ext_in)
+                    for msg in _ext_lights_env.validate_light_ext(
+                            kind, light_ext):
+                        _err(bag, "E302", msg, span)
+                else:
+                    _err(bag, "E205", "light %r needs the Wave A "
+                                      "ext_lights_env module" % kind,
+                         span)
+                    continue
             direction = _vec3(_field(node, props, "dir", "direction",
                                      "from", "position"),
                               _DEFAULT_LIGHT_DIR)
@@ -701,17 +740,29 @@ def validate(program, bag, base_dir="."):
                 if raw_color is not None else (255, 255, 255)
             if color is None:
                 color = (255, 255, 255)
-            if not _finite_vec(direction) or direction == (0.0, 0.0, 0.0):
+            if kind == "directional" and (
+                    not _finite_vec(direction)
+                    or direction == (0.0, 0.0, 0.0)):
                 _err(bag, "E302", "a light direction of 0 0 0 points "
                                   "nowhere", span)
             if not math.isfinite(intensity) or intensity < 0 \
                     or intensity > 100:
                 _err(bag, "E302", "light intensity is %s, but it "
                                   "must be 0 to 100" % intensity, span)
-        ir_lights.append(_make(
+        new_light = _make(
             getattr(_ir, "IRLight", None), kind=kind, type=kind,
             dir=direction, direction=direction, intensity=intensity,
-            color=color, colour=color, span=span))
+            color=color, colour=color, span=span)
+        if light_ext is not None:
+            # Wave A payload rides as dynamic attributes (the frozen
+            # IRLight dataclass has no fields for them); emit_fortran
+            # reads them via getattr.
+            for key, value in light_ext.items():
+                try:
+                    setattr(new_light, key, value)
+                except Exception:
+                    pass
+        ir_lights.append(new_light)
 
     # ---- objects + loads (E201/E204/E205/E301/E501) ----------------
     ir_objects = []
@@ -739,12 +790,9 @@ def validate(program, bag, base_dir="."):
                  span)
             return
         names[name] = node
-        # Texture is reserved in v1: loud E204, never a silent no-op.
-        if _field(node, props, "texture", "texture_prop", "uv") \
-                is not None or props.get("texture") is not None:
-            _err(bag, "E204", "textures are reserved in v1 and are "
-                              "not built yet; remove the texture "
-                              "property for now", span)
+        # Wave A: textures are real now (ext_materials replaces the
+        # v1 E204 reservation). The extension payload is attached to
+        # the IR object after construction, below.
         material = _field(node, props, "material")
         if material is not None:
             material = str(material).lower()
@@ -869,6 +917,35 @@ def validate(program, bag, base_dir="."):
                 segments=segments, detail=detail, capped=capped,
                 material=material, triangles=raw_tris,
                 source_file=load_path, extensions={})
+        # Wave A material/texture extension (B57) — only when the
+        # object actually uses a Wave A feature, so plain v1 objects
+        # keep extensions == {} exactly as before.
+        if _ext_materials is not None and (
+                props.get("texture") is not None
+                or material == "standard"
+                or any(k in props for k in
+                       ("metalness", "roughness", "specular",
+                        "shininess"))):
+            raw = dict(props)
+            raw["material"] = material
+            tex = raw.get("texture")
+            if isinstance(tex, str) and tex and not os.path.isabs(tex):
+                cand = os.path.join(base_dir, tex.strip("\"'"))
+                if os.path.exists(cand):
+                    raw["texture"] = os.path.abspath(cand)
+            try:
+                ir_obj.extensions["raw_props"] = raw
+                _ext_materials.apply_to_ir_object(ir_obj)
+            except Exception:
+                ir_obj.extensions.pop("raw_props", None)
+            extd = ir_obj.extensions.get("material") \
+                if isinstance(getattr(ir_obj, "extensions", None), dict) \
+                else None
+            if extd:
+                for msg in _ext_materials.validate_material_ext(
+                        material, extd):
+                    _err(bag, "E501" if "texture" in msg else "E301",
+                         msg, span)
         ir_objects.append(ir_obj)
 
     for node in object_nodes:
@@ -1052,15 +1129,45 @@ def validate(program, bag, base_dir="."):
             type="render", format="render", path=_DEFAULT_OUTPUT,
             width=width, height=height, span=None))
 
+    # Wave A environment: normalise + validate the scene clauses.
+    scene_env = None
+    if env_props and _ext_lights_env is not None:
+        # Parser stores clauses with their leading keyword
+        # ("fog linear near 8 far 30"); ext_lights_env's clause
+        # grammar expects the keyword stripped ("linear near 8 ...").
+        stripped = {}
+        for key, value in env_props.items():
+            if isinstance(value, str):
+                parts = value.split(None, 1)
+                if parts and parts[0].lower() in (
+                        "fog", "tonemap", "tone", "shadow"):
+                    value = parts[1] if len(parts) > 1 else ""
+            stripped[key] = value
+        scene_env = _ext_lights_env.extract_env(stripped)
+        for msg in _ext_lights_env.validate_env(scene_env):
+            _err(bag, "E302", msg, None)
+
     if _has_errors(bag):
         return None
-    return _make(getattr(_ir, "IRScene", None),
-                 name=scene_name, scene_name=scene_name,
-                 width=width, height=height, size=(width, height),
-                 bg=bg, background=bg, camera=ir_camera,
-                 lights=ir_lights, light=ir_lights[0] if ir_lights
-                 else None, objects=ir_objects, animations=ir_anims,
-                 anims=ir_anims, outputs=ir_outputs,
-                 output=ir_outputs[0] if ir_outputs else None,
-                 controls=controls_kind, tri_count=total_tris,
-                 triangles=total_tris, span=None)
+    scene = _make(getattr(_ir, "IRScene", None),
+                  name=scene_name, scene_name=scene_name,
+                  width=width, height=height, size=(width, height),
+                  bg=bg, background=bg, camera=ir_camera,
+                  lights=ir_lights, light=ir_lights[0] if ir_lights
+                  else None, objects=ir_objects, animations=ir_anims,
+                  anims=ir_anims, outputs=ir_outputs,
+                  output=ir_outputs[0] if ir_outputs else None,
+                  controls=controls_kind, tri_count=total_tris,
+                  triangles=total_tris, span=None)
+    if scene_env is not None:
+        try:
+            if not isinstance(scene.extensions, dict):
+                scene.extensions = {}
+            scene.extensions["env"] = scene_env
+        except Exception:
+            pass
+    try:
+        scene.base_dir = base_dir
+    except Exception:
+        pass
+    return scene

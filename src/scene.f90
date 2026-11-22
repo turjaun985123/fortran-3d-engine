@@ -26,6 +26,9 @@ module scene_3d
     use mesh_3d
     use camera_3d
     use material_3d
+    use material_pbr_3d
+    use texture_3d
+    use lighting_3d
     use obj_loader, only: load_obj
     implicit none
     private
@@ -50,6 +53,10 @@ module scene_3d
         integer :: segments = 0             ! raw SEGMENTS field (0 = missing)
         character(len=256) :: source_path = ''  ! loadobj PATH
         integer :: tri_filled = 0           ! tri lines consumed (prim 'tris')
+        ! Wave A (coordinator integration): PBR + texture per object.
+        type(MaterialPBR) :: pbr
+        type(TextureImage) :: tex
+        character(len=512) :: texture_path = ''
     end type SceneObject
 
     type :: SceneAnim
@@ -76,6 +83,21 @@ module scene_3d
         character(len=256) :: output_file = 'output_render.ppm'
         type(SceneObject), allocatable :: objects(:)
         type(SceneAnim), allocatable :: anims(:)
+        ! Wave A environment (coordinator integration). has_env gates
+        ! main's env render path; default scenes never set it, so the
+        ! legacy render stays byte-identical.
+        type(LightSet) :: lights
+        logical :: has_env = .false.
+        logical :: has_dir_light = .false.
+        integer :: fog_mode = 0             ! 0 none, 1 linear, 2 exp2
+        real(dp) :: fog_near = 0.0_dp
+        real(dp) :: fog_far = 100.0_dp
+        real(dp) :: fog_density = 0.05_dp
+        integer :: fog_color(3) = [255, 255, 255]
+        integer :: tonemap_mode = 0         ! 0 none, 1 reinhard, 2 aces
+        real(dp) :: tonemap_exposure = 1.0_dp
+        integer :: shadow_mode = 0          ! 0 off, 1 on (hard), 2 soft
+        integer :: shadow_size = 512
     end type Scene
 
 contains
@@ -218,9 +240,11 @@ contains
         if (allocated(sc%objects)) then
             do i = 1, size(sc%objects)
                 call free_mesh(sc%objects(i)%mesh)
+                call texture_free(sc%objects(i)%tex)
             end do
             deallocate(sc%objects)
         end if
+        if (allocated(sc%lights%items)) deallocate(sc%lights%items)
         if (allocated(sc%anims)) deallocate(sc%anims)
     end subroutine scene_free
 
@@ -243,6 +267,8 @@ contains
                    real(obj%color(3), dp) / 255.0_dp]
         end if
         obj%mat = material_from_name(trim(obj%mat_name), rgb, use_tri)
+        if (trim(obj%mat_name) == 'standard') obj%mat%name = 'standard'
+        obj%pbr = pbr_from_material(obj%mat, 0.0_dp, 1.0_dp)
         mid = material_id_from_name(trim(obj%mat_name))
         if (allocated(obj%mesh%triangles)) then
             do i = 1, obj%mesh%num_triangles
@@ -331,6 +357,22 @@ contains
     ! The loader
     ! ------------------------------------------------------------------
 
+    ! Resolve a path from a .scene file: absolute paths and paths that
+    ! exist relative to the cwd win; otherwise try the .scene file's own
+    ! directory (Wave A fix for the v1 loadobj rough edge — paths in a
+    ! scene belong to the scene, not to wherever the engine runs).
+    function resolve_scene_path(dir, path) result(res)
+        character(len=*), intent(in) :: dir, path
+        character(len=256) :: res
+        logical :: ex
+        res = trim(path)
+        if (len_trim(path) == 0) return
+        if (path(1:1) == '/') return
+        inquire(file=trim(path), exist=ex)
+        if (ex) return
+        if (len_trim(dir) > 0) res = trim(dir) // '/' // trim(path)
+    end function resolve_scene_path
+
     subroutine scene_load(path, sc, ok, errmsg)
         character(len=*), intent(in) :: path
         type(Scene), intent(inout) :: sc
@@ -345,10 +387,20 @@ contains
         type(vec3) :: cam_pos, cam_tgt, cam_up
         real(dp) :: aspect
         integer :: cur_tris  ! object index receiving 'tri' lines, 0 = none
+        ! Wave A locals
+        character(len=512) :: scene_dir
+        type(Light3) :: extra_lights(32)
+        type(Light3) :: lt
+        integer :: n_extra, slash, oi
+        logical :: tex_ok
 
         ok = .true.
         errmsg = ''
         cur_tris = 0
+        n_extra = 0
+        scene_dir = ''
+        slash = index(trim(path), '/', back=.true.)
+        if (slash > 1) scene_dir = path(1:slash - 1)
 
         ! Reset to format defaults.
         call scene_free(sc)
@@ -426,9 +478,134 @@ contains
                                          tok_int(tokens, 7), &
                                          tok_int(tokens, 8)]
                     sc%light_intensity = tok_real(tokens, 9)
+                    sc%has_dir_light = .true.
+                else if (ntok >= 11 .and. &
+                         trim(tokens(2)) == 'point' .and. &
+                         n_extra < 32) then
+                    ! light point px py pz R G B intensity distance decay
+                    lt = Light3()
+                    lt%kind = 1
+                    lt%pos = tok_vec3(tokens, 3)
+                    lt%dir = vec3_create(0.0_dp, -1.0_dp, 0.0_dp)
+                    lt%spot_dir = lt%dir
+                    lt%color = [tok_int(tokens, 6), tok_int(tokens, 7), &
+                                tok_int(tokens, 8)]
+                    lt%intensity = tok_real(tokens, 9)
+                    lt%distance = tok_real(tokens, 10)
+                    lt%decay = tok_real(tokens, 11)
+                    n_extra = n_extra + 1
+                    extra_lights(n_extra) = lt
+                    sc%has_env = .true.
+                else if (ntok >= 16 .and. &
+                         trim(tokens(2)) == 'spot' .and. &
+                         n_extra < 32) then
+                    ! light spot px py pz dx dy dz R G B intensity
+                    !            distance decay angle penumbra
+                    lt = Light3()
+                    lt%kind = 2
+                    lt%pos = tok_vec3(tokens, 3)
+                    lt%spot_dir = tok_vec3(tokens, 6)
+                    lt%dir = lt%spot_dir
+                    lt%color = [tok_int(tokens, 9), tok_int(tokens, 10), &
+                                tok_int(tokens, 11)]
+                    lt%intensity = tok_real(tokens, 12)
+                    lt%distance = tok_real(tokens, 13)
+                    lt%decay = tok_real(tokens, 14)
+                    lt%angle_deg = tok_real(tokens, 15)
+                    lt%penumbra = tok_real(tokens, 16)
+                    n_extra = n_extra + 1
+                    extra_lights(n_extra) = lt
+                    sc%has_env = .true.
                 else
                     call warn_line(lineno, line)
                 end if
+            case ('fog')
+                ! fog linear near far R G B | fog exp2 density R G B
+                if (ntok >= 7 .and. trim(tokens(2)) == 'linear') then
+                    sc%fog_mode = 1
+                    sc%fog_near = tok_real(tokens, 3)
+                    sc%fog_far = tok_real(tokens, 4)
+                    sc%fog_color = [tok_int(tokens, 5), &
+                                    tok_int(tokens, 6), &
+                                    tok_int(tokens, 7)]
+                    sc%has_env = .true.
+                else if (ntok >= 6 .and. trim(tokens(2)) == 'exp2') then
+                    sc%fog_mode = 2
+                    sc%fog_density = tok_real(tokens, 3)
+                    sc%fog_color = [tok_int(tokens, 4), &
+                                    tok_int(tokens, 5), &
+                                    tok_int(tokens, 6)]
+                    sc%has_env = .true.
+                else if (ntok >= 2 .and. trim(tokens(2)) == 'none') then
+                    sc%fog_mode = 0
+                else
+                    call warn_line(lineno, line)
+                end if
+            case ('tonemap')
+                ! tonemap MODE EXPOSURE
+                if (ntok >= 2) then
+                    select case (trim(tokens(2)))
+                    case ('reinhard')
+                        sc%tonemap_mode = 1
+                    case ('aces')
+                        sc%tonemap_mode = 2
+                    case default
+                        sc%tonemap_mode = 0
+                    end select
+                    if (ntok >= 3) &
+                        sc%tonemap_exposure = tok_real(tokens, 3)
+                    if (sc%tonemap_mode /= 0) sc%has_env = .true.
+                else
+                    call warn_line(lineno, line)
+                end if
+            case ('shadow')
+                ! shadow MODE SIZE (on|soft|off)
+                if (ntok >= 2) then
+                    select case (trim(tokens(2)))
+                    case ('on')
+                        sc%shadow_mode = 1
+                    case ('soft')
+                        sc%shadow_mode = 2
+                    case default
+                        sc%shadow_mode = 0
+                    end select
+                    if (ntok >= 3) sc%shadow_size = tok_int(tokens, 3)
+                    if (sc%shadow_mode /= 0) sc%has_env = .true.
+                else
+                    call warn_line(lineno, line)
+                end if
+            case ('objmat')
+                ! objmat NAME MATERIAL METALNESS ROUGHNESS SPECULAR
+                !        SHININESS TEXTURE('-' = none)   (8 tokens)
+                if (ntok < 8) then
+                    call warn_line(lineno, line)
+                    cycle
+                end if
+                oi = scene_find_object(sc, trim(tokens(2)))
+                if (oi == 0) then
+                    call warn_line(lineno, line)
+                    cycle
+                end if
+                associate (o => sc%objects(oi))
+                    o%mat_name = trim(tokens(3))
+                    call set_object_material(o)
+                    o%pbr%metalness = tok_real(tokens, 4)
+                    o%pbr%roughness = tok_real(tokens, 5)
+                    o%pbr%specular = tok_real(tokens, 6)
+                    o%pbr%shininess = tok_real(tokens, 7)
+                    if (trim(tokens(3)) == 'standard') &
+                        o%pbr%mode = MAT_STANDARD
+                    if (trim(tokens(8)) /= '-') then
+                        o%texture_path = resolve_scene_path( &
+                            scene_dir, trim(tokens(8)))
+                        call texture_load_ppm(trim(o%texture_path), &
+                                              o%tex, tex_ok)
+                        if (.not. tex_ok) print *, &
+                            'scene: warning: cannot load texture ', &
+                            trim(o%texture_path)
+                    end if
+                end associate
+                sc%has_env = .true.
             case ('frames')
                 if (ntok >= 2) sc%frames = tok_int(tokens, 2)
             case ('output')
@@ -504,7 +681,8 @@ contains
                 obj%name = trim(tokens(2))
                 obj%mat_name = trim(tokens(3))
                 call fill_common(obj, tokens, 4)
-                obj%source_path = trim(tokens(16))
+                obj%source_path = resolve_scene_path(scene_dir, &
+                                                     trim(tokens(16)))
                 call scene_build_object_mesh(obj)
                 call append_object(sc, obj)
                 call free_mesh(obj%mesh)
@@ -530,6 +708,34 @@ contains
             end select
         end do
         close(u)
+
+        ! Wave A: assemble the unified LightSet (directional first,
+        ! built from the legacy fields so defaults match v1 exactly,
+        ! then any point/spot lights in file order).
+        if (allocated(sc%lights%items)) deallocate(sc%lights%items)
+        allocate(sc%lights%items(1 + n_extra))
+        lt = Light3()
+        lt%kind = 0
+        lt%dir = sc%light_dir
+        lt%spot_dir = sc%light_dir
+        lt%pos = vec3_create(0.0_dp, 0.0_dp, 0.0_dp)
+        lt%color = sc%light_color
+        lt%intensity = sc%light_intensity
+        sc%lights%items(1) = lt
+        do i = 1, n_extra
+            sc%lights%items(1 + i) = extra_lights(i)
+        end do
+        sc%lights%ambient = sc%ambient
+        sc%lights%ambient_color = [255, 255, 255]
+        ! Any object carrying an objmat/texture/standard material also
+        ! routes the scene through the env path.
+        if (allocated(sc%objects)) then
+            do i = 1, size(sc%objects)
+                if (sc%objects(i)%tex%loaded .or. &
+                    trim(sc%objects(i)%mat_name) == 'standard') &
+                    sc%has_env = .true.
+            end do
+        end if
 
         ! Materials for 'tris' objects (their colours live per-triangle).
         if (allocated(sc%objects)) then
