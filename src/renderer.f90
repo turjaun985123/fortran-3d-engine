@@ -2,10 +2,12 @@ module renderer_3d
     use math_3d
     use mesh_3d
     use camera_3d
+    use material_3d
     implicit none
     private
     public :: FrameBuffer, framebuffer_init, framebuffer_clear, &
-              framebuffer_render_mesh, framebuffer_save_ppm
+              framebuffer_render_mesh, framebuffer_render_mesh_mat, &
+              framebuffer_save_ppm
 
     type :: FrameBuffer
         integer :: width
@@ -37,6 +39,9 @@ contains
         fb%z_buffer(:, :) = 1.0e10_dp
     end subroutine framebuffer_clear
 
+    ! Legacy entry point, preserved exactly: a wrapper that renders with
+    ! the default material (lambert, per-triangle colour), whose ambient
+    ! level defaults to 0.25, i.e. intensity = 0.25 + 0.75 * diffuse.
     subroutine framebuffer_render_mesh(fb, target_mesh, model_matrix, cam, light_dir)
         type(FrameBuffer), intent(inout) :: fb
         type(Mesh), intent(in) :: target_mesh
@@ -44,13 +49,41 @@ contains
         type(Camera), intent(in) :: cam
         type(vec3), intent(in) :: light_dir
 
+        type(Material) :: mat
+
+        mat = material_default()
+        call framebuffer_render_mesh_mat(fb, target_mesh, model_matrix, cam, light_dir, mat)
+    end subroutine framebuffer_render_mesh
+
+    ! Material-aware rendering, directional light only.
+    !   base colour = tri%color/255 if mat%use_tri_color, else mat%color
+    !   mat%mode: 0 = lambert, 1 = basic (unlit), 2 = phong (lambert+specular)
+    !   lambert/phong intensity = ambient + (1 - ambient) * diffuse
+    ! Backface culling and the z-buffer behave as in the legacy path.
+    subroutine framebuffer_render_mesh_mat(fb, target_mesh, model_matrix, cam, light_dir, mat, ambient_level)
+        type(FrameBuffer), intent(inout) :: fb
+        type(Mesh), intent(in) :: target_mesh
+        type(mat4), intent(in) :: model_matrix
+        type(Camera), intent(in) :: cam
+        type(vec3), intent(in) :: light_dir
+        type(Material), intent(in) :: mat
+        real(dp), intent(in), optional :: ambient_level
+
         type(mat4) :: mvp, model_view
         type(Triangle) :: tri
         type(vec3) :: world_v(3), proj_v(3), normal_world
-        type(vec3) :: norm_light
-        real(dp) :: intensity, diffuse
-        integer :: i, sx(3), sy(3)
+        type(vec3) :: norm_light, centroid, view_dir, refl_dir
+        real(dp) :: ambient, intensity, diffuse, spec
+        real(dp) :: base_color(3), rgb_real(3)
+        integer :: rgb(3)
+        integer :: i, k, sx(3), sy(3)
         real(dp) :: z(3)
+
+        if (present(ambient_level)) then
+            ambient = ambient_level
+        else
+            ambient = 0.25_dp
+        end if
 
         norm_light = vec3_normalize(light_dir)
         model_view = mat4_mult(cam%view_matrix, model_matrix)
@@ -68,7 +101,36 @@ contains
 
             ! Directional light calculation (Lambertian + ambient)
             diffuse = max(0.0_dp, vec3_dot(normal_world, vec3_scale(norm_light, -1.0_dp)))
-            intensity = 0.25_dp + 0.75_dp * diffuse
+
+            select case (mat%mode)
+            case (1) ! basic: unlit, colour as-is
+                intensity = 1.0_dp
+                spec = 0.0_dp
+            case (2) ! phong: lambert plus white specular highlight
+                intensity = ambient + (1.0_dp - ambient) * diffuse
+                centroid = vec3_scale(vec3_add(vec3_add(world_v(1), world_v(2)), world_v(3)), &
+                                      1.0_dp / 3.0_dp)
+                view_dir = vec3_normalize(vec3_sub(cam%position, centroid))
+                refl_dir = vec3_reflect(vec3_negate(norm_light), normal_world)
+                spec = mat%specular * max(0.0_dp, vec3_dot(refl_dir, view_dir)) ** mat%shininess
+            case default ! 0 = lambert (unknown modes fall back to lambert)
+                intensity = ambient + (1.0_dp - ambient) * diffuse
+                spec = 0.0_dp
+            end select
+
+            ! Final RGB: per-triangle colour keeps the legacy integer
+            ! scaling exactly; material colour is real 0..1 scaled by 255.
+            if (mat%use_tri_color) then
+                do k = 1, 3
+                    rgb_real(k) = real(tri%color(k), dp) * intensity + spec * 255.0_dp
+                end do
+            else
+                base_color = mat%color
+                do k = 1, 3
+                    rgb_real(k) = base_color(k) * 255.0_dp * intensity + spec * 255.0_dp
+                end do
+            end if
+            rgb = min(255, max(0, int(rgb_real)))
 
             ! Transform to NDC clip space
             proj_v(1) = mat4_transform_vec3(mvp, tri%v(1), .true.)
@@ -92,24 +154,24 @@ contains
             if ((sx(2) - sx(1)) * (sy(3) - sy(1)) - (sy(2) - sy(1)) * (sx(3) - sx(1)) <= 0) cycle
 
             ! Rasterize triangle
-            call draw_triangle(fb, sx, sy, z, tri%color, intensity)
+            call draw_triangle_rgb(fb, sx, sy, z, rgb)
         end do
-    end subroutine framebuffer_render_mesh
+    end subroutine framebuffer_render_mesh_mat
 
-    subroutine draw_triangle(fb, x, y, z, base_color, intensity)
+    ! Shared rasteriser: callers pass the final RGB ints for the triangle.
+    subroutine draw_triangle_rgb(fb, x, y, z, rgb)
         type(FrameBuffer), intent(inout) :: fb
         integer, intent(in) :: x(3), y(3)
         real(dp), intent(in) :: z(3)
-        integer, intent(in) :: base_color(3)
-        real(dp), intent(in) :: intensity
+        integer, intent(in) :: rgb(3)
 
         integer :: min_x, max_x, min_y, max_y, px, py
         real(dp) :: w0, w1, w2, denom, depth
         integer :: r, g, b
 
-        r = min(255, max(0, int(real(base_color(1), dp) * intensity)))
-        g = min(255, max(0, int(real(base_color(2), dp) * intensity)))
-        b = min(255, max(0, int(real(base_color(3), dp) * intensity)))
+        r = rgb(1)
+        g = rgb(2)
+        b = rgb(3)
 
         min_x = max(1, min(x(1), min(x(2), x(3))))
         max_x = min(fb%width, max(x(1), max(x(2), x(3))))
@@ -136,7 +198,7 @@ contains
                 end if
             end do
         end do
-    end subroutine draw_triangle
+    end subroutine draw_triangle_rgb
 
     subroutine framebuffer_save_ppm(fb, filename)
         type(FrameBuffer), intent(in) :: fb

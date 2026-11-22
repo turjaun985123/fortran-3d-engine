@@ -1,0 +1,12 @@
+# Materials: lambert (the default), basic and phong side by side.
+# Colours mix named words, a hex value and an rgb() value.
+scene "materials" size 640 480 background black
+camera at 6 4 8 look 0 0 0
+light directional dir -0.5 -1 -0.7 strength 1.2
+cube lambert_cube red at -3 1 0 size 2 material lambert
+sphere default_ball blue at 0 3 0 radius 1
+sphere basic_ball #FF8800 at 3 1 0 radius 1 material basic
+cylinder phong_pillar rgb 60 220 120 at 3 -2 0 radius 1 height 3 material phong # rgb(60,220,120)
+cone phong_cone purple at -3 -2 0 radius 1 height 2 material phong
+plane basic_floor green at 0 -3 0 size 6 material basic
+render

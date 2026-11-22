@@ -1,0 +1,448 @@
+# P22 — Docs & Tutorial Plan: README, 5-Minute Quickstart, Tutorials, Generated Reference
+
+> **Status:** Planning only — no code changed by this document, and no doc
+> described here exists yet except `README.md` and `viewer.html` (see §1).
+> **Goal served:** an *easy* 3D compiler. Docs are the product surface for a
+> beginner: if the README + quickstart fail, the compiler's ease is never
+> reached. This plan owns information architecture, the tutorial arc
+> (first cube → multi-object → animation → OBJ → HTML embed), and how the
+> API/DSL reference is *generated*, never hand-maintained.
+> **Companion plans:** P03 (`.f3d` grammar — DSL truth), P04 (pipeline/CLI
+> sketch), P06 (JS runtime / HTML embed), P08 (diagnostics & error codes),
+> P09 (animation), P11 (primitives), P12 (scene graph), P15 (OBJ import),
+> P16 (multi-object/instancing), P20 (`f3dc` CLI UX — CLI truth).
+> Where this plan and P03/P20 disagree on syntax or commands, **they win**;
+> docs bugs are filed against this plan, not silently fixed in prose.
+
+---
+
+## 1. Ground truth today (audited 2026-11-23)
+
+| Fact | Where |
+|---|---|
+| Only user doc is `README.md` (2,040 B): directory tree, feature list, `make run`, PPM→PNG note. No prerequisites, no tutorial, no DSL, no troubleshooting | `README.md` |
+| README tree is **aspirational/wrong**: it lists `assets/`, `bin/`, `include/`, `lib/`, `tests/` — of these only `bin/`, `include/` appear as build side-effects; `assets/`, `lib/`, `tests/` do not exist in the repo | `README.md` vs repo root |
+| Real surface today: 5 Fortran sources, hardcoded demo in `src/main.f90` (one cube, size 2, 640×480, camera `(3,2.5,4)→(0,0,0)`, fov 60, near 0.1/far 100, light `(-0.5,-1,-0.7)`, rot 35°Y/20°X), outputs `output_render.ppm`, `scene.json`, `model.obj` in repo root | `src/main.f90`, `Makefile`, repo root |
+| Public Fortran API is small and enumerable: `math_3d` (`vec3_*`, `mat4_*`), `mesh_3d` (`create_cube`, `export_mesh_json/obj`, `compute_triangle_normal`), `camera_3d` (`camera_init`, `camera_update_matrices`), `renderer_3d` (`framebuffer_init/clear/render_mesh/save_ppm`, `draw_triangle`) | `src/*.f90` `public ::` / procedure headers |
+| `viewer.html` is a real, working deliverable (orbit/zoom/pan, auto-rotate, wireframe, loads `scene.json`, decodes P3 PPM) but is **undocumented** except two paragraphs inside the page itself | `viewer.html` |
+| The `.f3d` DSL, `f3dc` CLI, animation, multi-object, OBJ *import*, and HTML *embed* are **planned, not implemented** (P03/P09/P15/P16/P20). Only OBJ/JSON *export* exists today | P03–P20, `src/mesh.f90` |
+| No docs toolchain, no `docs/` content beyond `docs/plan/`, no link checker, no example-test harness, no stated licence in the repo | repo root, `docs/` |
+
+**Consequence — the honesty rule (§2.3) is load-bearing:** most of the
+tutorial arc teaches features that do not exist yet. Docs are therefore
+written *as specs with acceptance tests first* (§8) and **published per
+chapter only when that chapter's feature passes its tests** — never ahead
+of it as if it worked.
+
+---
+
+## 2. Principles
+
+1. **Diátaxis, loosely:** four doc kinds, never mixed in one file —
+   *tutorials* (learning, §5), *how-to* (tasks, §6.4), *reference*
+   (generated facts, §7), *concepts* (why: pipeline, coordinates, TRS).
+   A tutorial never doubles as the DSL reference.
+2. **First picture before first explanation.** No concept prose before the
+   reader has rendered something. Concepts are linked *from* the step that
+   first needs them.
+3. **Status is printed, not implied.** Every page carries one badge:
+   `Works today` (verified against `main.f90`/`Makefile` behaviour),
+   `Planned — Pn` (names the owning plan), or `Generated` (source named).
+   The README status table (§3.2) is the single summary; chapter badges
+   must agree with it — CI checks this (§8.3).
+4. **Every code block is a test.** Snippets live in real files under
+   `examples/` / tutorial folders and are *included or extracted* into the
+   Markdown (§8.1); a snippet that no longer compiles fails CI, not a reader.
+5. **One new idea per step, ≤3 per chapter.** Each chapter (§5) declares
+   its concepts up front; anything else is deferred with a link.
+6. **Expected output is specified, not described vaguely:** file names,
+   sizes, triangle counts, exit codes, and what the picture looks like in
+   words (alt-text style) — so a reader can self-check without asking.
+7. **Errors are part of the happy path.** Each chapter ends with its
+   2–3 likeliest failures, written in P08 form (what happened / why / fix,
+   with the error code where P08 assigns one).
+8. **Plain language, second person, present tense.** Reading target:
+   a programmer who knows *no* 3D vocabulary (P03's audience). Terms
+   (mesh, vertex, FOV, rasterize) are defined in one line at first use and
+   collected in `docs/concepts/glossary.md`.
+9. **No screenshots that aren't ours.** Hero/example images must be real
+   engine output, regenerated by a script (§7.4); no stock/AI imagery, no
+   hand-tweaked renders presented as output.
+10. **Docs ship in the repo, readable on GitHub.** Plain Markdown, no
+    site generator required for v1 (§6.3); a static site is a later,
+    purely presentational layer over the same files.
+
+---
+
+## 3. README rewrite outline
+
+Target: **≤ 180 lines**, scannable in 60 s, every claim verified. The
+current README is replaced wholesale (its feature list survives, corrected).
+
+| § | Section | Content (outline) | Budget |
+|---|---|---|---|
+| 3.0 | Title + one-liner | `Fortran 3D Engine — write 3 lines, get a 3D picture.` + status badge line (compiler: planned/in-progress per §1) | 3 lines |
+| 3.1 | Hero | Real `output_render.png` of the demo cube + one-line caption naming exactly how it was produced (`make run`, unmodified demo). Animated GIF only after P09 lands, regenerated by script | 1 image |
+| 3.2 | **What works today / what's planned** | Two-column table mirroring §1: today = Fortran software renderer, cube, PPM + `scene.json`/`model.obj` export, `viewer.html`; planned = `.f3d`+`f3dc` (P03/P20), more primitives (P11), animation (P09), OBJ import (P15), embed (P06). **This table replaces all aspirational prose.** | ≤ 12 rows |
+| 3.3 | The 3-line promise | P03's contract example (`cube red` / `spin it` / `render`) shown *inside a clearly-labelled "coming with the compiler" box* until P03/P20 ship; then promoted to the top example. Never shown unlabelled while unimplemented | ≤ 8 lines |
+| 3.4 | Quickstart (today) | The §4 sequence condensed to prerequisites + `make run` + open `viewer.html`; link to full quickstart | ≤ 15 lines |
+| 3.5 | What you get | The 3 outputs table (`output_render.ppm/png`, `scene.json`, `model.obj`) — what each is, what opens it, incl. "browsers can't open `.ppm` directly — use `viewer.html`" (the trap `viewer.html` itself explains) | 1 table |
+| 3.6 | Examples | Link table: one row per tutorial chapter (§5) + `examples/` folder, each with its output thumbnail (generated, §7.4) | 5 rows |
+| 3.7 | Docs map | Links: Quickstart · Tutorials · DSL Reference · Fortran API · CLI Reference · Error Index · Glossary · Architecture (P04 summary) | ≤ 10 lines |
+| 3.8 | Architecture in 10 lines | `DSL → compiler → Fortran renderer + JS viewer`, one small ASCII diagram (adapted from P04 §3), link to plans. No directory tree of non-existent folders — the *real* tree only (`src/` 5 files, `docs/`, `Makefile`, `viewer.html`) | ≤ 12 lines |
+| 3.9 | Hacking / contributing | Build from source, where plans live (`docs/plan/`), "docs snippets are tests" rule (§8), how to run doc checks | ≤ 10 lines |
+| 3.10 | Licence | **Blocker, not prose:** no licence exists in the repo today. README ships with no licence claim until the owner picks one; this plan does not invent one | 1 line placeholder |
+
+**Deleted from current README:** the fictional directory tree, the
+unqualified feature list (folded into §3.2 with status), the bare
+ImageMagick note (moved into §3.5/§4 troubleshooting — `make run` already
+converts iff `convert` exists, silently; docs must say so).
+
+---
+
+## 4. The 5-minute quickstart (`docs/quickstart.md`)
+
+**Contract (from P20 §0.1, adopted):** install → first rendered image in
+≤ 5 min, ≤ 3 commands after prerequisites, following *only* this page.
+Measured by a timed clean-environment walkthrough before release (§8.4);
+if it exceeds 5 min the page — or the install — is wrong, and the page is
+not published claiming "5 minutes".
+
+### 4.1 Timed script (primary path = today's engine; `f3dc` path swaps in at §4.3)
+
+| Clock | Step | Reader does | Checkpoint (must be checkable) |
+|---|---|---|---|
+| 0:00–1:00 | Prerequisites | Install/check `gfortran`, `make` (and optional ImageMagick). One command per OS (Debian/Ubuntu, Fedora, macOS/Homebrew) + `gfortran --version` verify | Version prints; page names the minimum expectation only as "any recent gfortran" until P19/P20 pin one — do not invent a version floor |
+| 1:00–2:00 | Get + build | Clone/copy repo, `make` | `bin/engine3d` exists; no errors. Failure box: missing `gfortran`/`make` → back-link to step 1 |
+| 2:00–3:00 | Run | `make run` | Console banner + `Rendering & Export successfully completed!`; three outputs appear in repo root (names from `main.f90`) |
+| 3:00–4:00 | See it (path A) | Open `output_render.png` (if `convert` ran) or convert manually | Picture described for self-check: *640×480, coloured cube, faces red/green/blue/yellow/purple/cyan, dark background, tilted (35°Y/20°X)* |
+| 4:00–5:00 | See it interactively (path B) | Serve or open `viewer.html` (note `file://` fetch of `scene.json`/PPM may be blocked — give the one-line local-server command), drag to orbit, scroll to zoom, toggle wireframe, switch to the PPM tab | Triangle badge reads `12 Triangles`; PPM tab shows the Fortran rasterizer output, not the JS redraw |
+
+### 4.2 Quickstart page rules
+
+- Ends with **"You are here" map**: what you just ran (hardcoded Fortran
+  demo), and three labelled next doors — *change the cube* (Tutorial 1's
+  Fortran variant / DSL when shipped), *tutorials*, *reference*.
+- A single **troubleshooting strip** (≤ 5 rows): `gfortran: command not
+  found`; `convert` absent → no PNG (not an error — use `viewer.html`);
+  `.ppm` opens as text/blank in browser (expected — §3.5); `viewer.html`
+  shows only the built-in cube (fetch blocked → use the file pickers in
+  the page or a local server); black/empty render (rebuild clean: `make clean && make run`).
+- No flags, no configuration, no second example. Anything else is scope
+  creep against the 5-minute contract.
+
+### 4.3 Swap-in rule
+
+When P20's `f3dc` ships, the quickstart's steps 2–3 are replaced by
+`f3dc new` / write the 3-line scene / `f3dc run` (P20 transcript tests
+T2/T3) and the Fortran path moves to a clearly-marked "engine-only
+quickstart" how-to. The 5-minute budget and checkpoints are re-measured,
+not assumed to still hold.
+
+---
+
+## 5. Tutorial arc — five chapters
+
+**Arc logic:** each chapter adds exactly one capability on the previous
+chapter's scene, reusing its file. A reader who stops after any chapter
+has a complete, working artefact. Chapters are written DSL-first (that is
+the product) with a short *"the Fortran underneath"* box per chapter for
+readers who came via §4 — the box shows the real `src/` call the compiler
+output corresponds to, never hand-waved pseudo-Fortran.
+
+**Per-chapter template (mandatory):** badge (§2.3) · time estimate ·
+prerequisites (previous chapters only) · concepts introduced (≤ 3, named)
+· complete listing (a tested file, §8.1) · run command · expected output
+(files, counts, picture-in-words) · *change one thing* exercise (≤ 5 min,
+with its expected result) · troubleshooting (2–3 rows, P08 style) ·
+checkpoint checklist · next-chapter link.
+
+| # | Chapter (file) | New concepts (≤3) | Depends on |
+|---|---|---|---|
+| 1 | First Cube | object, colour, render/output | P03/P20 v1 |
+| 2 | Many Objects | names, position (`at`), size — (patterns deferred) | + P12/P16 basics |
+| 3 | Animation | `spin`/animate, duration/fps, frames vs still | + P09 |
+| 4 | Load an OBJ Model | load/import, groups, what's dropped | + P15 |
+| 5 | Embed It in HTML | export target, viewer/runtime, embed snippet | + P04 §6.4 / P06 |
+
+### 5.1 Chapter 1 — First Cube (`docs/tutorials/01-first-cube.md`, ~15 min)
+
+- **Listing:** P03's 3-line contract, then the same scene grown line by
+  line: explicit `scene` size/background, `camera at/look/fov`, `light` —
+  each addition shown with its default (from P03 §3 desugaring) so the
+  reader learns *defaults exist* before learning the statements.
+- **Run:** the P20 one-command form; **expected:** default output set,
+  12 triangles, picture-in-words matching §4.1's cube description but in
+  the chosen colour.
+- **Fortran-underneath box:** `create_cube(cube, 2.0_dp)` +
+  `camera_init(...)` + `framebuffer_render_mesh(...)` from `main.f90`,
+  mapped line-by-line to the DSL statements.
+- **Exercise:** change colour + size; re-render; state the new expected
+  picture before running.
+- **Troubleshooting:** unknown colour name (P08 did-you-mean), typo'd
+  keyword, output not where expected (P20 `build/` default vs today's
+  repo-root outputs — the chapter must state which, per its badge).
+
+### 5.2 Chapter 2 — Many Objects (`02-multi-object.md`, ~20 min)
+
+- **Listing:** Chapter 1's cube kept; add two more named objects at
+  different `at` positions/sizes/colours (plain lines only — P16 §3.1
+  baseline). Then, as a *labelled preview section*, collapse a row of
+  cubes with P16's `repeat`/`grid` — published only when P16 ships.
+- **Concepts enforced:** names replace `it`/`last` once >1 object exists;
+  world axes introduced with one diagram (generated, §7.4) tied to
+  `camera at 3 2.5 4`; overlapping/z-fighting pre-empted by spacing the
+  example so the first attempt cannot fail confusingly.
+- **Expected:** triangle count = 12 × object count (stated per step);
+  picture-in-words per step.
+- **Exercise:** build a 3-object "table" (one flat-scaled cube on two
+  legs) — teaches scale + position together; groups (P12) linked as the
+  how-to follow-up, not taught here.
+- **Troubleshooting:** objects off-camera (camera framing fix, not object
+  blame), name reused, `it` ambiguous with multiple objects.
+
+### 5.3 Chapter 3 — Animation (`03-animation.md`, ~20 min)
+
+- **Listing:** Chapter 2 scene + `spin` on one named object (P09
+  primitives: `spin` first; `bob`/`orbit` as the exercise). State P09's
+  core idea in two sentences: *time is data; the pose is a function of
+  `t`; native and JS evaluate the same timeline.*
+- **Run/expected:** frame sequence / animated output per P09 defaults
+  (duration, 30 fps native export) — chapter states exact frame count
+  for its listing's duration and how to view it (viewer + exported frames).
+- **Key teaching beat:** still = timeline at `t=0` (P09 principle 6) —
+  Chapter 1's render must be reproducible as frame 0; the chapter proves
+  it by comparing the two outputs.
+- **Exercise:** different speeds/axes per object from Chapter 2; predict
+  which finishes a full turn first, then verify.
+- **Troubleshooting:** nothing moves (animating the wrong name / `it`),
+  motion differs between native and viewer (report-a-bug template —
+  P09 parity is a guarantee, so docs treat divergence as a defect, not
+  user error), export too large (duration/fps guidance).
+
+### 5.4 Chapter 4 — Load an OBJ Model (`04-obj-model.md`, ~20 min)
+
+- **Listing:** P15's one line — `load "model.obj"` — first round-tripping
+  the engine's *own* exported `model.obj` (P15 §10.1 guarantee: same 12
+  triangles back), then a provided sample model in
+  `examples/obj/` (simple, quad-faced, with `vt`/`vn` and a group or two,
+  chosen so every P15 conversion rule is exercised).
+- **Honesty box (mandatory, from P15 §0):** what v1 drops — `.mtl`
+  materials, textures/UVs (parsed, discarded, one warning), vertex
+  normals unused for shading; polygons fan-triangulated; colour comes
+  from the DSL line. The chapter shows the actual warnings the compiler
+  prints for the sample file.
+- **Concepts:** groups become separately addressable objects (`spin` a
+  named group, linking back to Chapter 3); glTF gets one paragraph:
+  deferred to v2 (P15 §7) + the external convert-to-OBJ interim path.
+- **Exercise:** recolour + spin one group of the sample model.
+- **Troubleshooting:** file not found (paths are relative to the scene
+  file — stated, per P15), unsupported construct → P15 `E51xx` codes,
+  model renders tiny/huge or off-centre (scale/position fix; no silent
+  auto-normalising is promised unless P15 specifies it).
+
+### 5.5 Chapter 5 — Embed It in a Web Page (`05-html-embed.md`, ~15 min)
+
+- **Listing:** Chapter 3's animated scene compiled to the HTML target
+  (P04 §6.4 `--target html` / P06 runtime); reader gets (a) the
+  standalone page, (b) the copy-paste embed snippet for an existing page
+  (P06 §8 zero-JS / function forms — docs reproduce the *shipped* API
+  verbatim from the generated reference, §7.2, never a paraphrase).
+- **Concepts:** compiled scene format vs source `.f3d`; the viewer is a
+  *player, not an engine* (P06/P12 parity rule); size budget mentioned
+  honestly (P06's < 15 KB runtime target, labelled as a target).
+- **Bridge from today:** a first section embeds/drives the *existing*
+  `viewer.html` with the reader's own `scene.json` (works today badge) —
+  so the chapter has a publishable Part A before P06 ships, and Part B
+  (true embed) follows under its own badge.
+- **Exercise:** embed two scenes on one page; change one's background
+  via the scene, not CSS hacks.
+- **Troubleshooting:** blank embed (script/format mismatch, file
+  loading/CORS — cf. §4.1 note), stale scene (rebuild step), animation
+  not playing (autoplay/loop settings per P06 §7).
+
+### 5.6 Deferred chapters (named, not written)
+
+Materials & lighting (P10), camera moves & input (P13), textures/UV
+(P14), instancing patterns in depth (P16), render targets (P17) — listed
+in the docs map as *planned tutorials* so the arc's future is visible
+without empty placeholder pages.
+
+---
+
+## 6. Supporting docs (non-tutorial)
+
+### 6.1 Concepts (`docs/concepts/`)
+`how-it-works.md` (pipeline from P04, defaults from P03 §3) ·
+`coordinates-and-transforms.md` (axes, TRS order `T·R·S` per P09/P12,
+degrees-not-radians at the DSL surface) · `outputs.md` (PPM/JSON/OBJ/HTML
+formats, incl. the `scene.json` v1 triangle schema as in today's file) ·
+`glossary.md` (§2.8).
+
+### 6.2 How-tos (`docs/how-to/`)
+One task per file, imperative titles: `convert-ppm-to-png.md`,
+`view-a-render.md` (viewer.html controls table — from the page's real
+controls), `change-resolution-or-camera.md` (Fortran path today; DSL path
+when shipped), `report-a-bug.md` (version, scene file, expected vs actual,
+native-vs-JS divergence note per §5.3).
+
+### 6.3 Publishing
+v1: GitHub-rendered Markdown only (zero tooling dependency). v2 (optional,
+later decision): a static generator over the *same* files; generated
+reference (§7) is generator-agnostic Markdown either way. `docs/plan/`
+stays separate and is linked as "design documents", never presented as
+user documentation.
+
+### 6.4 Docs file list — complete target tree
+
+```
+README.md                                  (rewrite, §3)
+docs/quickstart.md                         (§4)
+docs/tutorials/01-first-cube.md            (§5.1)
+docs/tutorials/02-multi-object.md          (§5.2)
+docs/tutorials/03-animation.md             (§5.3)
+docs/tutorials/04-obj-model.md             (§5.4)
+docs/tutorials/05-html-embed.md            (§5.5)
+docs/concepts/how-it-works.md
+docs/concepts/coordinates-and-transforms.md
+docs/concepts/outputs.md
+docs/concepts/glossary.md
+docs/how-to/convert-ppm-to-png.md
+docs/how-to/view-a-render.md
+docs/how-to/change-resolution-or-camera.md
+docs/how-to/report-a-bug.md
+docs/reference/dsl.md                      (GENERATED, §7.1)
+docs/reference/cli.md                      (GENERATED, §7.2)
+docs/reference/fortran-api.md              (GENERATED, §7.3)
+docs/reference/scene-json.md               (GENERATED + notes, §7.2)
+docs/reference/errors.md                   (GENERATED index, §7.2)
+docs/reference/errors/<CODE>.md            (per-code pages, P08 §6.3)
+examples/hello-cube/hello.f3d + expected outputs      (tutorial 1 source)
+examples/multi-object/…  examples/animation/…
+examples/obj/sample.obj + scene.f3d                   (tutorial 4 source)
+examples/html-embed/…                                 (tutorial 5 source)
+tools/docs/extract_snippets.py  tools/docs/check_docs.py  (§8)
+tools/docs/gen_reference.py     tools/docs/gen_images.sh  (§7)
+ford.md + tools/docs/fortran_api.py        (§7.3, if FORD not adopted)
+```
+
+---
+
+## 7. Reference generation — generated, checked, never hand-edited
+
+**Rule:** every generated file starts with
+`<!-- GENERATED by <tool> from <source> — do not edit; run make docs -->`
+and CI fails if the committed copy differs from a fresh generation
+(§8.3). Hand-written prose lives in *separate* files that link to the
+generated ones, so regeneration never destroys writing.
+
+### 7.1 DSL reference (`dsl.md`) — source of truth: the grammar
+- **Inputs:** P03's EBNF + keyword/colour/default tables, and — once the
+  compiler exists — its machine-readable keyword registry (P04 AST/IR
+  definitions). Until then, generation is from a structured transcription
+  of P03 kept in *one* data file owned by this plan; when the compiler
+  registry lands, the data file is deleted and the registry becomes the
+  source (the generator's interface does not change).
+- **Per statement:** syntax line, one-sentence meaning, parameter table
+  (name / type / default — defaults copied from P03 §3 / `main.f90`),
+  one minimal *tested* example, "not yet supported" notes for P03's
+  reserved-but-rejected keywords (listed as such, never omitted —
+  omission reads as absence, listing reads as honesty).
+- Colours table generated from the same colour data the compiler uses
+  (P03 §6.3), incl. the demo's per-face values as worked examples.
+
+### 7.2 CLI, errors, scene format
+- `cli.md`: generated from `f3dc --help` / per-command `--help` snapshots
+  (P20: every help text contains a runnable example — the generator
+  extracts and *runs* them, §8.1). Pre-`f3dc`, this page does not exist;
+  a stub would document a fiction.
+- `errors.md` + per-code pages: generated from P08's catalogue (codes,
+  one-line summary) with the explanation body from P08 §6.3
+  `--explain` text — one source feeds terminal and docs, by construction.
+- `scene-json.md`: schema generated from the emitter (P04 §6.2) with the
+  v1 compatibility note (P06 §4.1); today's flat
+  `{triangles:[{id,v,color}]}` shape documented as v1, from the real
+  `scene.json`.
+
+### 7.3 Fortran API reference (`fortran-api.md`)
+- **Scope:** exactly the public surface in §1 — 4 modules, their types
+  (`vec3`, `mat4`, `Triangle`, `Mesh`, `Camera`, `FrameBuffer`) and public
+  procedures, with argument names/types/`intent` taken from the source.
+- **Tool choice (decision recorded, pick at implementation):** first try
+  **FORD** (the standard Fortran docs generator, driven by a committed
+  `ford.md`) emitting Markdown/HTML into `docs/reference/`; if FORD's
+  output fights the GitHub-Markdown-only rule (§6.3), fall back to a
+  small extractor (`tools/docs/fortran_api.py`, stdlib only — P20's
+  boring-technology rule) that parses `public ::` lists and procedure
+  headers, which is feasible *because* the surface is ~25 procedures.
+  Either way: no doc comments are invented in bulk — a short pass adds
+  one-line `!` comments to public procedures in `src/` *as a separate,
+  separately-approved change* (this plan edits no `src/`).
+- Worked example per module is a tested snippet (§8.1), e.g. the
+  `main.f90` cube sequence for `mesh_3d`/`renderer_3d`.
+
+### 7.4 Images
+`gen_images.sh`: rebuilds every doc image from its example scene (native
+render → PNG; viewer captures only via a scripted, reproducible route),
+so a rendering change visibly changes the docs in review. Images are
+committed (GitHub rendering needs them) but *regenerated*, never edited.
+
+### 7.5 `make docs` target (proposed, not added by this plan)
+`make docs` = generate reference + extract snippets + regenerate images;
+`make docs-check` = the CI mode (§8.3). One command, no network, Python
+stdlib + `gfortran`/`make` only.
+
+---
+
+## 8. Verification — docs are tested like code
+
+1. **Snippet extraction tests:** every tutorial/quickstart listing is a
+   real file; a test compiles/runs it and compares declared expectations
+   (exit code, output files, triangle counts, frame counts from §5).
+   Fortran-path snippets compile against the real modules.
+2. **Help-example tests:** every example inside `--help` output and the
+   generated reference runs successfully (extends P20 §11.4).
+3. **Drift & honesty checks (`check_docs.py`, CI):** generated files match
+   fresh generation; every page has a badge; badge status matches the
+   README §3.2 table; no page references a non-existent file/command —
+   in particular the current README's fictional tree (§1) is the
+   regression test; internal links resolve.
+4. **Timed walkthrough:** a person (or scripted transcript) following
+   *only* `quickstart.md` in a clean environment hits §4.1's checkpoints
+   within 5 min; repeated at each release that touches install/quickstart.
+5. **Picture checks:** regenerated tutorial images are diffed against the
+   committed ones; a diff requires an intentional docs update in the same
+   change — silent renderer drift cannot pass unnoticed.
+6. **Error-path checks:** each chapter's troubleshooting entries are
+   reproduced (bad colour, typo, missing OBJ, …) and the documented fix
+   is verified to fix them, with P08 wording/codes matching the binary.
+
+---
+
+## 9. Phased delivery
+
+| Phase | Deliverable | Gate |
+|---|---|---|
+| D0 | This plan; README §3.2 status table + corrected tree only (truth fix, no new promises) | §1 facts re-verified |
+| D1 | Full README rewrite (§3, minus DSL box) + `quickstart.md` (§4, Fortran path) + `view-a-render` / `convert-ppm` how-tos + glossary seed | §8.4 walkthrough ≤ 5 min; §8.3 checks green |
+| D2 | Fortran API generation (§7.3) + `outputs.md` / `scene-json` v1 reference | `make docs-check` green |
+| D3 | Tutorial 1 (+ DSL reference generation §7.1, CLI reference §7.2) | Ships *with* P03/P20 v1, not before; snippet tests pass |
+| D4 | Tutorials 2–3 | With P12/P16 basics and P09 respectively |
+| D5 | Tutorials 4–5 + error reference (§7.2) | With P15 and P04 §6.4/P06 respectively |
+| D6 | Concepts set complete; deferred-chapter list (§5.6) reviewed against shipped plans | Docs map has no `Planned` item without an owning plan |
+
+**Explicit non-goals:** a docs website, search, i18n, video tutorials,
+API docs for internal (non-`public`) procedures, documenting any feature
+ahead of its plan's implementation, and any licence/copyright claim (§3.10).
+
+## 10. Risks & open questions
+
+- **Docs-ahead-of-code pressure** is the main risk; §2.3/§9 gates are the
+  mitigation — a chapter merged early "to be ready" is a defect.
+- **Two quickstarts** (Fortran today, `f3dc` later) can confuse; §4.3's
+  swap-in (not addition) rule and the README status table are the control.
+- **FORD vs custom extractor** (§7.3) and the **grammar-registry format**
+  (§7.1) are implementation-time decisions for the compiler plans to
+  confirm; this plan fixes only the contract (generated, checked, one source).
+- **Licence** (§3.10) blocks any "open source" wording in the README —
+  owner's call, flagged, not worked around.

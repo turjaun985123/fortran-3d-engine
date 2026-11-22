@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}</title>
+<style>
+:root{--bg:#191923;--panel:#23232f;--text:#f4f4f8;--muted:#a7a7b8;--border:#3a3a4a;--accent:#38bdf8}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:#191923;background:rgb(25,25,35);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;flex-direction:column;min-height:100vh}
+header{display:flex;align-items:baseline;gap:1rem;flex-wrap:wrap;padding:.6rem 1rem;background:var(--panel);border-bottom:1px solid var(--border)}
+header h1{font-size:1.05rem;font-weight:600;color:var(--text)}
+header .hint{font-size:.82rem;color:var(--muted)}
+main{flex:1;display:flex;flex-direction:column;min-height:0}
+f3d-view{display:block;flex:1;width:100%;min-height:0;background:#191923}
+f3d-view canvas,#f3d-canvas{display:block;width:100%;height:100%}
+#f3d-fallback{margin:1rem;padding:1rem;border:1px solid var(--border);border-radius:8px;background:var(--panel);color:var(--muted);font-size:.9rem;line-height:1.5}
+#f3d-fallback strong{color:var(--text)}
+noscript p{margin:1rem;padding:1rem;border:1px solid var(--border);border-radius:8px;color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+<h1>{{TITLE}}</h1>
+<span class="hint">drag to orbit - scroll to zoom</span>
+</header>
+<main>
+<f3d-view id="view"><canvas id="f3d-canvas"></canvas></f3d-view>
+<div id="f3d-fallback" role="alert"><strong>WebGL unavailable.</strong> This 3D scene needs WebGL, which your browser could not provide. Try a recent browser with hardware acceleration enabled, or open this file in a browser that supports WebGL.</div>
+<noscript><p>JavaScript is disabled, so this 3D scene cannot run. Please enable JavaScript and reload the page.</p></noscript>
+</main>
+<script>{{F3D_JS}}</script>
+<script>{{SCENE_JS}}</script>
+</body>
+</html>

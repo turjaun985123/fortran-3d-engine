@@ -3,9 +3,12 @@ module math_3d
     implicit none
     private
     public :: dp, vec3, mat4, &
+              deg2rad, rad2deg, &
               vec3_create, vec3_add, vec3_sub, vec3_scale, vec3_dot, vec3_cross, vec3_norm, vec3_normalize, &
+              vec3_negate, vec3_lerp, vec3_reflect, &
               mat4_identity, mat4_mult, mat4_translation, mat4_scale, &
               mat4_rotate_x, mat4_rotate_y, mat4_rotate_z, &
+              mat4_transpose, mat4_axis_angle, mat4_compose_trs, mat4_inverse_rigid, &
               mat4_perspective, mat4_look_at, mat4_transform_vec3
 
     real(dp), parameter, public :: PI = 3.14159265358979323846_dp
@@ -21,6 +24,18 @@ module math_3d
     end type mat4
 
 contains
+
+    pure function deg2rad(deg) result(rad)
+        real(dp), intent(in) :: deg
+        real(dp) :: rad
+        rad = deg * PI / 180.0_dp
+    end function deg2rad
+
+    pure function rad2deg(rad) result(deg)
+        real(dp), intent(in) :: rad
+        real(dp) :: deg
+        deg = rad * 180.0_dp / PI
+    end function rad2deg
 
     pure function vec3_create(x, y, z) result(v)
         real(dp), intent(in) :: x, y, z
@@ -84,6 +99,29 @@ contains
             r = vec3_create(0.0_dp, 0.0_dp, 0.0_dp)
         end if
     end function vec3_normalize
+
+    pure function vec3_negate(v) result(r)
+        type(vec3), intent(in) :: v
+        type(vec3) :: r
+        r%x = -v%x
+        r%y = -v%y
+        r%z = -v%z
+    end function vec3_negate
+
+    pure function vec3_lerp(a, b, t) result(r)
+        type(vec3), intent(in) :: a, b
+        real(dp), intent(in) :: t
+        type(vec3) :: r
+        r%x = a%x + (b%x - a%x) * t
+        r%y = a%y + (b%y - a%y) * t
+        r%z = a%z + (b%z - a%z) * t
+    end function vec3_lerp
+
+    pure function vec3_reflect(v, n) result(r)
+        type(vec3), intent(in) :: v, n
+        type(vec3) :: r
+        r = vec3_sub(v, vec3_scale(n, 2.0_dp * vec3_dot(v, n)))
+    end function vec3_reflect
 
     pure function mat4_identity() result(res)
         type(mat4) :: res
@@ -155,6 +193,72 @@ contains
         r%m(2, 1) = sin(angle_rad)
         r%m(2, 2) = cos(angle_rad)
     end function mat4_rotate_z
+
+    pure function mat4_transpose(m) result(r)
+        type(mat4), intent(in) :: m
+        type(mat4) :: r
+        integer :: i, j
+        do i = 1, 4
+            do j = 1, 4
+                r%m(i, j) = m%m(j, i)
+            end do
+        end do
+    end function mat4_transpose
+
+    pure function mat4_axis_angle(axis, angle_deg) result(r)
+        type(vec3), intent(in) :: axis
+        real(dp), intent(in) :: angle_deg
+        type(mat4) :: r
+        type(vec3) :: a
+        real(dp) :: angle_rad, c, s, t
+
+        a = vec3_normalize(axis)
+        if (vec3_norm(a) <= 1.0e-12_dp) then
+            r = mat4_identity()
+            return
+        end if
+
+        angle_rad = deg2rad(angle_deg)
+        c = cos(angle_rad)
+        s = sin(angle_rad)
+        t = 1.0_dp - c
+
+        r = mat4_identity()
+        r%m(1, 1) = t * a%x * a%x + c
+        r%m(1, 2) = t * a%x * a%y - s * a%z
+        r%m(1, 3) = t * a%x * a%z + s * a%y
+        r%m(2, 1) = t * a%y * a%x + s * a%z
+        r%m(2, 2) = t * a%y * a%y + c
+        r%m(2, 3) = t * a%y * a%z - s * a%x
+        r%m(3, 1) = t * a%z * a%x - s * a%y
+        r%m(3, 2) = t * a%z * a%y + s * a%x
+        r%m(3, 3) = t * a%z * a%z + c
+    end function mat4_axis_angle
+
+    pure function mat4_compose_trs(pos, rot_deg, scl) result(r)
+        type(vec3), intent(in) :: pos, rot_deg, scl
+        type(mat4) :: r
+        r = mat4_mult(mat4_translation(pos%x, pos%y, pos%z), &
+                      mat4_rotate_y(deg2rad(rot_deg%y)))
+        r = mat4_mult(r, mat4_rotate_x(deg2rad(rot_deg%x)))
+        r = mat4_mult(r, mat4_rotate_z(deg2rad(rot_deg%z)))
+        r = mat4_mult(r, mat4_scale(scl%x, scl%y, scl%z))
+    end function mat4_compose_trs
+
+    pure function mat4_inverse_rigid(m) result(r)
+        type(mat4), intent(in) :: m
+        type(mat4) :: r
+        integer :: i, j
+        r = mat4_identity()
+        do i = 1, 3
+            do j = 1, 3
+                r%m(i, j) = m%m(j, i)
+            end do
+        end do
+        do i = 1, 3
+            r%m(i, 4) = -(r%m(i, 1) * m%m(1, 4) + r%m(i, 2) * m%m(2, 4) + r%m(i, 3) * m%m(3, 4))
+        end do
+    end function mat4_inverse_rigid
 
     pure function mat4_perspective(fov_rad, aspect, near, far) result(p)
         real(dp), intent(in) :: fov_rad, aspect, near, far

@@ -1,52 +1,150 @@
-# Fortran 3D Engine
+# Forge3D — 3D in 3 lines
 
-A modular 3D software rendering engine written in modern Fortran (Fortran 2008/2018).
+Write a scene in plain words, compile it, and render it — natively, offline,
+with no boilerplate.
 
-## Directory Structure
-
+```f3d
+cube red
+spin it
+render
 ```
-3d_engine/
-├── assets/          # Static assets (3D models, textures, shaders)
-│   ├── models/
-│   ├── shaders/
-│   └── textures/
-├── bin/             # Compiled binaries
-├── docs/            # Architecture and documentation
-├── include/         # Fortran module interface files (.mod)
-├── lib/             # External libraries / bindings
-├── obj/             # Compiled object files (.o)
-├── src/             # Source code
-│   ├── math_3d.f90  # Vector3, Matrix4x4, transforms, projections
-│   ├── mesh.f90     # Triangle and Mesh structures, primitives (cube)
-│   ├── camera.f90   # Camera, LookAt view matrix, perspective projection
-│   ├── renderer.f90 # Framebuffer, Z-buffer, software rasterizer, PPM export
-│   └── main.f90     # Entry point and demo scene
-├── tests/           # Unit and regression tests
-└── Makefile         # Build configuration
+
+That is the whole program (`examples/hello-cube.f3d`): a red cube, spinning,
+rendered with a sensible default camera, light, scene size, and background —
+none of which you had to write.
+
+## Run it
+
+```bash
+make
+python3 tools/f3dc/f3dc.py run examples/hello-cube.f3d
 ```
+
+## What you get
+
+- **A native PPM render** — produced by the Fortran renderer in `src/`,
+  no browser, GPU, or JavaScript needed.
+- **A standalone HTML viewer** — a single self-contained page you can open
+  in a browser to orbit and inspect the same scene.
+- **`scene.json`** — the compiled scene in JSON form, alongside the other
+  build outputs (by default under `build/`).
+
+## A slightly bigger scene
+
+Abbreviated from `examples/multi-object.f3d`:
+
+```f3d
+scene multi size 800 600 bg black
+camera at 0 5 12 look 0 0 0 fov 60
+cube hero red at -4 0 0 size 2
+sphere orb blue at 0 1 0 radius 1
+cylinder tower green at 4 0 0 radius 1 height 3
+group duo
+  cone hat orange at -2 0 3 radius 1 height 2
+  pyramid peak purple at 2 0 3 size 2 height 2
+end
+repeat 3 torus ringlet pink at -3 -2 -2 radius 1
+load "../model.obj" imported at 0 0 -5
+controls orbit
+render "multi-object.ppm"
+```
+
+More scenes live in `examples/`: `animated.f3d` and `materials.f3d`, as well
+as the two shown above.
 
 ## Features
 
-- **Linear Algebra Math Library**: Vectors (`vec3`), 4x4 Matrices (`mat4`), dot/cross products, normalization, transformation, rotation, look-at, and perspective projection.
-- **Mesh Representation**: Triangle lists with vertex normals and face colors.
-- **Camera System**: Full 3D camera with adjustable FOV, near/far clipping planes, aspect ratio, position, and target.
-- **Software Rasterizer**: Barycentric triangle rasterization, depth buffering (Z-buffer), and directional Lambertian shading.
-- **Image Exporter**: Generates `.ppm` image files which can be viewed in standard image viewers or converted to PNG/JPG.
+- **7 primitives, one word each:** `cube`, `sphere`, `cylinder`, `plane`,
+  `pyramid`, `cone`, and `torus` — every parameter has a default.
+- **Materials:** `lambert` (the default, lit), `basic` (flat, unlit), and
+  `phong` (specular highlights) — e.g. `material phong` on an object line.
+- **Animation:** declarative verbs such as `spin`, `bob`, and `orbit` —
+  no render loop, clock, or resize code in your program.
+- **Groups and repetition:** `group … end` blocks, plus `repeat` (and
+  grid/ring forms) to place many objects without copying lines.
+- **OBJ loading:** `load "model.obj"` puts an existing model in the scene
+  in one line.
+- **A tiny JS runtime:** `runtime/f3d.min.js` is at most 15 KB minified
+  (≤ 15,360 bytes, enforced by the build) for playing scenes on the web.
+- **Friendly compiler errors:** mistakes come back as located diagnostics
+  with an explanation and a suggested fix — not a blank or black canvas.
 
-## Quick Start
+## Honestly better — only what we can measure
 
-### Build and Run
+These are the claims made in `docs/plan/MASTER-PLAN.md` §5, and only these:
 
-```bash
-cd 3d_engine
-make run
+- **Fewer lines:** the rotating cube takes 3 lines here (the same task was
+  hand-counted at 23 lines in a standalone Three.js program); loading an
+  OBJ takes one `load` line; the render loop and resize handling take
+  0 lines, because the compiler and runtime own them.
+- **Smaller runtime:** the JS player is ≤ 15,360 bytes minified,
+  CI-enforced — far smaller than a full Three.js build.
+- **Zero-config:** camera, light, scene size, background, and framing all
+  have defaults, so `cube` alone renders a lit, framed scene instead of
+  nothing.
+- **No silent black screens:** a missing camera, a bad colour, or a missing
+  asset is a friendly compile error, not a black canvas at runtime.
+- **Deterministic offline render:** the same `.f3d` file at the same time
+  `t` produces a byte-identical PPM, with no browser, GPU, or network
+  required.
+
+No frame-rate claims are made: the native renderer is a CPU renderer, and
+speed against GPU WebGL is not a comparison we claim to win.
+
+## CLI at a glance
+
+Invoke it as `python3 tools/f3dc/f3dc.py <command> …`:
+
+| Command | What it does |
+|---|---|
+| `new` | Create a new `.f3d` scene from the starter template |
+| `check` | Validate a scene only — no files written |
+| `build` | Compile a scene to `build/` (Fortran + JSON + JS + HTML) |
+| `run` | Build, compile the engine, and render |
+| `fmt` | Print the canonical `.f3d` form of a scene |
+| `doctor` | Check the Python / gfortran / make toolchain and print fixes |
+
+## Repository structure
+
+```
+.
+├── src/            # Fortran engine: math, meshes, camera, materials,
+│                   # scene loading, animation, OBJ loading, renderer
+├── tools/f3dc/     # The f3dc compiler (Python 3, standard library only)
+├── runtime/        # Tiny JS runtime: f3d.js, f3d.min.js, f3d.d.ts
+├── examples/       # .f3d scenes: hello-cube, multi-object, animated,
+│                   # materials
+├── tests/          # Compiler, Fortran, golden-image, and end-to-end tests
+├── docs/           # Documentation, including docs/plan/
+├── Makefile        # Build, test, and runtime-minification targets
+├── model.obj       # Sample OBJ model used by the examples
+├── scene.json      # Checked-in sample compiled scene
+└── viewer.html     # Checked-in legacy HTML viewer
 ```
 
-### View Rendered Output
-
-The engine outputs `output_render.ppm`. You can convert it to PNG or view it directly:
+## Testing
 
 ```bash
-# Convert to PNG using ImageMagick (if installed)
-convert output_render.ppm output_render.png
+make test
 ```
+
+This runs `tests/run_tests.py`, covering the compiler tests, the Fortran
+tests, the golden-image checks, and the end-to-end CLI tests.
+
+## Roadmap
+
+Forge3D is being built toward full Three.js / PixiJS feature parity in
+waves — lighting and materials, assets, sprites and text, post-processing,
+and more. The parity matrix, the wave plan, and the current status of every
+feature live in `docs/plan/MASTER-PLAN.md`.
+
+---
+
+## Legacy engine
+
+Forge3D stands on the original Fortran 3D engine in this repository: a
+modular software renderer written in modern Fortran (2008/2018) with a
+vector/matrix library, triangle meshes, a perspective camera, a barycentric
+rasterizer with a Z-buffer, Lambertian shading, and PPM export. That
+renderer is still the native engine under `src/` — Forge3D is the language,
+compiler, and runtime built around it.

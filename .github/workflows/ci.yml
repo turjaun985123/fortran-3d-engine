@@ -1,0 +1,156 @@
+# Forge3D CI -- pragmatic single-job gate (see docs/plan/P19-ci-spec.md).
+# One job, no matrix, no secrets, no publishing: build, test, render-golden,
+# error-golden, determinism, JS size, and a stdlib-only guard for f3dc.
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: build-test (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install gfortran
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gfortran
+          gfortran --version
+          make --version | head -n 1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # G1: the engine builds clean from the shipped Makefile.
+      - name: G1 - Build engine (make)
+        run: |
+          make clean
+          make
+          test -x bin/engine3d
+
+      # G2: compiler + Fortran test suites (missing layers SKIP inside the
+      # runner; a real failure exits non-zero and fails this step).
+      - name: G2 - Run tests
+        run: python3 tests/run_tests.py
+
+      # G3 (portable tier): compile the example scene, then render a still by
+      # running the freshly built engine with no args in a temp dir (it writes
+      # output_render.ppm there). The verdict is portable, NOT a pinned hash:
+      # the image must be non-flat, have the expected background, and contain
+      # enough distinct colours. Pinning a sha256 is a human blessing step
+      # (P18) done in its own reviewed PR -- CI never blesses a golden itself.
+      # The rendered hash is reported in the step summary for humans to pin.
+      - name: G3 - Golden render (portable - non-flat, bg, distinct colours)
+        run: |
+          python3 tools/f3dc/f3dc.py build examples/hello-cube.f3d
+          test -f build/hello-cube.scene
+          work="$(mktemp -d)"
+          (cd "$work" && "$GITHUB_WORKSPACE/bin/engine3d")
+          test -s "$work/output_render.ppm"
+          set -o pipefail
+          python3 tests/golden/check_image.py "$work/output_render.ppm" \
+            --expect-nonflat --expect-bg 25 25 35 --min-distinct 4 --hash \
+            | tee "$RUNNER_TEMP/golden.txt"
+          hash="$(grep -oiE '[0-9a-f]{64}' "$RUNNER_TEMP/golden.txt" | head -n 1 || true)"
+          {
+            echo "## Golden render (G3, portable tier)"
+            echo ""
+            echo "- image: \`output_render.ppm\` from \`./bin/engine3d\` (no args, temp dir)"
+            echo "- checks: non-flat, background \`25 25 35\`, >= 4 distinct colours"
+            echo "- sha256 (informational, NOT pinned): \`${hash:-not reported by checker}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Determinism: the same .f3d compiled twice must emit identical .scene
+      # bytes -- a drifting compiler breaks goldens and user trust alike.
+      - name: Determinism - hello-cube builds byte-identically twice
+        run: |
+          python3 tools/f3dc/f3dc.py build examples/hello-cube.f3d -o "$RUNNER_TEMP/det-a"
+          python3 tools/f3dc/f3dc.py build examples/hello-cube.f3d -o "$RUNNER_TEMP/det-b"
+          a="$(sha256sum "$RUNNER_TEMP/det-a/hello-cube.scene" | awk '{print $1}')"
+          b="$(sha256sum "$RUNNER_TEMP/det-b/hello-cube.scene" | awk '{print $1}')"
+          echo "build A: $a"
+          echo "build B: $b"
+          test "$a" = "$b"
+
+      # G4: a bad colour is a friendly, coded error -- exit 1 and E202 in the
+      # output ('gold' is not a named colour; see tests/compiler/test_validate.py).
+      - name: G4 - Error golden (unknown colour -> exit 1, E202)
+        run: |
+          bad="$(mktemp -d)/bad.f3d"
+          printf 'cube gold\n' > "$bad"
+          set +e
+          out="$(python3 tools/f3dc/f3dc.py check "$bad" 2>&1)"
+          code=$?
+          set -e
+          printf '%s\n' "$out"
+          test "$code" -eq 1
+          case "$out" in
+            *E202*) echo "E202 found, exit 1: OK" ;;
+            *) echo "expected E202 in f3dc check output" >&2; exit 1 ;;
+          esac
+
+      # JS runtime budget (P06): the minified runtime ships at <= 15 KiB.
+      # Measured on a fresh terser build of runtime/f3d.js, never on
+      # viewer.html (a demo shell, not the runtime).
+      - name: JS size - minified runtime/f3d.js <= 15360 bytes
+        run: |
+          npx --yes terser runtime/f3d.js --compress --mangle \
+            --output "$RUNNER_TEMP/f3d.min.js"
+          size="$(wc -c < "$RUNNER_TEMP/f3d.min.js" | tr -d ' ')"
+          echo "minified runtime/f3d.js: $size bytes (limit 15360)"
+          {
+            echo "## JS size"
+            echo ""
+            echo "- minified \`runtime/f3d.js\`: $size / 15360 bytes (headroom: $((15360 - size)))"
+          } >> "$GITHUB_STEP_SUMMARY"
+          test "$size" -le 15360
+
+      # f3dc must stay stdlib-only (plus its own sibling modules) so it runs
+      # anywhere Python 3 does, with zero pip installs.
+      - name: Stdlib-only guard - tools/f3dc imports
+        run: |
+          python3 - <<'PY'
+          import ast
+          import sys
+          from pathlib import Path
+
+          root = Path("tools/f3dc")
+          local = {p.stem for p in root.glob("*.py")}
+          allowed = set(sys.stdlib_module_names) | local
+          bad = []
+          files = sorted(root.glob("*.py"))
+          for path in files:
+              tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+              for node in ast.walk(tree):
+                  names = []
+                  if isinstance(node, ast.Import):
+                      names = [a.name.split(".")[0] for a in node.names]
+                  elif isinstance(node, ast.ImportFrom):
+                      if node.level:  # relative import == sibling module
+                          continue
+                      if node.module:
+                          names = [node.module.split(".")[0]]
+                  for name in names:
+                      if name not in allowed:
+                          bad.append(f"{path}:{node.lineno}: imports {name!r}")
+          if bad:
+              print("non-stdlib imports in tools/f3dc:", file=sys.stderr)
+              for line in bad:
+                  print("  " + line, file=sys.stderr)
+              sys.exit(1)
+          print(f"stdlib-only guard: OK ({len(files)} files, stdlib + local only)")
+          PY

@@ -1,0 +1,11 @@
+# Forge3D example: animated scene (spin + bob + pulse)
+# Small 320x240 scene, 2 seconds at 15 fps = 30 frames, for fast renders.
+scene size 320 240 background black
+camera at 4 3 6 look 0 0 0
+cube spinner red at -2 0 0
+sphere bouncer blue at 0 0 0
+pyramid pulser green at 2 0 0
+animate spinner spin y speed 180 duration 2 fps 15
+bob bouncer amplitude 0.5 duration 2 fps 15
+pulse pulser duration 2 fps 15
+render duration 2 fps 15

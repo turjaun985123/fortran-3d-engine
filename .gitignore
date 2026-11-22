@@ -11,3 +11,8 @@ include/
 # OS metadata
 .DS_Store
 Thumbs.db
+
+# Forge3D generated artefacts
+__pycache__/
+runtime/f3d.min.js
+build/

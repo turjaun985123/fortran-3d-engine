@@ -1,0 +1,13 @@
+scene multi size 800 600 bg black
+camera at 0 5 12 look 0 0 0 fov 60
+cube hero red at -4 0 0 size 2
+sphere orb blue at 0 1 0 radius 1
+cylinder tower green at 4 0 0 radius 1 height 3
+group duo
+  cone hat orange at -2 0 3 radius 1 height 2
+  pyramid peak purple at 2 0 3 size 2 height 2
+end
+repeat 3 torus ringlet pink at -3 -2 -2 radius 1
+load "../model.obj" imported at 0 0 -5
+controls orbit
+render "multi-object.ppm"
