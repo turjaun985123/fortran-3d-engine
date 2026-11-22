@@ -100,9 +100,9 @@ program test_math_mesh
     call assert_int_eq(32, msh%num_triangles, 'cone capped seg=16 has 32 triangles')
     call check_normals(msh, 'cone')
 
-    ! ---- plane: 2 tris ----
+    ! ---- plane: 4 tris (double-sided, D1/WB-INV-PLANE) ----
     call create_plane(msh, 2.0_dp, 3.0_dp)
-    call assert_int_eq(2, msh%num_triangles, 'plane has 2 triangles')
+    call assert_int_eq(4, msh%num_triangles, 'plane has 4 triangles')
     call check_normals(msh, 'plane')
 
     ! ---- pyramid: 6 tris ----

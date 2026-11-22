@@ -1,0 +1,37 @@
+# Multi-scene showcase: Wave C, MASTER-PLAN parity row 26.
+# One .f3d file may contain more than one `scene` block. Each block
+# is a complete, self-contained scene -- its own name, size,
+# background, camera, lights and objects -- and each one compiles
+# and renders as its own output; nothing (objects, lights, camera)
+# carries over from one block to the next. Below, the same kind of
+# still life is staged twice, once small and dark, once larger on a
+# light background with different objects, to make the separation
+# obvious.
+# Run: python3 tools/f3dc/f3dc.py run examples/multi-scene.f3d
+
+# --- Scene 1 of 2 ---------------------------------------------------
+# A small, dark scene: one lit cube and one sphere on a ground plane.
+scene "multi-scene-one" size 320 240 background black
+camera at 5 3 7 look 0 0 0
+light directional dir -0.5 -1 -0.7 strength 1.2
+plane ground_one gray at 0 -2 0 size 12
+cube hero_cube red at -1.5 -1 0 size 2
+sphere side_ball blue at 1.8 -1 0 radius 1
+render
+
+# --- Scene 2 of 2 ---------------------------------------------------
+# A second `scene` statement starts a NEW scene block (row 26).
+# This one has a different name, a different size (640x480, not
+# 320x240), a different background (white, not black), its own
+# camera and light, and completely different objects -- a pyramid
+# and a ring where scene 1 had a cube and a sphere. It renders as
+# its own separate output, exactly as if it were a file of its own.
+scene "multi-scene-two" size 640 480 background white
+camera at 6 4 9 look 0 0 0
+light directional dir -0.5 -1 -0.7 strength 1.2
+light ambient strength 0.2
+plane ground_two gray at 0 -2 0 size 14
+pyramid peak purple at -1.5 -1 0 size 2 height 2
+torus ring orange at 2 0 0 radius 1
+cone spike green at 4 -1 0 radius 1 height 2
+render

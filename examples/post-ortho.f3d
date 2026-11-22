@@ -1,0 +1,63 @@
+# Post-processing + orthographic camera showcase: Wave C features
+# (MASTER-PLAN parity rows 3 and 30, plus true instancing, row 22).
+# One still frame (no animation): identical spheres at three very
+# different depths, a few other primitives scattered in depth, and a
+# row of cubes copied from one base cube -- all seen through an
+# orthographic camera and finished with an ordered filter chain.
+# Run: python3 tools/f3dc/f3dc.py run examples/post-ortho.f3d
+
+scene "post-ortho" size 640 480 background black
+
+# --- Wave C: orthographic camera (row 3) ---------------------------
+# `camera ortho` replaces the default perspective projection with a
+# parallel one; `size N` is the height of the view volume in world
+# units. Under ortho an object keeps the same screen size no matter
+# how far away it is -- compare the three identical spheres below.
+# The camera is placed explicitly, on the sphere row's axis and
+# looking straight at its centre (at 0 1 12, look 0 1 0), so the
+# whole row sits in the middle of the frustum instead of drifting
+# to its edge (and into the vignette) under the diagonal default
+# camera; size 8.5 keeps every sphere fully inside the frame.
+camera ortho size 8.5 at 0 1 12 look 0 1 0
+
+# --- Wave C: post-processing filter chain (row 30) -----------------
+# `filter` is a scene-level statement. Filters run in the order they
+# are written, as a chain over the finished frame, so reordering
+# these lines changes the result: bloom first (bright parts are
+# lifted), then vignette (edges darken), then gamma (brightness curve).
+filter bloom 0.6
+filter vignette 0.4
+filter gamma 1.2
+
+light directional dir -0.5 -1 -0.7 strength 1.2
+light ambient strength 0.15
+plane ground gray at 0 -2 0 size 16
+
+# Distance-independence, the point of ortho: three spheres with the
+# SAME radius (1) at near, middle and far depths along the view
+# direction (z = 4, 0, -4, i.e. 8, 12 and 16 units from the camera),
+# spread across the frame (x = -4, 0, 4) so none of them overlaps
+# or is clipped. A perspective camera would draw the far one much
+# smaller; under `camera ortho` all three come out the same size.
+sphere depth_near red at -4 2.5 4 radius 1
+sphere depth_mid green at 0 2.5 0 radius 1
+sphere depth_far blue at 4 2.5 -4 radius 1
+
+# Other primitives at varied depths, for the same comparison.
+cube mid_cube orange at 0 0 -3 size 2
+cylinder near_pillar cyan at 3 -1 -6 radius 1 height 3
+pyramid far_pyramid purple at 4 0 5 size 2 height 2
+
+# --- Wave C: instancing --------------------------------------------
+# One base cube, defined once like any other object ...
+cube base_cube yellow at -4 -1.5 4 size 1
+# ... and three `instance` copies of it in a row along the front.
+# Each instance names a NEW object, says which existing object it
+# copies (`of base_cube`), and gives its own placement; `rotate`
+# (degrees, x,y,z) and `scale` are optional per-instance overrides,
+# as row_cube_2 (turned) and row_cube_3 (shrunk) show.
+instance row_cube_1 of base_cube at -2,-1.5,4
+instance row_cube_2 of base_cube at 0,-1.5,4 rotate 0,45,0
+instance row_cube_3 of base_cube at 2,-1.5,4 scale 0.7
+
+render

@@ -342,7 +342,11 @@ contains
         m%num_triangles = idx
     end subroutine create_cone
 
-    ! XZ plane at y=0 facing +Y. Tri count = 2.
+    ! XZ plane at y=0, DOUBLE-SIDED (decision D1, WB-INV-PLANE): the
+    ! front pair [a,c,b]/[a,d,c] faces +Y and the reversed-winding pair
+    ! [a,b,c]/[a,c,d] faces -Y, so the winding cull keeps one pair from
+    ! each side. Tri count = 4. Normals come from each triangle's
+    ! winding via compute_triangle_normal (+Y, +Y, -Y, -Y).
     subroutine create_plane(m, width, depth)
         type(Mesh), intent(inout) :: m
         real(dp), intent(in) :: width, depth
@@ -357,12 +361,15 @@ contains
         b = vec3_create( hw, 0.0_dp, -hd)
         c = vec3_create( hw, 0.0_dp,  hd)
         d = vec3_create(-hw, 0.0_dp,  hd)
-        m%num_triangles = 2
-        allocate(m%triangles(2))
+        m%num_triangles = 4
+        allocate(m%triangles(4))
         m%triangles(1)%v = [a, c, b]
         m%triangles(2)%v = [a, d, c]
-        do i = 1, 2
-            m%triangles(i)%normal = vec3_create(0.0_dp, 1.0_dp, 0.0_dp)
+        m%triangles(3)%v = [a, b, c]
+        m%triangles(4)%v = [a, c, d]
+        do i = 1, 4
+            m%triangles(i)%normal = compute_triangle_normal( &
+                m%triangles(i)%v(1), m%triangles(i)%v(2), m%triangles(i)%v(3))
             m%triangles(i)%color = [255, 255, 255]
         end do
     end subroutine create_plane

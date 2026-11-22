@@ -84,7 +84,7 @@ either order after the primitive; every prop is optional.
 | `cube` | 12 | governed by `size` |
 | `sphere` | 352 | governed by `radius` |
 | `cylinder` | 64 | `radius` + `height`, `capped` by default |
-| `plane` | 2 | governed by `size` |
+| `plane` | 4 | governed by `size` (double-sided since Wave C, D1) |
 | `pyramid` | 6 | `size` + `height` |
 | `cone` | 32 | `radius` + `height` |
 | `torus` | 384 | governed by `radius` |

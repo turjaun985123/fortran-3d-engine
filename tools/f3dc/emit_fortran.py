@@ -499,6 +499,46 @@ def emit_scene_text(ir) -> str:
     except Exception:
         pass
 
+    # Wave C: ortho camera line (right after the camera line would
+    # be ideal, but scene.f90 is order-independent for `ortho`),
+    # post chain lines and instance lines. Absent for earlier waves,
+    # so their .scene output is unchanged.
+    try:
+        exts = _get(ir, "extensions", default={})
+        wc = exts.get("wavec") if isinstance(exts, dict) else None
+        if wc:
+            def _wc_import(modname):
+                try:
+                    return __import__(modname)
+                except Exception:
+                    import importlib
+                    return importlib.import_module(
+                        "." + modname, __package__)
+            cam_ext = wc.get("camera")
+            if cam_ext and cam_ext.get("type") == "ortho":
+                _ec = _wc_import("ext_cameras")
+                lines.extend(_ec.camera_lines(cam_ext))
+            if wc.get("post"):
+                _epo = _wc_import("ext_post")
+                lines.extend(_epo.post_lines(wc["post"]))
+            for entry in wc.get("instances") or []:
+                pos = _vec3(entry.get("pos"), (0.0, 0.0, 0.0))
+                rot = _vec3(entry.get("rot"), (0.0, 0.0, 0.0))
+                scale = entry.get("scale")
+                if isinstance(scale, (list, tuple)):
+                    scale = _vec3(scale, (1.0, 1.0, 1.0))[0]
+                if scale is None:
+                    scale = 1.0
+                # .scene: instance NEW SOURCE PX PY PZ RX RY RZ SCALE
+                lines.append(
+                    "instance %s %s %s %s %s" % (
+                        str(entry.get("name", "")),
+                        str(entry.get("source", "")),
+                        _fmt_vec(pos), _fmt_vec(rot),
+                        fmt_num(float(scale))))
+    except Exception:
+        pass
+
     return "\n".join(lines) + "\n"
 
 

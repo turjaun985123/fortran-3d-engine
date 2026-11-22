@@ -1,0 +1,183 @@
+{
+  "_baseline_pct": 86.1,
+  "1": {
+    "evidence": "BUILD-REPORT G2 compiler PASS (validate/desugar suites in 69 tests) + G3 legacy and 1-line cube golden byte-identical sha256 28b6a81dd052a740f3a395ea41b3e0dd37e02eeff585a56fa90e05ac7697cec1; plan proof: identity-group regression / world=group*local parity",
+    "status": "Done-verified"
+  },
+  "10": {
+    "evidence": "BUILD-REPORT: Phong present in v1 (noted as basic); WAVE-A-REPORT B56 material_pbr.f90 also serves Phong specular for the lighting kernel, test_material_pbr 33/33",
+    "status": "Done-verified"
+  },
+  "11": {
+    "evidence": "WAVE-A-REPORT row 11: test_material_pbr.f90 33 assertions; parity TestRow11; e2e metalness 0 vs 1 renders differ",
+    "status": "Done-verified"
+  },
+  "12": {
+    "evidence": "BUILD-REPORT G3 legacy lighting golden byte-identical; G2 test_camera_renderer 35/35; WAVE-A-REPORT rows 8/9/10/12 unchanged (v1 Done-verified)",
+    "status": "Done-verified"
+  },
+  "13": {
+    "evidence": "WAVE-A-REPORT row 13: test_lighting.f90 43 assertions (attenuation/spot cone); parity TestRow13 exact .scene lines; e2e near-vs-far attenuation + in/out-of-cone means",
+    "status": "Done-verified"
+  },
+  "14": {
+    "evidence": "WAVE-A-REPORT row 14: test_fog.f90 106 assertions; parity TestRow14; e2e fogged object pixels move toward fog colour (679.9 to 405.8)",
+    "status": "Done-verified"
+  },
+  "15": {
+    "evidence": "WAVE-A-REPORT row 15: test_texture.f90 62 assertions (test-card orientation contract); parity TestRow15; e2e checker card shows both texel colours",
+    "status": "Done-verified"
+  },
+  "16": {
+    "evidence": "WAVE-A-REPORT row 16: test_shadow.f90 27 assertions; parity TestRow16; e2e soft-vs-off darkening; showcase A/B 3567 px. WAVE-B-REPORT row 16: directional claim now fully backed (B97 investigation + coordinator probe + e2e test_row16 proven scene)",
+    "status": "Done-verified"
+  },
+  "17": {
+    "evidence": "WAVE-B-REPORT row 17: test_keyframe 40/40, test_ext_keys 24/24, test_f3d_keys_js 14/14, e2e test_row17_keys_animation_frames_differ; v1 simple closed-form anims in BUILD-REPORT",
+    "status": "Done-verified"
+  },
+  "18": {
+    "evidence": "BUILD-REPORT: OBJ subset works (v/f, fan triangulation, negative indices); G2 e2e PASS (10) and compiler PASS; multi-object example renders with imported OBJ (WAVE-A loadobj fix: 48 distinct colours) Test citation: tests/compiler/test_validate.py test_load_missing_file_e501 and tests/compiler/test_emit.py (loadobj .scene emission); OBJ round-trip verified in BUILD-REPORT G2 e2e tests.",
+    "status": "Done-verified"
+  },
+  "19": {
+    "evidence": "WAVE-B-REPORT row 19: test_ext_gltf 21/21 (incl. test_winding_conversion_swaps_v2_and_v3), test_gltf_loader 30/30, parity TestRow19GlTF 3/3, e2e test_row19_gltf_quad_renders_nonflat",
+    "status": "Done-verified"
+  },
+  "2": {
+    "evidence": "BUILD-REPORT G3: golden cube with default camera = baseline hash (legacy no-arg and scene path byte-identical); G2 test_camera_renderer 35/35",
+    "status": "Done-verified"
+  },
+  "20": {
+    "evidence": "WAVE-B-REPORT row 20: test_raycast 40/40 (Moller-Trumbore, eps 1e-9, both windings, nearest-t), test_f3d_raycast_js 8/8 cross-checked against Fortran",
+    "status": "Done-verified"
+  },
+  "21": {
+    "evidence": "BUILD-REPORT: runtime/f3d.js orbit controls in viewer; G2 e2e PASS and test_camera_renderer 35/35; runtime is Canvas2D with Fortran-identical math",
+    "status": "Done-verified"
+  },
+  "22": {
+    "evidence": "Wave C Done-verified (true instancing): tests/fortran/test_instancing.f90 17/17, tests/compiler/test_f3d_instanced_js.py 12/12, TestRow22Instancing in tests/compiler/test_wavec_parity.py (base cube 489 px -> 1858 px with 3 instances; unknown source E201).",
+    "status": "Done-verified"
+  },
+  "23": {
+    "evidence": "WAVE-B-REPORT row 23: test_sprite 30/30 incl. real-renderer visibility from both camera sides (253 px)",
+    "status": "Done-verified"
+  },
+  "24": {
+    "evidence": "WAVE-B-REPORT row 24: test_text_render 50/50 incl. real-renderer visibility (269 px); JS-Fortran font cross-check 43/43 glyphs (TestRow24FontCrossCheck)",
+    "status": "Done-verified"
+  },
+  "25": {
+    "evidence": "WAVE-A-REPORT row 25: test_tonemapping.f90 64 assertions; parity TestRow25; e2e ACES max pixel 204 vs 255 untonemapped",
+    "status": "Done-verified"
+  },
+  "26": {
+    "evidence": "Wave C Done-verified (multi-scene): TestRow26MultiScene in tests/compiler/test_wavec_parity.py and tests/e2e/test_wavec_e2e.py multi-scene test (two outputs: 320x240 dark and 640x480 light, own .scene/.ppm per block).",
+    "status": "Done-verified"
+  },
+  "27": {
+    "evidence": "BUILD-REPORT G3 cross-path golden: Fortran CPU renderer and compiler scene path byte-identical to legacy golden; G2 Fortran PASS; JS player in runtime/f3d.js Test citation: tests/e2e/test_waveb_e2e.py test_golden_legacy_no_arg_engine (native renderer) and tests/compiler/test_emit.py test_js_payload_parses_equal_to_v2 (JS payload parity).",
+    "status": "Done-verified"
+  },
+  "28": {
+    "evidence": "BUILD-REPORT G3 Determinism: examples/animated.f3d run twice, all 31 PPM hashes identical (DETERMINISM_OK); no user render loop in .f3d contract Test citation: tests/e2e/test_wavea_e2e.py animation determinism tests (animated scene frames byte-identical across runs); no user loop exists in the language (parser tests, tests/compiler/test_parser.py).",
+    "status": "Done-verified"
+  },
+  "29": {
+    "evidence": "WAVE-B-REPORT row 29: e2e test_rows23_24_29_sprite_and_text_render; coordinator isolation: text-only scene renders 2461 px",
+    "status": "Done-verified"
+  },
+  "3": {
+    "evidence": "Wave C Done-verified: tests/fortran/test_camera_ortho.f90 35/35, tests/compiler/test_ext_cameras.py 27/27, tests/compiler/test_f3d_ortho_js.py 9/9, TestRow03Ortho in tests/compiler/test_wavec_parity.py (ortho spheres 2764 vs 2764 px equal; perspective 721 vs 4041).",
+    "status": "Done-verified"
+  },
+  "30": {
+    "evidence": "Wave C Done-verified (post/filters): tests/fortran/test_postprocess.f90 46/46, tests/compiler/test_ext_post.py 33/33, tests/compiler/test_f3d_post_js.py 16/16, TestRow30Post in tests/compiler/test_wavec_parity.py (chain order, defaults, unknown filter E301, gamma changes pixels).",
+    "status": "Done-verified"
+  },
+  "31": {
+    "evidence": "Alias of row 24 per MASTER-PLAN row 31 proof test 'See row 24': WAVE-B-REPORT row 24 test_text_render 50/50 and TestRow24FontCrossCheck 43/43 glyphs",
+    "status": "Done-verified"
+  },
+  "32": {
+    "evidence": "WAVE-B-REPORT row 32: test_particles 366/366 (deterministic hash contract), test_ext_particles 29/29, test_f3d_particles_js 9/9, e2e determinism (byte-identical re-render); particles-only scene 660 px",
+    "status": "Done-verified"
+  },
+  "33": {
+    "evidence": "Alias of row 28 per MASTER-PLAN row 33 proof test 'See row 28': BUILD-REPORT G3 determinism (same t => same frame, animated.f3d twice identical, DETERMINISM_OK)",
+    "status": "Done-verified"
+  },
+  "34": {
+    "evidence": "BUILD-REPORT G4: missing asset = compile error (E501, exit 3) not runtime failure; OBJ load in v1, textures WAVE-A TestRow15, glTF WAVE-B TestRow19GlTF / test_ext_gltf 21/21",
+    "status": "Done-verified"
+  },
+  "35": {
+    "evidence": "Alias of row 23 per MASTER-PLAN row 35 proof test 'See row 23': WAVE-B-REPORT row 23 test_sprite 30/30 incl. real-renderer visibility (253 px)",
+    "status": "Done-verified"
+  },
+  "36": {
+    "evidence": "BUILD-REPORT 3-line contract and G3: 'cube' alone / 1-line program renders lit framed scene byte-identical to golden; zero-config golden verified by coordinator Test citation: tests/e2e/test_waveb_e2e.py test_golden_one_line_cube_cli_render (1-line program renders the lit framed golden).",
+    "status": "Done-verified"
+  },
+  "4": {
+    "evidence": "BUILD-REPORT file inventory: cube/box 12 tris in mesh.f90; G2 test_math_mesh 54/54; G3 golden render PASS",
+    "status": "Done-verified"
+  },
+  "5": {
+    "evidence": "BUILD-REPORT file inventory: sphere exactly 352 tris @ segments 16 in mesh.f90; G2 test_math_mesh 54/54",
+    "status": "Done-verified"
+  },
+  "6": {
+    "evidence": "BUILD-REPORT file inventory: cylinder 64, cone 32, plane, pyramid 6, torus tris in mesh.f90; G2 test_math_mesh 54/54 (P11 count formulas)",
+    "status": "Done-verified"
+  },
+  "7": {
+    "evidence": "BUILD-REPORT Known gaps Continuous: remaining geometries not built; WAVE-B-REPORT Remaining: row 7 under Continuous (B85+); no per-geometry proof test yet",
+    "status": "Queued-continuous"
+  },
+  "8": {
+    "evidence": "BUILD-REPORT G2 compiler PASS (emit 11, validate 12) and Examples: materials render verified (41 distinct colours); v1 Basic/flat colour in material.f90 Test citation: tests/compiler/test_ext_materials.py (basic/lambert material line tests) and tests/fortran/test_camera_renderer.f90 (unlit/basic material render path).",
+    "status": "Done-verified"
+  },
+  "9": {
+    "evidence": "BUILD-REPORT G3: legacy-default golden byte-identical to today's render (Lambert 0.25+0.75*diffuse reproduced exactly), sha256 28b6a81dd052a740f3a395ea41b3e0dd37e02eeff585a56fa90e05ac7697cec1 Test citation: tests/e2e/test_waveb_e2e.py test_golden_legacy_no_arg_engine + test_golden_one_line_cube_cli_render (the golden IS the Lambert default render, byte-identical).",
+    "status": "Done-verified"
+  },
+  "C1": {
+    "better_metric": "Same declarative .f3d form as other animation features",
+    "evidence": "Named as a continuous item in MASTER-PLAN sections 4/7 and BUILD-REPORT Known gaps Continuous (skinning/morph) and WAVE-B-REPORT Remaining Continuous list; no proof test in any wave report yet",
+    "feature": "Skinning / morph targets",
+    "forge3d_equivalent": "Not yet specified - continuous seats B93+",
+    "proof_test": "To be minted with its B93+ seat",
+    "status": "Queued-continuous",
+    "wave": "Cont"
+  },
+  "C2": {
+    "better_metric": "Same declarative .f3d form; no silent fakes",
+    "evidence": "Named as a continuous item in MASTER-PLAN sections 4/7 and BUILD-REPORT Known gaps Continuous (custom shaders) and WAVE-B-REPORT Remaining Continuous list; no proof test in any wave report yet",
+    "feature": "Custom shaders",
+    "forge3d_equivalent": "Not yet specified - continuous seats B93+",
+    "proof_test": "To be minted with its B93+ seat",
+    "status": "Queued-continuous",
+    "wave": "Cont"
+  },
+  "C3": {
+    "better_metric": "Same <f3d-view> API as the existing JS player",
+    "evidence": "Named as a continuous item in MASTER-PLAN sections 4/7 and BUILD-REPORT Known gaps Continuous (WebGL2/WebGL runtime path; v1 JS runtime is Canvas2D by deliberate choice) and WAVE-B-REPORT Remaining Continuous list; no proof test yet",
+    "feature": "WebGL2 backend",
+    "forge3d_equivalent": "Not yet specified - continuous seats B93+ (v1/v2 JS runtime is Canvas2D/WebGL1 player)",
+    "proof_test": "To be minted with its B93+ seat",
+    "status": "Queued-continuous",
+    "wave": "Cont"
+  },
+  "C4": {
+    "better_metric": "Same scene file as non-XR renders",
+    "evidence": "Named as a continuous item in MASTER-PLAN sections 4/7 and BUILD-REPORT Known gaps Continuous (XR) and WAVE-B-REPORT Remaining Continuous list; no proof test in any wave report yet",
+    "feature": "XR",
+    "forge3d_equivalent": "Not yet specified - continuous seats B93+",
+    "proof_test": "To be minted with its B93+ seat",
+    "status": "Queued-continuous",
+    "wave": "Cont"
+  }
+}

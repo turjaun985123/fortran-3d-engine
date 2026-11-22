@@ -61,7 +61,7 @@ colour      := named | "#" hex6 | "rgb(" int "," int "," int ")"   (* named pale
 vec3        := num "," num "," num | "(" num "," num "," num ")"
 target      := "it" | name | "all" | group_name
 ```
-Lexical/validation rules, full EBNF and defaults table: **P03**. Animation formulas are closed-form `f(t)` (deterministic, native ≡ JS): **P09**. Primitives (defaults / tri counts): sphere 352, cylinder 64, plane 2, pyramid 6, cone 32, torus 384, cube 12: **P11**.
+Lexical/validation rules, full EBNF and defaults table: **P03**. Animation formulas are closed-form `f(t)` (deterministic, native ≡ JS): **P09**. Primitives (defaults / tri counts): sphere 352, cylinder 64, plane 4, pyramid 6, cone 32, torus 384, cube 12: **P11**.
 
 ### 1.3 Defaults = the product (P24)
 Zero-config is a feature, not an accident: missing camera/light/scene all inject the demo defaults above; empty file renders the demo cube with warnings (render path only). Single shared defaults source for Fortran, compiler and viewer — the current bg divergence (`#191923` vs viewer `#020617`) must be fixed in Phase 0.

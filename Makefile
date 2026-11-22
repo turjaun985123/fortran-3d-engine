@@ -28,10 +28,13 @@ MODULE_OBJS = $(OBJ_DIR)/math_3d.o \
               $(OBJ_DIR)/particles_3d.o \
               $(OBJ_DIR)/animation_3d.o \
               $(OBJ_DIR)/keyframe_3d.o \
+              $(OBJ_DIR)/camera_ortho_3d.o \
+              $(OBJ_DIR)/instancing_3d.o \
               $(OBJ_DIR)/scene_3d.o \
               $(OBJ_DIR)/renderer_3d.o \
               $(OBJ_DIR)/fog_3d.o \
-              $(OBJ_DIR)/tonemapping_3d.o
+              $(OBJ_DIR)/tonemapping_3d.o \
+              $(OBJ_DIR)/postprocess_3d.o
 MAIN_OBJ = $(OBJ_DIR)/main.o
 
 TARGET = $(BIN_DIR)/engine3d
@@ -103,6 +106,18 @@ $(OBJ_DIR)/animation_3d.o: $(SRC_DIR)/animation.f90 $(OBJ_DIR)/math_3d.o
 	$(FC) $(FFLAGS) -c $< -o $@
 
 $(OBJ_DIR)/keyframe_3d.o: $(SRC_DIR)/keyframe.f90 $(OBJ_DIR)/math_3d.o $(OBJ_DIR)/animation_3d.o
+	@mkdir -p $(OBJ_DIR) $(MOD_DIR)
+	$(FC) $(FFLAGS) -c $< -o $@
+
+$(OBJ_DIR)/camera_ortho_3d.o: $(SRC_DIR)/camera_ortho.f90 $(OBJ_DIR)/math_3d.o
+	@mkdir -p $(OBJ_DIR) $(MOD_DIR)
+	$(FC) $(FFLAGS) -c $< -o $@
+
+$(OBJ_DIR)/instancing_3d.o: $(SRC_DIR)/instancing.f90 $(OBJ_DIR)/math_3d.o $(OBJ_DIR)/mesh_3d.o
+	@mkdir -p $(OBJ_DIR) $(MOD_DIR)
+	$(FC) $(FFLAGS) -c $< -o $@
+
+$(OBJ_DIR)/postprocess_3d.o: $(SRC_DIR)/postprocess.f90 $(OBJ_DIR)/renderer_3d.o
 	@mkdir -p $(OBJ_DIR) $(MOD_DIR)
 	$(FC) $(FFLAGS) -c $< -o $@
 

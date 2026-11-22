@@ -146,7 +146,7 @@ def _tri_estimate(ir) -> int:
             except Exception:
                 pass
         total += {
-            "cube": 12, "sphere": 352, "cylinder": 64, "plane": 2,
+            "cube": 12, "sphere": 352, "cylinder": 64, "plane": 4,
             "pyramid": 6, "cone": 32, "torus": 384,
         }.get(str(prim), 0)
     return total
@@ -518,7 +518,97 @@ def _fail_code(bag: ErrorBag) -> int:
     return 1
 
 
+# ---------------------------------------------------------------------
+# Wave C: multi-scene files (row 26). A .f3d file with more than one
+# top-level `scene` statement is split into per-scene chunks; each
+# chunk is a complete single-scene program compiled/rendered as its
+# own output. Chunks are written to hidden temp files next to the
+# source (so relative asset paths keep resolving) and removed after.
+# ---------------------------------------------------------------------
+
+def _scene_chunks(text):
+    """Split *text* at top-level `scene` lines; None if <= 1 scene."""
+    lines = text.splitlines(keepends=True)
+    starts = []
+    for i, raw in enumerate(lines):
+        s = raw.strip()
+        if not s or s.startswith("#") or s.startswith("//"):
+            continue
+        if s.split(None, 1)[0].rstrip(":").lower() == "scene":
+            starts.append(i)
+    if len(starts) <= 1:
+        return None
+    chunks = []
+    for k, start in enumerate(starts):
+        end = starts[k + 1] if k + 1 < len(starts) else len(lines)
+        chunk = "".join(lines[start:end])
+        if k == 0:
+            chunk = "".join(lines[:start]) + chunk
+        chunks.append(chunk)
+    return chunks
+
+
+def _chunk_scene_name(chunk, index):
+    for raw in chunk.splitlines():
+        s = raw.strip()
+        if not s:
+            continue
+        if s.split(None, 1)[0].rstrip(":").lower() != "scene":
+            continue
+        parts = s.replace('"', " ").split()
+        if len(parts) > 1:
+            return parts[1]
+    return "scene%d" % (index + 1)
+
+
+def _multi_chunks(path):
+    """Return the scene chunks for *path*, or None if single-scene."""
+    p = Path(path)
+    if p.suffix.lower() != ".f3d" or not p.is_file():
+        return None
+    try:
+        return _scene_chunks(p.read_text(encoding="utf-8"))
+    except OSError:
+        return None
+
+
+def _write_chunks(path, chunks):
+    """Materialise chunks as hidden temp files beside the source."""
+    p = Path(path)
+    temps = []
+    for i, chunk in enumerate(chunks):
+        tmp = p.parent / (".%s.multi%d.f3d" % (p.stem, i))
+        tmp.write_text(chunk, encoding="utf-8")
+        temps.append(tmp)
+    return temps
+
+
+def _drop_chunks(temps):
+    for tmp in temps or []:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+
+
 def _do_check(path, as_json=False, explain=False) -> int:
+    chunks = _multi_chunks(path)
+    if chunks is not None:
+        temps = _write_chunks(path, chunks)
+        try:
+            rc = 0
+            for i, tmp in enumerate(temps):
+                code = _do_check(tmp, as_json=as_json,
+                                 explain=explain)
+                print("scene %d/%d: %s" % (
+                    i + 1, len(chunks),
+                    _chunk_scene_name(chunks[i], i)))
+                if code != 0 and rc == 0:
+                    rc = code
+            print("multi-scene: %d scenes in %s" % (len(chunks), path))
+            return rc
+        finally:
+            _drop_chunks(temps)
     bag = ErrorBag()
     ir = compile_pipeline(path, bag)
     if ir is None:
@@ -537,8 +627,27 @@ def _do_check(path, as_json=False, explain=False) -> int:
     return 0
 
 
-def _do_build(path, out_dir=None, explain=False):
+def _do_build(path, out_dir=None, explain=False, stem_override=None):
     """Build all artifacts; return (exit_code, out_dir, ir, stem)."""
+    chunks = _multi_chunks(path)
+    if chunks is not None:
+        temps = _write_chunks(path, chunks)
+        try:
+            rc, last_ir, last_stem = 0, None, None
+            out = Path(out_dir) if out_dir else Path("build")
+            for i, tmp in enumerate(temps):
+                sub = "%s-%s" % (
+                    Path(path).stem,
+                    _chunk_scene_name(chunks[i], i))
+                code, _o, ir_i, stem_i = _do_build(
+                    tmp, out_dir=out_dir, explain=explain,
+                    stem_override=sub)
+                if code != 0 and rc == 0:
+                    rc = code
+                last_ir, last_stem = ir_i, stem_i
+            return rc, out, last_ir, last_stem
+        finally:
+            _drop_chunks(temps)
     bag = ErrorBag()
     ir = compile_pipeline(path, bag)
     if ir is None:
@@ -547,7 +656,7 @@ def _do_build(path, out_dir=None, explain=False):
     if bag.diagnostics:
         _print_diagnostics(bag)
     out = Path(out_dir) if out_dir else Path("build")
-    stem = Path(path).stem
+    stem = stem_override or Path(path).stem
     artifacts = {
         f"{stem}.scene": _scene_text(ir, stem),
         f"{stem}.json": _json_v2_text(ir),
@@ -597,8 +706,37 @@ def _render_output_name(ir, stem: str, scene_path: Path) -> str:
     return f"{stem}.ppm"
 
 
-def _do_run(path, out_dir=None) -> int:
-    code, out, ir, stem = _do_build(path, out_dir=out_dir)
+def _do_run(path, out_dir=None, stem_override=None) -> int:
+    chunks = _multi_chunks(path)
+    if chunks is not None:
+        temps = _write_chunks(path, chunks)
+        try:
+            rc = 0
+            out = Path(out_dir) if out_dir else Path("build")
+            for i, tmp in enumerate(temps):
+                sub = "%s-%s" % (
+                    Path(path).stem,
+                    _chunk_scene_name(chunks[i], i))
+                code = _do_run(tmp, out_dir=out_dir,
+                               stem_override=sub)
+                if code != 0 and rc == 0:
+                    rc = code
+                # Each scene's engine output defaults to the same
+                # output_render.ppm name; rename this scene's files
+                # to its chunk stem so scenes never overwrite each
+                # other (row 26: every scene its own output).
+                if code == 0:
+                    for ppm in sorted(out.glob("output_render*.ppm")):
+                        target = out / ppm.name.replace(
+                            "output_render", sub, 1)
+                        if ppm != target:
+                            ppm.replace(target)
+                            print(str(target))
+            return rc
+        finally:
+            _drop_chunks(temps)
+    code, out, ir, stem = _do_build(path, out_dir=out_dir,
+                                    stem_override=stem_override)
     if code != 0:
         return code
     driver = _import_sibling("driver")

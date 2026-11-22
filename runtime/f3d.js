@@ -70,7 +70,7 @@ function cylinder(o,r,h,seg,cap){seg=Math.max(3,seg|0);var hh=h/2,i;
 function cone(o,r,h,seg,cap){seg=Math.max(3,seg|0);var hh=h/2,apex=[0,hh,0],i;
   function pt(ii){var th=2*Math.PI*ii/seg;return[r*Math.cos(th),-hh,r*Math.sin(th)];}
   for(i=0;i<seg;i++){var b1=pt(i),b2=pt((i+1)%seg);tri(o,b1,apex,b2);if(cap)tri(o,[0,-hh,0],b1,b2);}}
-function plane(o,w,d){var a=[-w/2,0,-d/2],b=[w/2,0,-d/2],c=[w/2,0,d/2],e=[-w/2,0,d/2];tri(o,a,c,b);tri(o,a,e,c);}
+function plane(o,w,d){var a=[-w/2,0,-d/2],b=[w/2,0,-d/2],c=[w/2,0,d/2],e=[-w/2,0,d/2];tri(o,a,c,b);tri(o,a,e,c);tri(o,a,b,c);tri(o,a,c,e);} // double-sided since Wave C (D1): back pair mirrors mesh.f90 create_plane
 function pyramid(o,base,h){var hb=base/2,hh=h/2,apex=[0,hh,0],
   p=[[-hb,-hh,-hb],[hb,-hh,-hb],[hb,-hh,hb],[-hb,-hh,hb]],i;
   for(i=0;i<4;i++)tri(o,p[i],apex,p[(i+1)%4]);tri(o,p[3],p[1],p[2]);tri(o,p[3],p[0],p[1]);}

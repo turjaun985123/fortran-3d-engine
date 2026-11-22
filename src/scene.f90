@@ -131,6 +131,13 @@ module scene_3d
         type(SceneText), allocatable :: texts(:)
         type(SceneParticles), allocatable :: parts(:)
         type(KeyTrack), allocatable :: tracks(:)
+        ! Wave C (coordinator integration): ortho camera + post chain.
+        ! Defaults keep earlier-wave scenes byte-identical.
+        logical :: ortho = .false.
+        real(dp) :: ortho_size = 5.0_dp
+        integer :: n_post = 0
+        character(len=32) :: post_names(16) = ''
+        real(dp) :: post_amounts(16) = 0.0_dp
     end type Scene
 
 contains
@@ -924,6 +931,52 @@ contains
                 kf%scale = tok_real(tokens, 9)
                 kf%ease = trim(tokens(10))
                 call append_key(sc%tracks(cur_track), kf)
+            case ('ortho')
+                ! ortho SIZE -- Wave C orthographic camera (row 3).
+                if (ntok < 2) then
+                    call warn_line(lineno, line)
+                    cycle
+                end if
+                sc%ortho = .true.
+                sc%ortho_size = tok_real(tokens, 2)
+            case ('post')
+                ! post NAME AMOUNT -- Wave C filter chain (row 30),
+                ! applied in file order by main after rendering.
+                if (ntok < 3) then
+                    call warn_line(lineno, line)
+                    cycle
+                end if
+                if (sc%n_post < 16) then
+                    sc%n_post = sc%n_post + 1
+                    sc%post_names(sc%n_post) = trim(tokens(2))
+                    sc%post_amounts(sc%n_post) = tok_real(tokens, 3)
+                end if
+            case ('instance')
+                ! instance NEW SOURCE PX PY PZ RX RY RZ SCALE
+                ! Wave C true instancing (row 22): a copy of the
+                ! named object's built mesh/pose template with its
+                ! own placement; shares the source geometry build.
+                if (ntok < 10) then
+                    call warn_line(lineno, line)
+                    cycle
+                end if
+                block
+                    integer :: src_idx
+                    type(SceneObject) :: iobj
+                    src_idx = scene_find_object(sc, trim(tokens(3)))
+                    if (src_idx <= 0) then
+                        call warn_line(lineno, line)
+                    else
+                        iobj = sc%objects(src_idx)
+                        iobj%name = trim(tokens(2))
+                        iobj%pos = tok_vec3(tokens, 4)
+                        iobj%rot_deg = tok_vec3(tokens, 7)
+                        iobj%scl = vec3_create(tok_real(tokens, 10), &
+                                               tok_real(tokens, 10), &
+                                               tok_real(tokens, 10))
+                        call append_object(sc, iobj)
+                    end if
+                end block
             case ('anim')
                 ! anim KIND TARGET AXIS SPEED DURATION FPS EASE LOOP
                 if (ntok < 9) then

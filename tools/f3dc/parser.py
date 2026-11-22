@@ -71,7 +71,9 @@ _NODE_NAMES = ("Program", "SceneStmt", "CameraStmt", "LightStmt", "ObjectStmt",
                "ControlsStmt", "OutputStmt",
                # Wave B (fallback node classes; semantics in validate)
                "SpriteStmt", "TextStmt", "ParticlesStmt", "KeysStmt",
-               "KeyStmt")
+               "KeyStmt",
+               # Wave C (fallback node classes; semantics in validate)
+               "FilterStmt", "InstanceStmt")
 _NODES = {}
 for _n in _NODE_NAMES:
     _cls = getattr(_ast, _n, None) if _ast is not None else None
@@ -316,7 +318,8 @@ ANIM_VERBS = ("spin", "bob", "pulse", "orbit", "move", "turn", "grow")
 RESERVED_SECURITY = {"system", "eval", "import"}
 RESERVED = {"let", "if", "for", "function"} | RESERVED_SECURITY
 STARTERS = (("scene", "camera", "light", "group", "end", "animate", "load",
-             "repeat", "grid", "ring", "controls", "render", "export")
+             "repeat", "grid", "ring", "controls", "render", "export",
+             "filter", "instance")
             + PRIMS + ANIM_VERBS)
 # Extended (CSS-like) colour vocabulary used ONLY to tell a bare colour word
 # apart from an object name; membership here does not make a colour valid --
@@ -518,6 +521,10 @@ class Parser:
             return self._parse_text(lp)
         if first == "particles":
             return self._parse_particles(lp)
+        if first == "filter":
+            return self._parse_filter(lp)
+        if first == "instance":
+            return self._parse_instance(lp)
         if first == "keys":
             return self._parse_keys_header(lp)
         if first == "key":
@@ -588,6 +595,9 @@ class Parser:
             if w in ("at", "look", "up"):
                 lp.next(); lp.dup(seen, w); props[w] = lp.vec3()
             elif w in ("fov", "near", "far"):
+                lp.next(); lp.dup(seen, w); props[w] = lp.number(w)
+            elif w == "size":
+                # Wave C: ortho frustum height (`camera ortho size N`).
                 lp.next(); lp.dup(seen, w); props[w] = lp.number(w)
             elif w == "ortho":
                 lp.next(); props["ortho"] = True
@@ -931,6 +941,52 @@ class Parser:
             props["seed"] = int(props["seed"])
         return _make("ParticlesStmt", name=name, colour=colour,
                      color=colour, props=props, line=lp.no, span=None)
+
+    # -- Wave C statements (B75-B82; semantics live in ext_post /
+    #    ext_cameras + validate, this layer only shapes the nodes) --
+
+    def _parse_filter(self, lp):
+        lp.next()  # filter
+        name = lp.ident()
+        if name is None:
+            raise _LineError("E101", "'filter' needs a filter name, "
+                                     "like: filter blur 1")
+        amount = None
+        if not lp.at_end():
+            amount = lp.number("filter amount")
+        if not lp.at_end():
+            raise _LineError("E103", "unexpected '%s' in filter "
+                                     "statement" % lp.peek_text())
+        props = {"name": name.lower()}
+        if amount is not None:
+            props["amount"] = amount
+        return _make("FilterStmt", name=name.lower(), amount=amount,
+                     props=props, line=lp.no, span=None)
+
+    def _parse_instance(self, lp):
+        lp.next()  # instance
+        new_name = lp.ident()
+        if new_name is None:
+            raise _LineError("E101", "'instance' needs a name for the "
+                                     "new object, like: instance c2 of "
+                                     "cube1 at 2,0,0")
+        if lp.peek_word() != "of":
+            raise _LineError("E103", "'instance' expects 'of' after "
+                                     "the new name")
+        lp.next()  # of
+        source = lp.ident()
+        if source is None:
+            raise _LineError("E101", "'instance' needs the name of "
+                                     "the object it copies after 'of'")
+        props, seen = {}, set()
+        while not lp.at_end():
+            if self._object_props(lp, props, seen):
+                continue
+            raise _LineError("E103", "unexpected '%s' in instance "
+                                     "statement" % lp.peek_text())
+        props["source"] = source
+        return _make("InstanceStmt", name=new_name, source=source,
+                     props=props, line=lp.no, span=None)
 
     def _parse_text(self, lp):
         lp.next()  # text

@@ -51,6 +51,8 @@ try:  # package import (tools.f3dc.validate / f3dc_pkg style)
     from . import ext_sprites_text as _ext_sprites_text
     from . import ext_particles as _ext_particles
     from . import ext_keys as _ext_keys
+    from . import ext_post as _ext_post
+    from . import ext_cameras as _ext_cameras
 except Exception:  # plain module import (tools/f3dc on sys.path)
     import desugar as _desugar_mod  # type: ignore
     import ir_nodes as _ir  # type: ignore
@@ -71,6 +73,12 @@ except Exception:  # plain module import (tools/f3dc on sys.path)
         _ext_sprites_text = None  # type: ignore
         _ext_particles = None  # type: ignore
         _ext_keys = None  # type: ignore
+    try:
+        import ext_post as _ext_post  # type: ignore
+        import ext_cameras as _ext_cameras  # type: ignore
+    except Exception:  # Wave C extensions unavailable: Wave B behaviour
+        _ext_post = None  # type: ignore
+        _ext_cameras = None  # type: ignore
 
 __all__ = ["validate"]
 
@@ -451,7 +459,9 @@ def _estimate_triangles(prim, props):
     if prim == "plane":
         ws = segments or 1
         ds = _int(props.get("depth_segments"), None) or ws
-        return 2 * ws * ds
+        # Wave C housekeeping (D1, WB-INV-PLANE): create_plane is
+        # double-sided since Wave C, so 4 tris per segment cell.
+        return 4 * ws * ds
     if prim == "pyramid":
         sides = _int(props.get("sides"), None) or 4
         return max(2 * sides - 2, 0)
@@ -510,6 +520,10 @@ def _classify(node):
     kind = str(kind).lower() if kind is not None else ""
     # Wave B statement kinds (checked first: their class names and
     # fields would otherwise trip the anim/object heuristics below).
+    if cname == "filterstmt":
+        return "filter", props
+    if cname == "instancestmt":
+        return "instance", props
     if cname == "keysstmt":
         return "keys", props
     if cname == "keystmt":
@@ -603,6 +617,7 @@ def validate(program, bag, base_dir="."):
     object_nodes, anim_nodes, load_nodes = [], [], []
     sprite_nodes, text_nodes, particles_nodes = [], [], []
     keys_header_nodes, key_nodes = [], []
+    filter_nodes, instance_nodes = [], []
     seen_singletons = {}
 
     def walk(nodes):
@@ -636,6 +651,10 @@ def validate(program, bag, base_dir="."):
                 text_nodes.append(node)
             elif category == "particles":
                 particles_nodes.append(node)
+            elif category == "filter":
+                filter_nodes.append(node)
+            elif category == "instance":
+                instance_nodes.append(node)
             elif category == "keys":
                 keys_header_nodes.append(node)
             elif category == "key":
@@ -1400,6 +1419,88 @@ def validate(program, bag, base_dir="."):
         if tracks:
             waveb["keys"] = tracks
 
+    # ---- Wave C entities (rows 3/22/26/30) -----------------------
+    # Post chain, ortho camera and instances ride in
+    # IRScene.extensions["wavec"]; emit_fortran turns them into
+    # .scene lines via the ext_* modules.
+    wavec = {}
+    if _ext_cameras is not None and camera_node is not None:
+        cprops = _props_dict(camera_node)
+        if _field(camera_node, cprops, "ortho"):
+            try:
+                cam_ext = _ext_cameras.extract_camera({
+                    "ortho": True,
+                    "size": _field(camera_node, cprops, "size"),
+                    "at": _field(camera_node, cprops, "at", "pos",
+                                 "position"),
+                    "look": _field(camera_node, cprops, "look",
+                                   "target")})
+                for msg in _ext_cameras.validate_camera(cam_ext):
+                    _err(bag, "E302", msg, _span(camera_node))
+                if cam_ext.get("type") == "ortho":
+                    wavec["camera"] = cam_ext
+            except Exception as exc:
+                _err(bag, "E302", "bad camera: %s" % exc,
+                     _span(camera_node))
+    if _ext_post is not None and filter_nodes:
+        chain = []
+        for node in filter_nodes:
+            props = _props_dict(node)
+            span = _span(node)
+            ext_in = {"name": _field(node, props, "name")}
+            amount = _field(node, props, "amount")
+            if amount is not None:
+                ext_in["amount"] = amount
+            try:
+                ext = _ext_post.extract_post(ext_in)
+                for msg in _ext_post.validate_post(ext):
+                    _err(bag, "E301", msg, span)
+            except Exception as exc:
+                _err(bag, "E301", "bad filter: %s" % exc, span)
+                continue
+            chain.append(ext)
+        if chain:
+            wavec["post"] = chain
+    if instance_nodes:
+        insts = []
+        for node in instance_nodes:
+            props = _props_dict(node)
+            span = _span(node)
+            iname = _field(node, props, "name", "id")
+            source = _field(node, props, "source", "of", "target")
+            if not isinstance(iname, str) or not iname:
+                _err(bag, "E201", "'instance' needs a name for the "
+                                  "new object", span)
+                continue
+            if not isinstance(source, str) or not source:
+                _err(bag, "E201", "'instance %s' needs 'of <object>'"
+                                  % iname, span)
+                continue
+            if source not in names:
+                _err(bag, "E201", "instance %r copies %r, but no "
+                                  "object is called that"
+                                  % (iname, source), span)
+                continue
+            if iname in names:
+                _err(bag, "E201", "there is already an object "
+                                  "called %r" % iname, span)
+                continue
+            entry = {"name": iname, "source": source}
+            pos = _vec3(_field(node, props, "at", "pos", "position"),
+                        None)
+            if pos is not None:
+                entry["pos"] = pos
+            rot = _vec3(_field(node, props, "rotate", "rot"), None)
+            if rot is not None:
+                entry["rot"] = rot
+            scale = _field(node, props, "scale")
+            if scale is not None:
+                entry["scale"] = scale
+            insts.append(entry)
+            names[iname] = node
+        if insts:
+            wavec["instances"] = insts
+
     if _has_errors(bag):
         return None
     scene = _make(getattr(_ir, "IRScene", None),
@@ -1424,6 +1525,13 @@ def validate(program, bag, base_dir="."):
             if not isinstance(scene.extensions, dict):
                 scene.extensions = {}
             scene.extensions["waveb"] = waveb
+        except Exception:
+            pass
+    if wavec:
+        try:
+            if not isinstance(scene.extensions, dict):
+                scene.extensions = {}
+            scene.extensions["wavec"] = wavec
         except Exception:
             pass
     try:

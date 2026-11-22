@@ -1,0 +1,418 @@
+{
+  "source_plan": "docs/plan/MASTER-PLAN.md",
+  "source_status": "docs/parity-status.json",
+  "rows": [
+    {
+      "row": 1,
+      "feature": "Scene + Scene graph",
+      "forge3d_equivalent": "Flat list + 1-level `group … end`, flattened at compile (P12)",
+      "wave": "1 (deep nesting 2)",
+      "proof_test": "Identity-group regression; world=group·local parity ≤1e-6",
+      "better_metric": "1 concept (group) vs Object3D tree + add/remove boilerplate",
+      "status": "Done-verified",
+      "evidence": "BUILD-REPORT G2 compiler PASS (validate/desugar suites in 69 tests) + G3 legacy and 1-line cube golden byte-identical sha256 28b6a81dd052a740f3a395ea41b3e0dd37e02eeff585a56fa90e05ac7697cec1; plan proof: identity-group regression / world=group*local parity"
+    },
+    {
+      "row": 2,
+      "feature": "PerspectiveCamera",
+      "forge3d_equivalent": "`camera at … look … fov …` or nothing (default)",
+      "wave": "1",
+      "proof_test": "Golden cube with default camera = baseline hash",
+      "better_metric": "0 lines vs ~4 + aspect/resize plumbing",
+      "status": "Done-verified",
+      "evidence": "BUILD-REPORT G3: golden cube with default camera = baseline hash (legacy no-arg and scene path byte-identical); G2 test_camera_renderer 35/35"
+    },
+    {
+      "row": 3,
+      "feature": "OrthographicCamera",
+      "forge3d_equivalent": "`camera ortho` (ext_cameras)",
+      "wave": "3 (B78–B80)",
+      "proof_test": "Ortho golden, `examples/post-ortho.f3d`",
+      "better_metric": "Same 1 line as perspective",
+      "status": "Done-verified",
+      "evidence": "Wave C Done-verified: tests/fortran/test_camera_ortho.f90 35/35, tests/compiler/test_ext_cameras.py 27/27, tests/compiler/test_f3d_ortho_js.py 9/9, TestRow03Ortho in tests/compiler/test_wavec_parity.py (ortho spheres 2764 vs 2764 px equal; perspective 721 vs 4041)."
+    },
+    {
+      "row": 4,
+      "feature": "BoxGeometry",
+      "forge3d_equivalent": "`cube`",
+      "wave": "1",
+      "proof_test": "Tri count 12, normals, golden",
+      "better_metric": "1 word vs Geometry+Material+Mesh triple",
+      "status": "Done-verified",
+      "evidence": "BUILD-REPORT file inventory: cube/box 12 tris in mesh.f90; G2 test_math_mesh 54/54; G3 golden render PASS"
+    },
+    {
+      "row": 5,
+      "feature": "SphereGeometry",
+      "forge3d_equivalent": "`sphere`",
+      "wave": "1",
+      "proof_test": "352 tris @ med, analytic normals",
+      "better_metric": "1 word, sensible segment defaults",
+      "status": "Done-verified",
+      "evidence": "BUILD-REPORT file inventory: sphere exactly 352 tris @ segments 16 in mesh.f90; G2 test_math_mesh 54/54"
+    },
+    {
+      "row": 6,
+      "feature": "Cylinder / Cone / Plane / Pyramid* / Torus",
+      "forge3d_equivalent": "`cylinder` `cone` `plane` `pyramid` `torus` (*pyramid = extra, Three has no direct equiv.)",
+      "wave": "1",
+      "proof_test": "P11 count formulas + volume/normal tests",
+      "better_metric": "Defaults for every parameter; 0 required args",
+      "status": "Done-verified",
+      "evidence": "BUILD-REPORT file inventory: cylinder 64, cone 32, plane, pyramid 6, torus tris in mesh.f90; G2 test_math_mesh 54/54 (P11 count formulas)"
+    },
+    {
+      "row": 7,
+      "feature": "All other geometries (Circle, Ring, Tube, Lathe, Extrude, Text…)",
+      "forge3d_equivalent": "New primitives via `ext_*.py` + `mesh.f90` builders, minted seats B93+",
+      "wave": "Cont",
+      "proof_test": "Per-geometry count/normal/golden test, matrix row flips to Done-verified",
+      "better_metric": "Same 1-word form for every geometry",
+      "status": "Queued-continuous",
+      "evidence": "BUILD-REPORT Known gaps Continuous: remaining geometries not built; WAVE-B-REPORT Remaining: row 7 under Continuous (B85+); no per-geometry proof test yet"
+    },
+    {
+      "row": 8,
+      "feature": "MeshBasicMaterial",
+      "forge3d_equivalent": "`material basic` / flat colour",
+      "wave": "1",
+      "proof_test": "Unlit golden (light-independent)",
+      "better_metric": "Colour is a word on the object line, not a material object",
+      "status": "Done-verified",
+      "evidence": "BUILD-REPORT G2 compiler PASS (emit 11, validate 12) and Examples: materials render verified (41 distinct colours); v1 Basic/flat colour in material.f90 Test citation: tests/compiler/test_ext_materials.py (basic/lambert material line tests) and tests/fortran/test_camera_renderer.f90 (unlit/basic material render path)."
+    },
+    {
+      "row": 9,
+      "feature": "MeshLambertMaterial",
+      "forge3d_equivalent": "Default material (Lambert, legacy 0.25/0.75 reproduced exactly)",
+      "wave": "1",
+      "proof_test": "Legacy-default golden = today’s render",
+      "better_metric": "Default — 0 lines to get lit 3D",
+      "status": "Done-verified",
+      "evidence": "BUILD-REPORT G3: legacy-default golden byte-identical to today's render (Lambert 0.25+0.75*diffuse reproduced exactly), sha256 28b6a81dd052a740f3a395ea41b3e0dd37e02eeff585a56fa90e05ac7697cec1 Test citation: tests/e2e/test_waveb_e2e.py test_golden_legacy_no_arg_engine + test_golden_one_line_cube_cli_render (the golden IS the Lambert default render, byte-identical)."
+    },
+    {
+      "row": 10,
+      "feature": "MeshPhongMaterial",
+      "forge3d_equivalent": "`material phong`, specular/shininess",
+      "wave": "1 (Should) / 2",
+      "proof_test": "Blinn specular golden (P10)",
+      "better_metric": "One keyword vs material class + light setup",
+      "status": "Done-verified",
+      "evidence": "BUILD-REPORT: Phong present in v1 (noted as basic); WAVE-A-REPORT B56 material_pbr.f90 also serves Phong specular for the lighting kernel, test_material_pbr 33/33"
+    },
+    {
+      "row": 11,
+      "feature": "MeshStandardMaterial (PBR)",
+      "forge3d_equivalent": "`material standard`, metalness/roughness (B56–B59)",
+      "wave": "2",
+      "proof_test": "PBR golden suite (Wave A parity tests B61)",
+      "better_metric": "PBR with defaults; no env-map boilerplate to start",
+      "status": "Done-verified",
+      "evidence": "WAVE-A-REPORT row 11: test_material_pbr.f90 33 assertions; parity TestRow11; e2e metalness 0 vs 1 renders differ"
+    },
+    {
+      "row": 12,
+      "feature": "Ambient / Directional lights",
+      "forge3d_equivalent": "`light ambient` / default directional",
+      "wave": "1",
+      "proof_test": "Legacy lighting golden",
+      "better_metric": "A working light exists with 0 lines",
+      "status": "Done-verified",
+      "evidence": "BUILD-REPORT G3 legacy lighting golden byte-identical; G2 test_camera_renderer 35/35; WAVE-A-REPORT rows 8/9/10/12 unchanged (v1 Done-verified)"
+    },
+    {
+      "row": 13,
+      "feature": "Point / Spot lights",
+      "forge3d_equivalent": "`light point …` / `light spot …` (B52, B58, B60)",
+      "wave": "2",
+      "proof_test": "Attenuation/spot-cone goldens",
+      "better_metric": "Position + intensity only; no helper objects",
+      "status": "Done-verified",
+      "evidence": "WAVE-A-REPORT row 13: test_lighting.f90 43 assertions (attenuation/spot cone); parity TestRow13 exact .scene lines; e2e near-vs-far attenuation + in/out-of-cone means"
+    },
+    {
+      "row": 14,
+      "feature": "Fog",
+      "forge3d_equivalent": "`scene fog …` linear/exp² (B54)",
+      "wave": "2",
+      "proof_test": "Fog golden at 3 depths",
+      "better_metric": "1 clause on the scene line",
+      "status": "Done-verified",
+      "evidence": "WAVE-A-REPORT row 14: test_fog.f90 106 assertions; parity TestRow14; e2e fogged object pixels move toward fog colour (679.9 to 405.8)"
+    },
+    {
+      "row": 15,
+      "feature": "Textures / UV",
+      "forge3d_equivalent": "`texture: \"…\"` + frozen UV contract per primitive (P14)",
+      "wave": "2 (v1: reserved + loud diagnostic)",
+      "proof_test": "Orientation test-card, v1 golden pixel-identity without textures",
+      "better_metric": "UVs generated per primitive — 0 UV code",
+      "status": "Done-verified",
+      "evidence": "WAVE-A-REPORT row 15: test_texture.f90 62 assertions (test-card orientation contract); parity TestRow15; e2e checker card shows both texel colours"
+    },
+    {
+      "row": 16,
+      "feature": "Shadows",
+      "forge3d_equivalent": "`shadow: blob` fake in 1 (honest label); real shadow maps (B53, B60)",
+      "wave": "1 fake / 2 real",
+      "proof_test": "Shadow-map golden; `shadow: soft` in v1 = compile error, never a silent fake",
+      "better_metric": "1 word vs 5-place scattered opt-in in Three (P01 pain #4)",
+      "status": "Done-verified",
+      "evidence": "WAVE-A-REPORT row 16: test_shadow.f90 27 assertions; parity TestRow16; e2e soft-vs-off darkening; showcase A/B 3567 px. WAVE-B-REPORT row 16: directional claim now fully backed (B97 investigation + coordinator probe + e2e test_row16 proven scene)"
+    },
+    {
+      "row": 17,
+      "feature": "AnimationMixer / clips / timeline",
+      "forge3d_equivalent": "`spin/bob/orbit/move…` + keyframe tracks in IR (P09)",
+      "wave": "1 simple / 2 full keys",
+      "proof_test": "Loop-closure + golden-pose tests; frame-0 = still",
+      "better_metric": "Declarative 1 line vs mixer/clip/action plumbing; no user loop",
+      "status": "Done-verified",
+      "evidence": "WAVE-B-REPORT row 17: test_keyframe 40/40, test_ext_keys 24/24, test_f3d_keys_js 14/14, e2e test_row17_keys_animation_frames_differ; v1 simple closed-form anims in BUILD-REPORT"
+    },
+    {
+      "row": 18,
+      "feature": "OBJ loading",
+      "forge3d_equivalent": "`load \"model.obj\"` (P15: v/vt/vn/f, groups)",
+      "wave": "1 (Should)",
+      "proof_test": "Round-trip repo `model.obj`: 36 v / 12 f → 12 tris",
+      "better_metric": "1 line vs async loader + callbacks",
+      "status": "Done-verified",
+      "evidence": "BUILD-REPORT: OBJ subset works (v/f, fan triangulation, negative indices); G2 e2e PASS (10) and compiler PASS; multi-object example renders with imported OBJ (WAVE-A loadobj fix: 48 distinct colours) Test citation: tests/compiler/test_validate.py test_load_missing_file_e501 and tests/compiler/test_emit.py (loadobj .scene emission); OBJ round-trip verified in BUILD-REPORT G2 e2e tests."
+    },
+    {
+      "row": 19,
+      "feature": "glTF / GLB loading",
+      "forge3d_equivalent": "`load \"model.gltf\"` via `ext_gltf.py` + Fortran ingest (B63–B64)",
+      "wave": "2",
+      "proof_test": "glTF sample-scene parity tests (B74)",
+      "better_metric": "Same `load` line as OBJ — format is not a new API",
+      "status": "Done-verified",
+      "evidence": "WAVE-B-REPORT row 19: test_ext_gltf 21/21 (incl. test_winding_conversion_swaps_v2_and_v3), test_gltf_loader 30/30, parity TestRow19GlTF 3/3, e2e test_row19_gltf_quad_renders_nonflat"
+    },
+    {
+      "row": 20,
+      "feature": "Raycaster / picking",
+      "forge3d_equivalent": "Raycast module native (B65) + JS picking (B66)",
+      "wave": "2",
+      "proof_test": "Pick-cube-at-pixel test, native ≡ JS",
+      "better_metric": "Picking on by default in viewer; no ray math in user code",
+      "status": "Done-verified",
+      "evidence": "WAVE-B-REPORT row 20: test_raycast 40/40 (Moller-Trumbore, eps 1e-9, both windings, nearest-t), test_f3d_raycast_js 8/8 cross-checked against Fortran"
+    },
+    {
+      "row": 21,
+      "feature": "OrbitControls",
+      "forge3d_equivalent": "`controls orbit` (default in viewer), Pointer Events, touch, keys (P13)",
+      "wave": "1",
+      "proof_test": "Clamp/frame-rate-independence + parity tests",
+      "better_metric": "Built-in, 0 imports, 0 lines",
+      "status": "Done-verified",
+      "evidence": "BUILD-REPORT: runtime/f3d.js orbit controls in viewer; G2 e2e PASS and test_camera_renderer 35/35; runtime is Canvas2D with Fortran-identical math"
+    },
+    {
+      "row": 22,
+      "feature": "InstancedMesh",
+      "forge3d_equivalent": "`repeat/grid/ring` compile-time expansion (1); true instancing (B81–B82)",
+      "wave": "1 / 3",
+      "proof_test": "100-cube scene = 1,200 tris budget test (P16)",
+      "better_metric": "`grid 10x10 cube` vs InstancedMesh matrix plumbing",
+      "status": "Done-verified",
+      "evidence": "Wave C Done-verified (true instancing): tests/fortran/test_instancing.f90 17/17, tests/compiler/test_f3d_instanced_js.py 12/12, TestRow22Instancing in tests/compiler/test_wavec_parity.py (base cube 489 px -> 1858 px with 3 instances; unknown source E201)."
+    },
+    {
+      "row": 23,
+      "feature": "Sprite",
+      "forge3d_equivalent": "`sprite …` billboards (B67, B69–B70)",
+      "wave": "2",
+      "proof_test": "Billboard-always-faces-camera test",
+      "better_metric": "Sprite is a scene object, not a separate system",
+      "status": "Done-verified",
+      "evidence": "WAVE-B-REPORT row 23: test_sprite 30/30 incl. real-renderer visibility from both camera sides (253 px)"
+    },
+    {
+      "row": 24,
+      "feature": "Text overlay (via CSS2D / troika in Three)",
+      "forge3d_equivalent": "`text \"…\"` bitmap-font quads (B68–B70)",
+      "wave": "2",
+      "proof_test": "Text golden, atlas test",
+      "better_metric": "1 line; works in native render too (Three text needs DOM)",
+      "status": "Done-verified",
+      "evidence": "WAVE-B-REPORT row 24: test_text_render 50/50 incl. real-renderer visibility (269 px); JS-Fortran font cross-check 43/43 glyphs (TestRow24FontCrossCheck)"
+    },
+    {
+      "row": 25,
+      "feature": "Tone mapping / colour space",
+      "forge3d_equivalent": "ACES/Reinhard/none pass (B55)",
+      "wave": "2",
+      "proof_test": "Tone-map golden, colour-space test",
+      "better_metric": "1 scene keyword, default = none (deterministic)",
+      "status": "Done-verified",
+      "evidence": "WAVE-A-REPORT row 25: test_tonemapping.f90 64 assertions; parity TestRow25; e2e ACES max pixel 204 vs 255 untonemapped"
+    },
+    {
+      "row": 26,
+      "feature": "Multi-scene / multi-view",
+      "forge3d_equivalent": "Multiple `scene` blocks + multiple `<f3d-view>` / outputs",
+      "wave": "3",
+      "proof_test": "Two-scene compile + render test",
+      "better_metric": "Scenes are files/blocks, not renderer juggling",
+      "status": "Done-verified",
+      "evidence": "Wave C Done-verified (multi-scene): TestRow26MultiScene in tests/compiler/test_wavec_parity.py and tests/e2e/test_wavec_e2e.py multi-scene test (two outputs: 320x240 dark and 640x480 light, own .scene/.ppm per block)."
+    },
+    {
+      "row": 27,
+      "feature": "Renderer (WebGL)",
+      "forge3d_equivalent": "Fortran CPU renderer (deterministic) + tiny WebGL player",
+      "wave": "1",
+      "proof_test": "Cross-renderer parity goldens",
+      "better_metric": "**Different claim:** offline, deterministic, no GPU/browser needed — FPS vs GPU is NOT-COMPARABLE (P23)",
+      "status": "Done-verified",
+      "evidence": "BUILD-REPORT G3 cross-path golden: Fortran CPU renderer and compiler scene path byte-identical to legacy golden; G2 Fortran PASS; JS player in runtime/f3d.js Test citation: tests/e2e/test_waveb_e2e.py test_golden_legacy_no_arg_engine (native renderer) and tests/compiler/test_emit.py test_js_payload_parses_equal_to_v2 (JS payload parity)."
+    },
+    {
+      "row": 28,
+      "feature": "Clock / render loop",
+      "forge3d_equivalent": "No user loop anywhere: compiler + runtime own it",
+      "wave": "1",
+      "proof_test": "Animation goldens at fixed t",
+      "better_metric": "**0 lines** — loop and resize are exactly 0 (P01 contract)",
+      "status": "Done-verified",
+      "evidence": "BUILD-REPORT G3 Determinism: examples/animated.f3d run twice, all 31 PPM hashes identical (DETERMINISM_OK); no user render loop in .f3d contract Test citation: tests/e2e/test_wavea_e2e.py animation determinism tests (animated scene frames byte-identical across runs); no user loop exists in the language (parser tests, tests/compiler/test_parser.py)."
+    },
+    {
+      "row": 29,
+      "feature": "Stage / 2D overlay on top of render",
+      "forge3d_equivalent": "HTML viewer overlay + `text`/`sprite` layer in scene IR",
+      "wave": "2",
+      "proof_test": "Overlay renders above 3D in both backends",
+      "better_metric": "One scene file for 2D+3D — no second stage/renderer seam",
+      "status": "Done-verified",
+      "evidence": "WAVE-B-REPORT row 29: e2e test_rows23_24_29_sprite_and_text_render; coordinator isolation: text-only scene renders 2461 px"
+    },
+    {
+      "row": 30,
+      "feature": "Filters / post effects",
+      "forge3d_equivalent": "Post chain: blur, bloom-approx, vignette, gamma, colour-matrix (B75–B77)",
+      "wave": "3",
+      "proof_test": "Per-filter goldens, chain-order test",
+      "better_metric": "`filter blur` clause vs filter objects + areas",
+      "status": "Done-verified",
+      "evidence": "Wave C Done-verified (post/filters): tests/fortran/test_postprocess.f90 46/46, tests/compiler/test_ext_post.py 33/33, tests/compiler/test_f3d_post_js.py 16/16, TestRow30Post in tests/compiler/test_wavec_parity.py (chain order, defaults, unknown filter E301, gamma changes pixels)."
+    },
+    {
+      "row": 31,
+      "feature": "Text (Pixi Text)",
+      "forge3d_equivalent": "See row 24",
+      "wave": "2",
+      "proof_test": "See row 24",
+      "better_metric": "Native + web, same line",
+      "status": "Done-verified",
+      "evidence": "Alias of row 24 per MASTER-PLAN row 31 proof test 'See row 24': WAVE-B-REPORT row 24 test_text_render 50/50 and TestRow24FontCrossCheck 43/43 glyphs"
+    },
+    {
+      "row": 32,
+      "feature": "Particle systems",
+      "forge3d_equivalent": "Fixed-step point-sprite emitters (B71–B73)",
+      "wave": "2/3",
+      "proof_test": "Deterministic emitter test at t (seeded)",
+      "better_metric": "Deterministic + offline-renderable; Pixi particles are wall-clock only",
+      "status": "Done-verified",
+      "evidence": "WAVE-B-REPORT row 32: test_particles 366/366 (deterministic hash contract), test_ext_particles 29/29, test_f3d_particles_js 9/9, e2e determinism (byte-identical re-render); particles-only scene 660 px"
+    },
+    {
+      "row": 33,
+      "feature": "Ticker / animation loop",
+      "forge3d_equivalent": "See row 28 — timeline is data (`f(t)`), ticker is internal",
+      "wave": "1",
+      "proof_test": "Determinism: same t ⇒ same frame, both backends",
+      "better_metric": "No ticker code; time is scrubbable/bakeable",
+      "status": "Done-verified",
+      "evidence": "Alias of row 28 per MASTER-PLAN row 33 proof test 'See row 28': BUILD-REPORT G3 determinism (same t => same frame, animated.f3d twice identical, DETERMINISM_OK)"
+    },
+    {
+      "row": 34,
+      "feature": "Assets / loader",
+      "forge3d_equivalent": "`load` line + compiler asset checks (exists, limits, format) at build time",
+      "wave": "1 OBJ / 2 glTF+textures",
+      "proof_test": "Missing-asset = compile error with path, not runtime 404",
+      "better_metric": "Errors move from runtime to compile time",
+      "status": "Done-verified",
+      "evidence": "BUILD-REPORT G4: missing asset = compile error (E501, exit 3) not runtime failure; OBJ load in v1, textures WAVE-A TestRow15, glTF WAVE-B TestRow19GlTF / test_ext_gltf 21/21"
+    },
+    {
+      "row": 35,
+      "feature": "Sprites (Pixi Sprite)",
+      "forge3d_equivalent": "See row 23",
+      "wave": "2",
+      "proof_test": "See row 23",
+      "better_metric": "Sprites participate in 3D depth, not a 2D layer",
+      "status": "Done-verified",
+      "evidence": "Alias of row 23 per MASTER-PLAN row 35 proof test 'See row 23': WAVE-B-REPORT row 23 test_sprite 30/30 incl. real-renderer visibility (253 px)"
+    },
+    {
+      "row": 36,
+      "feature": "Ease of getting *anything* on screen (Pixi’s real strength)",
+      "forge3d_equivalent": "`cube` alone renders a lit, framed scene",
+      "wave": "1",
+      "proof_test": "Zero-config golden (P24)",
+      "better_metric": "1 line total incl. HTML — measured, P21/P23 method",
+      "status": "Done-verified",
+      "evidence": "BUILD-REPORT 3-line contract and G3: 'cube' alone / 1-line program renders lit framed scene byte-identical to golden; zero-config golden verified by coordinator Test citation: tests/e2e/test_waveb_e2e.py test_golden_one_line_cube_cli_render (1-line program renders the lit framed golden)."
+    },
+    {
+      "row": "C1",
+      "feature": "Skinning / morph targets",
+      "forge3d_equivalent": "Not yet specified - continuous seats B93+",
+      "wave": "Cont",
+      "proof_test": "To be minted with its B93+ seat",
+      "better_metric": "Same declarative .f3d form as other animation features",
+      "status": "Queued-continuous",
+      "evidence": "Named as a continuous item in MASTER-PLAN sections 4/7 and BUILD-REPORT Known gaps Continuous (skinning/morph) and WAVE-B-REPORT Remaining Continuous list; no proof test in any wave report yet"
+    },
+    {
+      "row": "C2",
+      "feature": "Custom shaders",
+      "forge3d_equivalent": "Not yet specified - continuous seats B93+",
+      "wave": "Cont",
+      "proof_test": "To be minted with its B93+ seat",
+      "better_metric": "Same declarative .f3d form; no silent fakes",
+      "status": "Queued-continuous",
+      "evidence": "Named as a continuous item in MASTER-PLAN sections 4/7 and BUILD-REPORT Known gaps Continuous (custom shaders) and WAVE-B-REPORT Remaining Continuous list; no proof test in any wave report yet"
+    },
+    {
+      "row": "C3",
+      "feature": "WebGL2 backend",
+      "forge3d_equivalent": "Not yet specified - continuous seats B93+ (v1/v2 JS runtime is Canvas2D/WebGL1 player)",
+      "wave": "Cont",
+      "proof_test": "To be minted with its B93+ seat",
+      "better_metric": "Same <f3d-view> API as the existing JS player",
+      "status": "Queued-continuous",
+      "evidence": "Named as a continuous item in MASTER-PLAN sections 4/7 and BUILD-REPORT Known gaps Continuous (WebGL2/WebGL runtime path; v1 JS runtime is Canvas2D by deliberate choice) and WAVE-B-REPORT Remaining Continuous list; no proof test yet"
+    },
+    {
+      "row": "C4",
+      "feature": "XR",
+      "forge3d_equivalent": "Not yet specified - continuous seats B93+",
+      "wave": "Cont",
+      "proof_test": "To be minted with its B93+ seat",
+      "better_metric": "Same scene file as non-XR renders",
+      "status": "Queued-continuous",
+      "evidence": "Named as a continuous item in MASTER-PLAN sections 4/7 and BUILD-REPORT Known gaps Continuous (XR) and WAVE-B-REPORT Remaining Continuous list; no proof test in any wave report yet"
+    }
+  ],
+  "coverage": {
+    "total_rows": 40,
+    "counts": {
+      "Done-verified": 35,
+      "In-wave-C": 0,
+      "Queued-wave-3": 0,
+      "Queued-continuous": 5,
+      "Blocked": 0
+    },
+    "done_verified": 35,
+    "done_verified_percent": 87.5
+  }
+}

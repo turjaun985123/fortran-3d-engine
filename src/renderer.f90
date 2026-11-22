@@ -12,7 +12,24 @@ module renderer_3d
     public :: FrameBuffer, framebuffer_init, framebuffer_clear, &
               framebuffer_render_mesh, framebuffer_render_mesh_mat, &
               framebuffer_render_mesh_env, &
-              framebuffer_save_ppm
+              framebuffer_save_ppm, &
+              ClipPoly, clip_triangle_frustum, CLIP_MAX_VERTS, &
+              CLIP_ATTR_COUNT
+
+    ! Homogeneous clip-space clipping (HK-R, defect D2).
+    ! A triangle clipped against the 6 frustum planes gains at most
+    ! one vertex per plane, so 3 + 6 = 9 vertices bound the result.
+    ! CLIP_ATTR_COUNT generic per-vertex attributes are interpolated
+    ! alongside the clip position: the env path uses them for
+    ! (world_x, world_y, world_z, u, v); other paths leave them zero.
+    integer, parameter :: CLIP_MAX_VERTS = 9
+    integer, parameter :: CLIP_ATTR_COUNT = 5
+
+    type :: ClipPoly
+        integer :: n = 0
+        real(dp) :: clip(4, CLIP_MAX_VERTS) = 0.0_dp
+        real(dp) :: attr(CLIP_ATTR_COUNT, CLIP_MAX_VERTS) = 0.0_dp
+    end type ClipPoly
 
     type :: FrameBuffer
         integer :: width
@@ -22,6 +39,111 @@ module renderer_3d
     end type FrameBuffer
 
 contains
+
+    ! Signed distance-like plane function for frustum plane p:
+    ! inside iff result >= 0.  Planes: w+x, w-x, w+y, w-y, w+z, w-z.
+    pure function clip_plane_dist(p, c) result(d)
+        integer, intent(in) :: p
+        real(dp), intent(in) :: c(4)
+        real(dp) :: d
+        select case (p)
+        case (1); d = c(4) + c(1)
+        case (2); d = c(4) - c(1)
+        case (3); d = c(4) + c(2)
+        case (4); d = c(4) - c(2)
+        case (5); d = c(4) + c(3)
+        case default; d = c(4) - c(3)
+        end select
+    end function clip_plane_dist
+
+    pure function clip_all_inside(clip_v) result(inside)
+        real(dp), intent(in) :: clip_v(4, 3)
+        logical :: inside
+        integer :: p, k
+        inside = .true.
+        do p = 1, 6
+            do k = 1, 3
+                if (clip_plane_dist(p, clip_v(:, k)) < 0.0_dp) then
+                    inside = .false.
+                    return
+                end if
+            end do
+        end do
+    end function clip_all_inside
+
+    ! Homogeneous transform WITHOUT the perspective divide.  The
+    ! numerator arithmetic mirrors mat4_transform_vec3 term for term.
+    pure function mat4_clip(m, v) result(c)
+        type(mat4), intent(in) :: m
+        type(vec3), intent(in) :: v
+        real(dp) :: c(4)
+        c(1) = m%m(1, 1) * v%x + m%m(1, 2) * v%y + m%m(1, 3) * v%z + m%m(1, 4)
+        c(2) = m%m(2, 1) * v%x + m%m(2, 2) * v%y + m%m(2, 3) * v%z + m%m(2, 4)
+        c(3) = m%m(3, 1) * v%x + m%m(3, 2) * v%y + m%m(3, 3) * v%z + m%m(3, 4)
+        c(4) = m%m(4, 1) * v%x + m%m(4, 2) * v%y + m%m(4, 3) * v%z + m%m(4, 4)
+    end function mat4_clip
+
+    ! Sutherland-Hodgman clipping of one triangle against the 6
+    ! homogeneous frustum planes, before any perspective divide.
+    ! clip_in is (4,3) homogeneous positions; attr_in is
+    ! (CLIP_ATTR_COUNT,3) per-vertex attributes, linearly interpolated
+    ! at every intersection exactly like the clip position.
+    pure subroutine clip_triangle_frustum(clip_in, attr_in, poly)
+        real(dp), intent(in) :: clip_in(4, 3)
+        real(dp), intent(in) :: attr_in(CLIP_ATTR_COUNT, 3)
+        type(ClipPoly), intent(out) :: poly
+        real(dp) :: cur_c(4, CLIP_MAX_VERTS), nxt_c(4, CLIP_MAX_VERTS)
+        real(dp) :: cur_a(CLIP_ATTR_COUNT, CLIP_MAX_VERTS)
+        real(dp) :: nxt_a(CLIP_ATTR_COUNT, CLIP_MAX_VERTS)
+        real(dp) :: da, db, t
+        integer :: p, i, j, cur_n, nxt_n
+        logical :: a_in, b_in
+
+        cur_c(:, 1:3) = clip_in
+        cur_a(:, 1:3) = attr_in
+        cur_n = 3
+        do p = 1, 6
+            if (cur_n == 0) exit
+            nxt_n = 0
+            do i = 1, cur_n
+                j = mod(i, cur_n) + 1
+                da = clip_plane_dist(p, cur_c(:, i))
+                db = clip_plane_dist(p, cur_c(:, j))
+                a_in = da >= 0.0_dp
+                b_in = db >= 0.0_dp
+                if (a_in .and. b_in) then
+                    nxt_n = nxt_n + 1
+                    nxt_c(:, nxt_n) = cur_c(:, j)
+                    nxt_a(:, nxt_n) = cur_a(:, j)
+                else if (a_in .and. .not. b_in) then
+                    t = da / (da - db)
+                    nxt_n = nxt_n + 1
+                    nxt_c(:, nxt_n) = cur_c(:, i) + t * (cur_c(:, j) - cur_c(:, i))
+                    nxt_a(:, nxt_n) = cur_a(:, i) + t * (cur_a(:, j) - cur_a(:, i))
+                else if (.not. a_in .and. b_in) then
+                    t = da / (da - db)
+                    nxt_n = nxt_n + 1
+                    nxt_c(:, nxt_n) = cur_c(:, i) + t * (cur_c(:, j) - cur_c(:, i))
+                    nxt_a(:, nxt_n) = cur_a(:, i) + t * (cur_a(:, j) - cur_a(:, i))
+                    nxt_n = nxt_n + 1
+                    nxt_c(:, nxt_n) = cur_c(:, j)
+                    nxt_a(:, nxt_n) = cur_a(:, j)
+                end if
+            end do
+            cur_n = nxt_n
+            if (cur_n > 0) then
+                cur_c(:, 1:cur_n) = nxt_c(:, 1:cur_n)
+                cur_a(:, 1:cur_n) = nxt_a(:, 1:cur_n)
+            end if
+        end do
+        poly%n = cur_n
+        poly%clip = 0.0_dp
+        poly%attr = 0.0_dp
+        if (cur_n > 0) then
+            poly%clip(:, 1:cur_n) = cur_c(:, 1:cur_n)
+            poly%attr(:, 1:cur_n) = cur_a(:, 1:cur_n)
+        end if
+    end subroutine clip_triangle_frustum
 
     subroutine framebuffer_init(fb, width, height)
         type(FrameBuffer), intent(out) :: fb
@@ -83,6 +205,10 @@ contains
         integer :: rgb(3)
         integer :: i, k, sx(3), sy(3)
         real(dp) :: z(3)
+        real(dp) :: clip_v(4, 3), attr_zero(CLIP_ATTR_COUNT, 3)
+        real(dp) :: ndc(3)
+        type(ClipPoly) :: poly
+        integer :: piece, idx(3), q
 
         if (present(ambient_level)) then
             ambient = ambient_level
@@ -137,29 +263,63 @@ contains
             end if
             rgb = min(255, max(0, int(rgb_real)))
 
-            ! Transform to NDC clip space
-            proj_v(1) = mat4_transform_vec3(mvp, tri%v(1), .true.)
-            proj_v(2) = mat4_transform_vec3(mvp, tri%v(2), .true.)
-            proj_v(3) = mat4_transform_vec3(mvp, tri%v(3), .true.)
+            ! Homogeneous clip positions (no divide yet).
+            clip_v(:, 1) = mat4_clip(mvp, tri%v(1))
+            clip_v(:, 2) = mat4_clip(mvp, tri%v(2))
+            clip_v(:, 3) = mat4_clip(mvp, tri%v(3))
 
-            ! Backface culling check in screen coordinates
-            sx(1) = int((proj_v(1)%x + 1.0_dp) * 0.5_dp * fb%width)
-            sy(1) = int((1.0_dp - (proj_v(1)%y + 1.0_dp) * 0.5_dp) * fb%height)
-            z(1)  = proj_v(1)%z
+            if (clip_all_inside(clip_v)) then
+                ! Fast path: EXACTLY the original code / arithmetic.
+                ! Transform to NDC clip space
+                proj_v(1) = mat4_transform_vec3(mvp, tri%v(1), .true.)
+                proj_v(2) = mat4_transform_vec3(mvp, tri%v(2), .true.)
+                proj_v(3) = mat4_transform_vec3(mvp, tri%v(3), .true.)
 
-            sx(2) = int((proj_v(2)%x + 1.0_dp) * 0.5_dp * fb%width)
-            sy(2) = int((1.0_dp - (proj_v(2)%y + 1.0_dp) * 0.5_dp) * fb%height)
-            z(2)  = proj_v(2)%z
+                ! Backface culling check in screen coordinates
+                sx(1) = int((proj_v(1)%x + 1.0_dp) * 0.5_dp * fb%width)
+                sy(1) = int((1.0_dp - (proj_v(1)%y + 1.0_dp) * 0.5_dp) * fb%height)
+                z(1)  = proj_v(1)%z
 
-            sx(3) = int((proj_v(3)%x + 1.0_dp) * 0.5_dp * fb%width)
-            sy(3) = int((1.0_dp - (proj_v(3)%y + 1.0_dp) * 0.5_dp) * fb%height)
-            z(3)  = proj_v(3)%z
+                sx(2) = int((proj_v(2)%x + 1.0_dp) * 0.5_dp * fb%width)
+                sy(2) = int((1.0_dp - (proj_v(2)%y + 1.0_dp) * 0.5_dp) * fb%height)
+                z(2)  = proj_v(2)%z
 
-            ! Simple 2D cross product for winding / culling
-            if ((sx(2) - sx(1)) * (sy(3) - sy(1)) - (sy(2) - sy(1)) * (sx(3) - sx(1)) <= 0) cycle
+                sx(3) = int((proj_v(3)%x + 1.0_dp) * 0.5_dp * fb%width)
+                sy(3) = int((1.0_dp - (proj_v(3)%y + 1.0_dp) * 0.5_dp) * fb%height)
+                z(3)  = proj_v(3)%z
 
-            ! Rasterize triangle
-            call draw_triangle_rgb(fb, sx, sy, z, rgb)
+                ! Simple 2D cross product for winding / culling
+                if ((sx(2) - sx(1)) * (sy(3) - sy(1)) - (sy(2) - sy(1)) * (sx(3) - sx(1)) <= 0) cycle
+
+                ! Rasterize triangle
+                call draw_triangle_rgb(fb, sx, sy, z, rgb)
+            else
+                ! Clipped path: clip in homogeneous space, divide only
+                ! the surviving vertices, fan-triangulate.
+                attr_zero = 0.0_dp
+                call clip_triangle_frustum(clip_v, attr_zero, poly)
+                if (poly%n < 3) cycle
+                do piece = 2, poly%n - 1
+                    idx = [1, piece, piece + 1]
+                    do q = 1, 3
+                        if (abs(poly%clip(4, idx(q))) <= 1.0e-12_dp) then
+                            ndc = 0.0_dp
+                            sx(q) = -1000000
+                            sy(q) = -1000000
+                            z(q) = 0.0_dp
+                        else
+                            ndc = poly%clip(1:3, idx(q)) / poly%clip(4, idx(q))
+                            sx(q) = int((ndc(1) + 1.0_dp) * 0.5_dp * fb%width)
+                            sy(q) = int((1.0_dp - (ndc(2) + 1.0_dp) * 0.5_dp) * fb%height)
+                            z(q) = ndc(3)
+                        end if
+                    end do
+                    if (any(abs(poly%clip(4, idx)) <= 1.0e-12_dp)) cycle
+                    if ((sx(2) - sx(1)) * (sy(3) - sy(1)) - &
+                        (sy(2) - sy(1)) * (sx(3) - sx(1)) <= 0) cycle
+                    call draw_triangle_rgb(fb, sx, sy, z, rgb)
+                end do
+            end if
         end do
     end subroutine framebuffer_render_mesh_mat
 
@@ -232,6 +392,11 @@ contains
         type(vec3) :: world_v(3), proj_v(3), normal_world
         integer :: i, sx(3), sy(3)
         real(dp) :: z(3), uv(2, 3)
+        real(dp) :: clip_v(4, 3), attr_in(CLIP_ATTR_COUNT, 3)
+        real(dp) :: ndc(3), uv_piece(2, 3)
+        type(vec3) :: world_piece(3)
+        type(ClipPoly) :: poly
+        integer :: piece, idx(3), q
 
         model_view = mat4_mult(cam%view_matrix, model_matrix)
         mvp = mat4_mult(cam%proj_matrix, model_view)
@@ -245,30 +410,71 @@ contains
             normal_world = compute_triangle_normal(world_v(1), world_v(2), &
                                                    world_v(3))
 
-            proj_v(1) = mat4_transform_vec3(mvp, tri%v(1), .true.)
-            proj_v(2) = mat4_transform_vec3(mvp, tri%v(2), .true.)
-            proj_v(3) = mat4_transform_vec3(mvp, tri%v(3), .true.)
+            clip_v(:, 1) = mat4_clip(mvp, tri%v(1))
+            clip_v(:, 2) = mat4_clip(mvp, tri%v(2))
+            clip_v(:, 3) = mat4_clip(mvp, tri%v(3))
 
-            sx(1) = int((proj_v(1)%x + 1.0_dp) * 0.5_dp * fb%width)
-            sy(1) = int((1.0_dp - (proj_v(1)%y + 1.0_dp) * 0.5_dp) * fb%height)
-            z(1)  = proj_v(1)%z
-            sx(2) = int((proj_v(2)%x + 1.0_dp) * 0.5_dp * fb%width)
-            sy(2) = int((1.0_dp - (proj_v(2)%y + 1.0_dp) * 0.5_dp) * fb%height)
-            z(2)  = proj_v(2)%z
-            sx(3) = int((proj_v(3)%x + 1.0_dp) * 0.5_dp * fb%width)
-            sy(3) = int((1.0_dp - (proj_v(3)%y + 1.0_dp) * 0.5_dp) * fb%height)
-            z(3)  = proj_v(3)%z
+            if (clip_all_inside(clip_v)) then
+                ! Fast path: EXACTLY the original code / arithmetic.
+                proj_v(1) = mat4_transform_vec3(mvp, tri%v(1), .true.)
+                proj_v(2) = mat4_transform_vec3(mvp, tri%v(2), .true.)
+                proj_v(3) = mat4_transform_vec3(mvp, tri%v(3), .true.)
 
-            if ((sx(2) - sx(1)) * (sy(3) - sy(1)) - &
-                (sy(2) - sy(1)) * (sx(3) - sx(1)) <= 0) cycle
+                sx(1) = int((proj_v(1)%x + 1.0_dp) * 0.5_dp * fb%width)
+                sy(1) = int((1.0_dp - (proj_v(1)%y + 1.0_dp) * 0.5_dp) * fb%height)
+                z(1)  = proj_v(1)%z
+                sx(2) = int((proj_v(2)%x + 1.0_dp) * 0.5_dp * fb%width)
+                sy(2) = int((1.0_dp - (proj_v(2)%y + 1.0_dp) * 0.5_dp) * fb%height)
+                z(2)  = proj_v(2)%z
+                sx(3) = int((proj_v(3)%x + 1.0_dp) * 0.5_dp * fb%width)
+                sy(3) = int((1.0_dp - (proj_v(3)%y + 1.0_dp) * 0.5_dp) * fb%height)
+                z(3)  = proj_v(3)%z
 
-            uv(:, 1) = prim_uv(prim, tri%v(1), extents)
-            uv(:, 2) = prim_uv(prim, tri%v(2), extents)
-            uv(:, 3) = prim_uv(prim, tri%v(3), extents)
+                if ((sx(2) - sx(1)) * (sy(3) - sy(1)) - &
+                    (sy(2) - sy(1)) * (sx(3) - sx(1)) <= 0) cycle
 
-            call draw_triangle_env(fb, sx, sy, z, world_v, uv, tri, &
-                                   normal_world, cam, lights, pbr, tex, &
-                                   smap, shadow_mode)
+                uv(:, 1) = prim_uv(prim, tri%v(1), extents)
+                uv(:, 2) = prim_uv(prim, tri%v(2), extents)
+                uv(:, 3) = prim_uv(prim, tri%v(3), extents)
+
+                call draw_triangle_env(fb, sx, sy, z, world_v, uv, tri, &
+                                       normal_world, cam, lights, pbr, tex, &
+                                       smap, shadow_mode)
+            else
+                uv(:, 1) = prim_uv(prim, tri%v(1), extents)
+                uv(:, 2) = prim_uv(prim, tri%v(2), extents)
+                uv(:, 3) = prim_uv(prim, tri%v(3), extents)
+                do q = 1, 3
+                    attr_in(1, q) = world_v(q)%x
+                    attr_in(2, q) = world_v(q)%y
+                    attr_in(3, q) = world_v(q)%z
+                    attr_in(4, q) = uv(1, q)
+                    attr_in(5, q) = uv(2, q)
+                end do
+                call clip_triangle_frustum(clip_v, attr_in, poly)
+                if (poly%n < 3) cycle
+                do piece = 2, poly%n - 1
+                    idx = [1, piece, piece + 1]
+                    if (any(abs(poly%clip(4, idx)) <= 1.0e-12_dp)) cycle
+                    do q = 1, 3
+                        ndc = poly%clip(1:3, idx(q)) / poly%clip(4, idx(q))
+                        sx(q) = int((ndc(1) + 1.0_dp) * 0.5_dp * fb%width)
+                        sy(q) = int((1.0_dp - (ndc(2) + 1.0_dp) * 0.5_dp) * fb%height)
+                        z(q) = ndc(3)
+                        world_piece(q) = vec3_create(poly%attr(1, idx(q)), &
+                                                     poly%attr(2, idx(q)), &
+                                                     poly%attr(3, idx(q)))
+                        uv_piece(1, q) = poly%attr(4, idx(q))
+                        uv_piece(2, q) = poly%attr(5, idx(q))
+                    end do
+                    if ((sx(2) - sx(1)) * (sy(3) - sy(1)) - &
+                        (sy(2) - sy(1)) * (sx(3) - sx(1)) <= 0) cycle
+                    call draw_triangle_env(fb, sx, sy, z, world_piece, &
+                                           uv_piece, tri, normal_world, &
+                                           cam, lights, pbr, tex, &
+                                           smap, shadow_mode)
+                end do
+            end if
         end do
     end subroutine framebuffer_render_mesh_env
 

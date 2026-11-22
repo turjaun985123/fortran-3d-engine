@@ -13,6 +13,8 @@ program main
     use shadow_3d
     use fog_3d
     use tonemapping_3d
+    use postprocess_3d, only: post_apply_chain
+    use camera_ortho_3d, only: ortho_proj_from_size
     implicit none
 
     type(Mesh) :: cube
@@ -114,6 +116,16 @@ program main
         if (.not. ok) then
             write(*, '(A)') 'error: cannot load scene: ' // trim(errmsg)
             stop 1
+        end if
+
+        ! Wave C: orthographic camera (row 3). Replace the
+        ! perspective projection with the ortho one; view matrix,
+        ! near/far and everything else stay as loaded.
+        if (sc%ortho) then
+            sc%cam%proj_matrix = ortho_proj_from_size( &
+                sc%ortho_size, &
+                real(sc%width, dp) / real(max(1, sc%height), dp), &
+                sc%cam%near_plane, sc%cam%far_plane)
         end if
 
         n_frames = max(1, sc%frames)
@@ -304,6 +316,12 @@ program main
                     call tonemap_apply(fb, sc%tonemap_mode, &
                                        sc%tonemap_exposure)
             end if
+
+            ! Wave C: post-processing chain (row 30), applied last
+            ! on both render paths, in .scene file order.
+            if (sc%n_post > 0) &
+                call post_apply_chain(fb, sc%post_names, &
+                                      sc%post_amounts, sc%n_post)
 
             ! Frame 1 (frame 0 in t) always lands in sc%output_file.
             if (frame_i == 1) call framebuffer_save_ppm(fb, trim(sc%output_file))
