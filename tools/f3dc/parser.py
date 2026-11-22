@@ -313,7 +313,13 @@ def _num(s):
 # --------------------------------------------------------------------------
 # Vocabulary
 # --------------------------------------------------------------------------
-PRIMS = ("cube", "sphere", "cylinder", "plane", "pyramid", "cone", "torus")
+PRIMS = ("cube", "sphere", "cylinder", "plane", "pyramid", "cone", "torus",
+         # Wave D (ext_geometry): note "ring" is also the repeat word;
+         # _parse_statement disambiguates `ring <count> <prim> ...`
+         # (repeat) from the ring primitive by lookahead.
+         "circle", "ring", "capsule", "tube", "lathe", "extrude",
+         "icosahedron", "octahedron", "tetrahedron", "dodecahedron",
+         "torusknot")
 ANIM_VERBS = ("spin", "bob", "pulse", "orbit", "move", "turn", "grow")
 RESERVED_SECURITY = {"system", "eval", "import"}
 RESERVED = {"let", "if", "for", "function"} | RESERVED_SECURITY
@@ -333,7 +339,12 @@ AXES = ("x", "y", "z")
 OBJECT_PROP_WORDS = {"at", "pos", "position", "size", "radius", "height",
                      "width", "depth", "rotate", "rot", "scale", "material",
                      "segments", "detail", "capped", "open", "texture",
-                     "colour", "color", "named", "name"}
+                     "colour", "color", "named", "name",
+                     # Wave D geometry props (ext_geometry). NOTE:
+                     # plain "depth" was already taken by the generic
+                     # prop above, so extrude uses "extrude_depth".
+                     "inner", "outer", "tube", "tube_segments",
+                     "extrude_depth", "path", "points", "shape"}
 ANIM_PROP_WORDS = {"axis", "speed", "duration", "fps", "ease", "loop",
                    "amplitude", "distance", "amount", "angle"}
 
@@ -507,6 +518,15 @@ class Parser:
             return self._parse_camera(lp)
         if first == "light":
             return self._parse_light(lp)
+        if first == "ring":
+            # Wave D ring primitive (ext_geometry) vs the repeat
+            # form `ring <count> <prim> ...`: lookahead decides
+            # (see _is_ring_repeat). This branch must come before
+            # the generic PRIMS branch, which would otherwise claim
+            # every `ring` line as the primitive.
+            if self._is_ring_repeat(lp):
+                return self._parse_repeat(lp)
+            return self._parse_object(lp)
         if first in PRIMS:
             return self._parse_object(lp)
         if first in ("repeat", "grid", "ring"):
@@ -540,6 +560,22 @@ class Parser:
         if suggestion:
             msg += " -- did you mean '%s'?" % suggestion
         raise _LineError("E104", msg)
+
+    @staticmethod
+    def _is_ring_repeat(lp):
+        """True for the repeat form ``ring <count> <prim> ...``.
+
+        The Wave D ring primitive never starts with a bare count
+        followed by another primitive word, so that shape is the
+        (pre-existing) repeat statement; everything else beginning
+        with ``ring`` is the primitive.
+        """
+        toks = lp.toks
+        if len(toks) < 3:
+            return False
+        if _tkind(toks[1]) != "NUMBER":
+            return False
+        return _ttext(toks[2]).lower().rstrip(":") in PRIMS
 
     # -- shared helpers via _Line -----------------------------------------
     def _parse_scene(self, lp):
@@ -672,6 +708,28 @@ class Parser:
             lp.next(); lp.dup(seen, "size"); props["size"] = lp.num_or_vec3()
         elif w in ("radius", "height", "width", "depth"):
             lp.next(); lp.dup(seen, w); props[w] = lp.number(w)
+        elif w in ("inner", "outer", "tube", "extrude_depth"):
+            # Wave D scalar geometry props (ext_geometry).
+            lp.next(); lp.dup(seen, w); props[w] = lp.number(w)
+        elif w == "tube_segments":
+            lp.next(); lp.dup(seen, w)
+            props[w] = int(lp.number(w))
+        elif w in ("path", "points", "shape"):
+            # Wave D list geometry props (ext_geometry): the parser
+            # has no general list syntax, so consume the consecutive
+            # numbers after the keyword (commas are ignored by the
+            # lexer) and group them -- triples for a tube path,
+            # pairs for lathe points / an extrude shape.
+            lp.next(); lp.dup(seen, w)
+            width = 3 if w == "path" else 2
+            nums = lp._numbers_ahead()
+            if not nums or len(nums) % width:
+                raise _LineError(
+                    "E102", "'%s' needs groups of %d numbers, got %d"
+                            % (w, width, len(nums)))
+            lp.i += len(nums)
+            props[w] = [tuple(nums[i:i + width])
+                        for i in range(0, len(nums), width)]
         elif w in ("rotate", "rot"):
             lp.next(); lp.dup(seen, "rotate"); props["rotate"] = lp.vec3()
             props["rot"] = props["rotate"]

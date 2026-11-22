@@ -409,7 +409,7 @@ def emit_scene_text(ir) -> str:
             radius = _get(obj, "radius")
             obj_height = _get(obj, "height")
             segments = _get(obj, "segments")
-            lines.append(
+            line = (
                 "object %s %s %s %s %s %s %s %s %s" % (
                     prim, name, material, _color_text(color), transform,
                     _num_or(size, "-1"),
@@ -418,6 +418,13 @@ def emit_scene_text(ir) -> str:
                     "%d" % int(segments) if segments is not None else "0",
                 )
             )
+            # Wave D: tube / lathe / extrude append their point
+            # lists as tokens 21+ of the same object line (the first
+            # 20 tokens keep the frozen format above).
+            extra = _scene_extra_values(obj, prim)
+            if extra:
+                line += " " + " ".join(fmt_num(v) for v in extra)
+            lines.append(line)
 
     for anim in (_get(ir, "animations", "anims", default=[]) or []):
         lines.append(
@@ -576,6 +583,47 @@ def _program_name(ir):
     return stem.lower() + "_scene"
 
 
+def _geometry(obj):
+    """The Wave D normalised geometry dict for *obj*, or {}."""
+    ext = _get(obj, "extensions", default={})
+    if isinstance(ext, dict) and isinstance(ext.get("geometry"), dict):
+        return ext["geometry"]
+    return {}
+
+
+def _scene_extra_values(obj, prim):
+    """Tokens 21+ for a Wave D object line (tube/lathe/extrude)."""
+    geom = _geometry(obj)
+    if geom:
+        try:
+            try:
+                import ext_geometry as _eg  # type: ignore
+            except Exception:
+                from . import ext_geometry as _eg  # type: ignore
+            return _eg.scene_extra_values(prim, geom)
+        except Exception:
+            pass
+    # Fallback: raw point lists carried as attributes / extensions.
+    key = {"tube": "path", "lathe": "points",
+           "extrude": "shape"}.get(prim)
+    if key is None:
+        return []
+    raw = _extension(obj, key)
+    out = []
+    if isinstance(raw, (list, tuple)):
+        for point in raw:
+            if isinstance(point, (list, tuple)):
+                out.extend(point)
+            elif isinstance(point, (int, float)):
+                out.append(point)
+    return out
+
+
+def _f_array(values):
+    """A Fortran ``real(dp)`` array literal from flat *values*."""
+    return "[%s]" % ", ".join(_f(v) for v in values)
+
+
 def _extension(obj, *keys, default=None):
     ext = _get(obj, "extensions", default={})
     if isinstance(ext, dict):
@@ -692,6 +740,57 @@ def _build_call(obj):
         tube_seg = int(tube_seg) if tube_seg is not None \
             else max(3, ring_seg // 2)
         return "call create_torus(msh, %s, %s, %d, %d)" % (
+            _f(major), _f(tube), ring_seg, tube_seg)
+    # ---- Wave D (ext_geometry; create_* routines live in the
+    # geo_*_3d Fortran modules named in ext_geometry.fortran_module)
+    geom = _geometry(obj)
+    if prim == "circle":
+        return "call create_circle(msh, %s, %d)" % (
+            _f(radius if radius is not None else 1.0), seg or 32)
+    if prim == "ring":
+        outer = radius if radius is not None else 1.0
+        inner = geom.get("inner")
+        if inner is None:
+            inner = size if size is not None else 0.5
+        return "call create_ring(msh, %s, %s, %d)" % (
+            _f(outer), _f(inner), seg or 32)
+    if prim == "capsule":
+        return "call create_capsule(msh, %s, %s, %d)" % (
+            _f(radius if radius is not None else 0.5),
+            _f(height if height is not None else 2.0), seg or 16)
+    if prim == "tube":
+        path = geom.get("path") or _extension(obj, "path") or []
+        flat = [c for point in path for c in point]
+        return "call create_tube(msh, %s, %d, %s, %d)" % (
+            _f(radius if radius is not None else 0.2), seg or 12,
+            _f_array(flat), len(path))
+    if prim == "lathe":
+        points = geom.get("points") or _extension(obj, "points") or []
+        flat = [c for point in points for c in point]
+        return "call create_lathe(msh, %d, %s, %d)" % (
+            seg or 24, _f_array(flat), len(points))
+    if prim == "extrude":
+        shape = geom.get("shape") or _extension(obj, "shape") or []
+        flat = [c for point in shape for c in point]
+        depth = geom.get("extrude_depth")
+        if depth is None:
+            depth = height if height is not None else 0.5
+        return "call create_extrude(msh, %s, %s, %d)" % (
+            _f(depth), _f_array(flat), len(shape))
+    if prim in ("tetrahedron", "octahedron", "icosahedron",
+                "dodecahedron"):
+        return "call create_%s(msh, %s)" % (
+            prim, _f(radius if radius is not None else 1.0))
+    if prim == "torusknot":
+        major = radius if radius is not None else 1.0
+        tube = geom.get("tube")
+        if tube is None:
+            tube = size if size is not None else major * 0.3
+        ring_seg = seg or 48
+        tube_seg = geom.get("tube_segments")
+        tube_seg = int(tube_seg) if tube_seg is not None \
+            else max(6, ring_seg // 4)
+        return "call create_torusknot(msh, %s, %s, %d, %d)" % (
             _f(major), _f(tube), ring_seg, tube_seg)
     return None
 
@@ -815,6 +914,23 @@ def emit_fortran_program(ir) -> str:
     out.append("    use camera_3d")
     out.append("    use material_3d")
     out.append("    use renderer_3d")
+    # Wave D: pull in only the geo_*_3d modules this scene uses.
+    _geo_modules = []
+    for _obj in (_get(ir, "objects", default=[]) or []):
+        _prim = str(_get(_obj, "prim", "primitive",
+                         default="")).lower()
+        _mod = {"circle": "geo_flat_3d", "ring": "geo_flat_3d",
+                "capsule": "geo_capsule_3d", "tube": "geo_tube_3d",
+                "lathe": "geo_lathe_3d", "extrude": "geo_extrude_3d",
+                "tetrahedron": "geo_poly_3d",
+                "octahedron": "geo_poly_3d",
+                "icosahedron": "geo_poly_3d",
+                "dodecahedron": "geo_poly_3d",
+                "torusknot": "geo_torusknot_3d"}.get(_prim)
+        if _mod is not None and _mod not in _geo_modules:
+            _geo_modules.append(_mod)
+    for _mod in _geo_modules:
+        out.append("    use %s" % _mod)
     out.append("    implicit none")
     out.append("")
     out.append("    type(Mesh) :: msh")

@@ -69,8 +69,8 @@
       "wave": "Cont",
       "proof_test": "Per-geometry count/normal/golden test, matrix row flips to Done-verified",
       "better_metric": "Same 1-word form for every geometry",
-      "status": "Queued-continuous",
-      "evidence": "BUILD-REPORT Known gaps Continuous: remaining geometries not built; WAVE-B-REPORT Remaining: row 7 under Continuous (B85+); no per-geometry proof test yet"
+      "status": "Done-verified",
+      "evidence": "Wave D Done-verified (remaining geometries): Circle, Ring, Capsule, Tube, Lathe, Extrude, Tetrahedron, Octahedron, Icosahedron, Dodecahedron, TorusKnot; Fortran tests/fortran/test_geo_flat.f90 27/27, tests/fortran/test_geo_capsule.f90 7/7, tests/fortran/test_geo_tube.f90 234/234, tests/fortran/test_geo_lathe.f90 17/17, tests/fortran/test_geo_extrude.f90 82/82, tests/fortran/test_geo_poly.f90 350/350, tests/fortran/test_geo_torusknot.f90 14/14; compiler tests/compiler/test_ext_geometry.py 28 tests (full compiler suite 506 OK); JS tests/compiler/test_f3d_geo_js.py 11 tests; parity tests/compiler/test_waved_parity.py + e2e tests/e2e/test_waved_e2e.py; dispositions: Text (TextGeometry -> Forge3D `text` from Wave B row for sprites/text, flat text not extruded font geometry), Shape -> `extrude` footprint, Edges/Wireframe -> no separate helper, wireframe is a render-mode concern, not a geometry"
     },
     {
       "row": 8,
@@ -406,13 +406,13 @@
   "coverage": {
     "total_rows": 40,
     "counts": {
-      "Done-verified": 35,
+      "Done-verified": 36,
       "In-wave-C": 0,
       "Queued-wave-3": 0,
-      "Queued-continuous": 5,
+      "Queued-continuous": 4,
       "Blocked": 0
     },
-    "done_verified": 35,
-    "done_verified_percent": 87.5
+    "done_verified": 36,
+    "done_verified_percent": 90.0
   }
 }

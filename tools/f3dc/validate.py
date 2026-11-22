@@ -53,6 +53,7 @@ try:  # package import (tools.f3dc.validate / f3dc_pkg style)
     from . import ext_keys as _ext_keys
     from . import ext_post as _ext_post
     from . import ext_cameras as _ext_cameras
+    from . import ext_geometry as _ext_geometry
 except Exception:  # plain module import (tools/f3dc on sys.path)
     import desugar as _desugar_mod  # type: ignore
     import ir_nodes as _ir  # type: ignore
@@ -79,6 +80,10 @@ except Exception:  # plain module import (tools/f3dc on sys.path)
     except Exception:  # Wave C extensions unavailable: Wave B behaviour
         _ext_post = None  # type: ignore
         _ext_cameras = None  # type: ignore
+    try:
+        import ext_geometry as _ext_geometry  # type: ignore
+    except Exception:  # Wave D extension unavailable
+        _ext_geometry = None  # type: ignore
 
 __all__ = ["validate"]
 
@@ -96,7 +101,11 @@ MAX_DURATION = 3600.0
 MAX_SPEED = 10000.0
 
 PRIMITIVES = ("cube", "sphere", "cylinder", "plane", "pyramid",
-              "cone", "torus", "tris")
+              "cone", "torus", "tris",
+              # Wave D (ext_geometry)
+              "circle", "ring", "capsule", "tube", "lathe", "extrude",
+              "icosahedron", "octahedron", "tetrahedron",
+              "dodecahedron", "torusknot")
 MATERIALS = ("lambert", "basic", "phong", "standard")
 ANIM_KINDS = ("spin", "bob", "pulse", "orbit", "move", "turn", "grow")
 LIGHT_KINDS_V1 = ("directional", "ambient", "point", "spot")
@@ -429,6 +438,9 @@ def _parse_color(raw, bag, span):
 
 def _estimate_triangles(prim, props):
     """Per-primitive triangle estimate, P11 formulas / MASTER 1.2."""
+    if _ext_geometry is not None and prim in _ext_geometry.GEOM_PRIM_SET:
+        # Wave D exact formulas live in ext_geometry.
+        return _ext_geometry.estimate_triangles(prim, props)
     segments = _int(_field_from(props, "segments"), None)
     rings = _int(_field_from(props, "rings", "height_segments",
                               "height_segs"), None)
@@ -552,6 +564,10 @@ def _classify(node):
     if ("output" in cname or "render" in cname or "export" in cname
             or kind in ("render", "export")):
         return "output", props
+    if cname == "objectstmt":
+        # Wave D: an ObjectStmt whose prim is "ring" must not fall
+        # into the repeat/group bucket below (its kind reads "ring").
+        return "object", props
     if "group" in cname or "repeat" in cname or "grid" in cname \
             or "ring" in cname or kind in ("group", "repeat", "grid",
                                            "ring"):
@@ -903,6 +919,28 @@ def validate(program, bag, base_dir="."):
         if segments is None:
             segments = {"sphere": 16, "cylinder": 16, "cone": 16,
                         "torus": 24}.get(prim)
+        # Wave D geometry (ext_geometry): normalise the new prims,
+        # report their errors in the existing E301 style, and fold
+        # the result into the frozen IR fields so the 20-token
+        # .scene object line carries them (ring SIZE=inner,
+        # torusknot SIZE=tube, extrude HEIGHT=extrude_depth, ...).
+        geom = None
+        if _ext_geometry is not None \
+                and prim in _ext_geometry.GEOM_PRIM_SET:
+            geom = _ext_geometry.normalize_geometry(prim, props)
+            for code, msg in _ext_geometry.validate_geometry(
+                    prim, props, geom):
+                _err(bag, code, msg, span)
+            if geom.get("radius") is not None:
+                radius = geom["radius"]
+            if prim == "ring":
+                size = geom["inner"]
+            if prim == "torusknot":
+                size = geom["tube"]
+            if prim in ("capsule", "extrude"):
+                obj_height = geom["height"]
+            if geom.get("segments") is not None:
+                segments = geom["segments"]
         detail_raw = _field(node, props, "detail")
         detail = str(detail_raw).lower() if detail_raw else "med"
         if segments is not None and not (MIN_SEGMENTS <= segments
@@ -935,6 +973,9 @@ def validate(program, bag, base_dir="."):
             _err(bag, "E301", "object positions and rotations must "
                               "be plain finite numbers", span)
         tri_props = dict(props)
+        if geom is not None:
+            tri_props.update({k: v for k, v in geom.items()
+                              if v is not None})
         if load_path is not None:
             tri_props["_load_tris"] = _count_obj_triangles(load_path)
         # tris_est is ONLY for the E820 budget check; it is never
@@ -974,6 +1015,14 @@ def validate(program, bag, base_dir="."):
                 segments=segments, detail=detail, capped=capped,
                 material=material, triangles=raw_tris,
                 source_file=load_path, extensions={})
+        if geom is not None:
+            # Wave D payload rides in extensions, like every wave
+            # since A; emit_fortran reads it for the .scene trailing
+            # tokens and the direct create_* calls.
+            try:
+                ir_obj.extensions["geometry"] = geom
+            except Exception:
+                pass
         # Wave A material/texture extension (B57) — only when the
         # object actually uses a Wave A feature, so plain v1 objects
         # keep extensions == {} exactly as before.

@@ -140,6 +140,14 @@ def _tri_estimate(ir) -> int:
                 "detail": _get(obj, "detail"),
                 "capped": _get(obj, "capped"),
             }
+            # Wave D: the point lists / tube sizes the exact
+            # formulas need ride in extensions["geometry"].
+            exts = _get(obj, "extensions", default={})
+            geom = exts.get("geometry") if isinstance(exts, dict) \
+                else None
+            if isinstance(geom, dict):
+                props.update({k: v for k, v in geom.items()
+                              if v is not None})
             try:
                 total += int(estimator(prim, props))
                 continue
@@ -148,6 +156,12 @@ def _tri_estimate(ir) -> int:
         total += {
             "cube": 12, "sphere": 352, "cylinder": 64, "plane": 4,
             "pyramid": 6, "cone": 32, "torus": 384,
+            # Wave D defaults (path-dependent prims have no default
+            # count without their point lists, so they fall back 0).
+            "circle": 64, "ring": 128, "capsule": 256, "tube": 0,
+            "lathe": 0, "extrude": 0, "tetrahedron": 4,
+            "octahedron": 8, "icosahedron": 20, "dodecahedron": 36,
+            "torusknot": 1152,
         }.get(str(prim), 0)
     return total
 

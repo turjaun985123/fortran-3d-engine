@@ -74,7 +74,7 @@ light directional dir -0.5 -1 -0.7 strength 1.2
   bare colour word sets the light colour. (`point`/`spot` are parsed but
   are Wave A work — see §7; do not rely on them yet.)
 
-### 2.2 Objects: the 7 primitives and their properties
+### 2.2 Objects: primitives and their properties
 
 Form: `primitive [name] [colour] {prop}` — name and colour may appear in
 either order after the primitive; every prop is optional.
@@ -88,6 +88,17 @@ either order after the primitive; every prop is optional.
 | `pyramid` | 6 | `size` + `height` |
 | `cone` | 32 | `radius` + `height` |
 | `torus` | 384 | governed by `radius` |
+| `circle` | `2·seg` | `radius`; flat filled disc — `circle radius 1 color <named>` |
+| `ring` | `4·seg` | `inner` + `outer` radii; flat annulus — `ring inner 0.5 outer 1 color <named>` |
+| `capsule` | `2·seg+2·seg·(2·hr−1)` | `radius` + `height`; capped cylinder, `hr = seg/4` — `capsule radius 0.5 height 2 color <named>` |
+| `tube` | `(n−1)·seg·2+2·seg` | `radius` swept along a `path` of n points — `tube radius 0.2 path 0,0,0 1,1,0 2,0,0 color <named>` |
+| `lathe` | `(n−1)·seg·2` | `points` profile of n points revolved about Y — `lathe points 0,0 0.6,0.2 0.6,1 0,1.2 color <named>` |
+| `extrude` | `4n−4` | `shape` polygon of n points + `depth` — `extrude shape 0,0 1,0 1,1 0,1 depth 0.5 color <named>` |
+| `tetrahedron` | 4 | Platonic solid governed by `radius` — `tetrahedron radius 1 color <named>` |
+| `octahedron` | 8 | Platonic solid governed by `radius` — `octahedron radius 1 color <named>` |
+| `icosahedron` | 20 | Platonic solid governed by `radius` — `icosahedron radius 1 color <named>` |
+| `dodecahedron` | 36 | Platonic solid governed by `radius` (pentagonal faces triangulated) — `dodecahedron radius 1 color <named>` |
+| `torusknot` | `seg·tseg·2` | governed by `radius` — `torusknot radius 1 color <named>` |
 
 Properties (each may appear at most once — duplicates are `E110`):
 
@@ -97,6 +108,12 @@ Properties (each may appear at most once — duplicates are `E110`):
 | `size n` | overall size, default `2` |
 | `radius n` | sphere/cylinder/cone/torus radius |
 | `height n` | cylinder/cone/pyramid height |
+| `color colour` | Wave D spelling of the object colour (see §2.3), e.g. `color red` |
+| `inner n` / `outer n` | ring inner / outer radius |
+| `path p,p,p …` | tube centreline points, comma triples (e.g. `path 0,0,0 1,1,0 2,0,0`) |
+| `points p,p …` | lathe profile points, comma pairs (e.g. `points 0,0 0.6,0.2 0.6,1 0,1.2`) |
+| `shape p,p …` | extrude outline points, comma pairs (e.g. `shape 0,0 1,0 1,1 0,1`) |
+| `depth n` | extrude depth |
 | `rotate vec3` | rotation in degrees (X, Y, Z) |
 | `scale n` or `scale vec3` | uniform or per-axis scale |
 | `material lambert\|basic\|phong` | `lambert` = lit default; `basic` = unlit flat colour; `phong` = specular highlight |
@@ -111,6 +128,32 @@ cylinder phong_pillar rgb 60 220 120 at 3 -2 0 radius 1 height 3 material phong
 ```
 
 Textures are **not** in v1: a `texture` property is a loud diagnostic (`E204`).
+
+### Wave D geometries
+
+Wave D adds `circle`, `ring`, `capsule`, `tube`, `lathe`, `extrude`,
+the Platonic solids `tetrahedron`, `octahedron`, `icosahedron` and
+`dodecahedron`, and `torusknot` (showcased together in
+`examples/geometries.f3d`). They take the usual props (`at`, `rotate`,
+`scale`, `material`, `segments`/`detail`) plus the geometry props in
+the table above, and are coloured with `color <named>` (see §2.3).
+Triangle counts at a given tessellation (`seg` = `segments`, `tseg` =
+the torusknot's second tessellation count, `n` = point count of the
+path/profile/shape):
+
+| Primitive | Triangles |
+|---|---|
+| `circle` | `2·seg` |
+| `ring` | `4·seg` |
+| `capsule` | `2·seg+2·seg·(2·hr−1)`, where `hr = seg/4` |
+| `tube` | `(n−1)·seg·2+2·seg` |
+| `lathe` | `(n−1)·seg·2` |
+| `extrude` | `4n−4` |
+| `tetrahedron` | 4 |
+| `octahedron` | 8 |
+| `icosahedron` | 20 |
+| `dodecahedron` | 36 |
+| `torusknot` | `seg·tseg·2` |
 
 ### 2.3 Colours
 
@@ -249,7 +292,8 @@ export html "viewer.html"
 Worked examples shipped in `examples/`: `hello-cube.f3d` (the contract),
 `multi-object.f3d` (group/repeat/load/controls), `animated.f3d`
 (spin/bob/pulse, 320×240, 2 s at 15 fps = 30 frames), `materials.f3d`
-(lambert/basic/phong, all three colour spellings).
+(lambert/basic/phong, all three colour spellings), `geometries.f3d`
+(every Wave D geometry, §2.2).
 
 
 ## 3. CLI reference: `f3dc`

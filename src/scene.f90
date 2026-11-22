@@ -34,13 +34,24 @@ module scene_3d
     use text_render_3d, only: text_build_mesh
     use particles_3d, only: ParticleSystem, particle_system_init
     use keyframe_3d, only: KeyFrame, KeyTrack
+    ! Wave D (coordinator integration): row-7 geometry modules.
+    use geo_flat_3d, only: create_circle, create_ring
+    use geo_capsule_3d, only: create_capsule
+    use geo_tube_3d, only: create_tube
+    use geo_lathe_3d, only: create_lathe
+    use geo_extrude_3d, only: create_extrude
+    use geo_poly_3d, only: create_tetrahedron, create_octahedron, &
+        create_icosahedron, create_dodecahedron
+    use geo_torusknot_3d, only: create_torusknot
     implicit none
     private
     public :: SceneObject, SceneAnim, Scene
     public :: SceneSprite, SceneText, SceneParticles
     public :: scene_load, scene_free, scene_find_object, scene_build_object_mesh
 
-    integer, parameter :: MAX_TOKENS = 40
+    ! Wave D: raised 40 -> 256 so tube/lathe/extrude object lines can
+    ! carry long point lists as trailing tokens (21+).
+    integer, parameter :: MAX_TOKENS = 256
 
     type :: SceneObject
         character(len=64) :: name = ''
@@ -58,6 +69,10 @@ module scene_3d
         integer :: segments = 0             ! raw SEGMENTS field (0 = missing)
         character(len=256) :: source_path = ''  ! loadobj PATH
         integer :: tri_filled = 0           ! tri lines consumed (prim 'tris')
+        ! Wave D: point list from trailing object-line tokens (21+).
+        ! tube: (x,y,z) per point; lathe/extrude: (x,y) with z = 0.
+        type(vec3), allocatable :: pts(:)
+        integer :: n_pts = 0
         ! Wave A (coordinator integration): PBR + texture per object.
         type(MaterialPBR) :: pbr
         type(TextureImage) :: tex
@@ -378,6 +393,8 @@ contains
             do i = 1, size(sc%objects)
                 call free_mesh(sc%objects(i)%mesh)
                 call texture_free(sc%objects(i)%tex)
+                if (allocated(sc%objects(i)%pts)) &
+                    deallocate(sc%objects(i)%pts)
             end do
             deallocate(sc%objects)
         end if
@@ -468,6 +485,81 @@ contains
             if (seg <= 0) seg = 24
             call create_torus(obj%mesh, rad, rad * 0.35_dp, seg, &
                               max(6, seg / 2))
+        case ('circle')
+            if (rad <= 0.0_dp) rad = 1.0_dp
+            if (seg <= 0) seg = 32
+            call create_circle(obj%mesh, rad, seg)
+        case ('ring')
+            ! RADIUS = outer, SIZE = inner.
+            if (rad <= 0.0_dp) rad = 1.0_dp
+            if (sz <= 0.0_dp) sz = 0.5_dp
+            if (seg <= 0) seg = 32
+            call create_ring(obj%mesh, sz, rad, seg)
+        case ('capsule')
+            if (rad <= 0.0_dp) rad = 0.5_dp
+            if (hgt <= 0.0_dp) hgt = 2.0_dp
+            if (seg <= 0) seg = 16
+            call create_capsule(obj%mesh, rad, hgt, seg)
+        case ('tube')
+            if (rad <= 0.0_dp) rad = 0.2_dp
+            if (seg <= 0) seg = 12
+            block
+                real(dp), allocatable :: flat(:)
+                integer :: k
+                allocate(flat(3 * max(1, obj%n_pts)))
+                do k = 1, obj%n_pts
+                    flat(3*k-2) = obj%pts(k)%x
+                    flat(3*k-1) = obj%pts(k)%y
+                    flat(3*k)   = obj%pts(k)%z
+                end do
+                call create_tube(obj%mesh, rad, seg, flat, obj%n_pts)
+                deallocate(flat)
+            end block
+        case ('lathe')
+            if (seg <= 0) seg = 24
+            block
+                real(dp), allocatable :: flat(:)
+                integer :: k
+                allocate(flat(2 * max(1, obj%n_pts)))
+                do k = 1, obj%n_pts
+                    flat(2*k-1) = obj%pts(k)%x
+                    flat(2*k)   = obj%pts(k)%y
+                end do
+                call create_lathe(obj%mesh, seg, flat, obj%n_pts)
+                deallocate(flat)
+            end block
+        case ('extrude')
+            ! HEIGHT = depth.
+            if (hgt <= 0.0_dp) hgt = 0.5_dp
+            block
+                real(dp), allocatable :: flat(:)
+                integer :: k
+                allocate(flat(2 * max(1, obj%n_pts)))
+                do k = 1, obj%n_pts
+                    flat(2*k-1) = obj%pts(k)%x
+                    flat(2*k)   = obj%pts(k)%y
+                end do
+                call create_extrude(obj%mesh, hgt, flat, obj%n_pts)
+                deallocate(flat)
+            end block
+        case ('tetrahedron')
+            if (rad <= 0.0_dp) rad = 1.0_dp
+            call create_tetrahedron(obj%mesh, rad)
+        case ('octahedron')
+            if (rad <= 0.0_dp) rad = 1.0_dp
+            call create_octahedron(obj%mesh, rad)
+        case ('icosahedron')
+            if (rad <= 0.0_dp) rad = 1.0_dp
+            call create_icosahedron(obj%mesh, rad)
+        case ('dodecahedron')
+            if (rad <= 0.0_dp) rad = 1.0_dp
+            call create_dodecahedron(obj%mesh, rad)
+        case ('torusknot')
+            if (rad <= 0.0_dp) rad = 1.0_dp
+            if (sz <= 0.0_dp) sz = rad * 0.3_dp
+            if (seg <= 0) seg = 48
+            call create_torusknot(obj%mesh, rad, sz, seg, &
+                                  max(6, seg / 4))
         case ('tris')
             ! Mesh was allocated/filled from the 'tri' lines by scene_load.
             continue
@@ -780,9 +872,38 @@ contains
                 obj%dim_radius = tok_real(tokens, 18)
                 obj%dim_height = tok_real(tokens, 19)
                 obj%segments = tok_int(tokens, 20)
+                ! Wave D: trailing point tokens (21+) for tube
+                ! (x,y,z triples) and lathe/extrude (x,y pairs).
+                if (ntok > 20) then
+                    block
+                        integer :: k, step
+                        if (trim(obj%prim) == 'tube') then
+                            step = 3
+                        else
+                            step = 2
+                        end if
+                        obj%n_pts = (ntok - 20) / step
+                        if (obj%n_pts > 0) then
+                            allocate(obj%pts(obj%n_pts))
+                            do k = 1, obj%n_pts
+                                obj%pts(k)%x = &
+                                    tok_real(tokens, 20 + (k-1)*step + 1)
+                                obj%pts(k)%y = &
+                                    tok_real(tokens, 20 + (k-1)*step + 2)
+                                if (step == 3) then
+                                    obj%pts(k)%z = &
+                                        tok_real(tokens, 20 + k*step)
+                                else
+                                    obj%pts(k)%z = 0.0_dp
+                                end if
+                            end do
+                        end if
+                    end block
+                end if
                 call scene_build_object_mesh(obj)
                 call append_object(sc, obj)
                 call free_mesh(obj%mesh)
+                if (allocated(obj%pts)) deallocate(obj%pts)
                 cur_tris = 0
             case ('tris')
                 if (ntok < 3) then

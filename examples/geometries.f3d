@@ -1,0 +1,23 @@
+# Wave D geometries showcase: every new primitive in one scene —
+# circle, ring, capsule, tube, lathe and extrude, the four Platonic
+# solids (icosahedron, octahedron, tetrahedron, dodecahedron) and
+# torusknot, each in its own named colour and at its own position
+# (top row y=2, bottom row y=-2, spread along x from -8 to 8) so
+# nothing overlaps.
+# Run: python3 tools/f3dc/f3dc.py run examples/geometries.f3d
+scene "geometries" size 800 600 background black
+camera at 0 0 18 look 0 0 0 fov 60
+light directional dir -0.5 -1 -0.7 strength 1.2
+circle radius 1 color red at -8 2 0
+ring inner 0.5 outer 1 color orange at -5 2 -1
+capsule radius 0.5 height 2 color yellow at -2 2 0
+tube radius 0.2 path 0,0,0 1,1,0 2,0,0 color green at 1 1.5 -1
+lathe points 0,0 0.6,0.2 0.6,1 0,1.2 color cyan at 5.5 1.5 0
+extrude shape 0,0 1,0 1,1 0,1 depth 0.5 color blue at 8 1.5 -1
+icosahedron radius 1 color purple at -8 -2 -1
+octahedron radius 1 color pink at -5 -2 0
+tetrahedron radius 1 color magenta at -2 -2 -1
+dodecahedron radius 1 color white at 1 -2 0
+torusknot radius 1 color gray at 6 -2 -1
+controls orbit
+render "geometries.ppm"
