@@ -111,7 +111,9 @@ contains
     character(len=256) :: parts(512)
     integer :: n, i, top
     logical :: absolute
-    if (len(path) > 0 .and. path(1:1) == "/") then
+    absolute = .false.
+    if (len(path) > 0) absolute = path(1:1) == "/"
+    if (absolute) then
        full = path
        absolute = .true.
     else
@@ -124,15 +126,16 @@ contains
       integer :: start, j
       start = 1
       do j = 1, len(full) + 1
-         if (j > len(full) .or. full(j:j) == "/") then
-            n = n + 1
-            if (j > start) then
-               parts(n) = full(start:j - 1)
-            else
-               parts(n) = ""
-            end if
-            start = j + 1
+         if (j <= len(full)) then
+            if (full(j:j) /= "/") cycle
          end if
+         n = n + 1
+         if (j > start) then
+            parts(n) = full(start:j - 1)
+         else
+            parts(n) = ""
+         end if
+         start = j + 1
       end do
     end block
     top = 0
@@ -374,10 +377,12 @@ contains
     integer :: a, b
     a = 1
     b = len(s)
-    do while (a <= b .and. is_ws(s(a:a)))
+    do while (a <= b)
+       if (.not. is_ws(s(a:a))) exit
        a = a + 1
     end do
-    do while (b >= a .and. is_ws(s(b:b)))
+    do while (b >= a)
+       if (.not. is_ws(s(b:b))) exit
        b = b - 1
     end do
     if (b < a) then

@@ -244,7 +244,7 @@ contains
 
     integer :: i, start, col, endpos, frac_start
     character(len=1) :: ch
-    logical :: malformed, done
+    logical :: malformed, done, is_num_start
     character(len=:), allocatable :: lexeme
 
     i = 1
@@ -326,9 +326,12 @@ contains
 
       ! Number: optional '-', digits, optional decimal part.
       ! No exponent in v1 (P03 section 2).
-      if (is_digit(ch) .or. &
-          (ch == "-" .and. i + 1 <= n .and. &
-           is_digit(source_text(base+i:base+i)))) then
+      is_num_start = is_digit(ch)
+      if (.not. is_num_start .and. ch == "-") then
+        if (i + 1 <= n) is_num_start = &
+            is_digit(source_text(base+i:base+i))
+      end if
+      if (is_num_start) then
         start = i
         if (source_text(base+i-1:base+i-1) == "-") i = i + 1
         do while (i <= n)

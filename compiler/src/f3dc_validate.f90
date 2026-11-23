@@ -9,7 +9,7 @@
 ! Entry point (mirrors Python  validate(program, bag, base_dir=".")
 ! -> IRScene | None, as called by cli.py's compile_pipeline):
 !
-!   subroutine f3dc_validate(program, bag, base_dir, scene, ok)
+!   subroutine validate_program(program, bag, base_dir, scene, ok)
 !     type(dyn), intent(in)           :: program   ! parser Program node
 !     type(error_bag_t), intent(inout):: bag
 !     character(*), intent(in)        :: base_dir  ! dir of the .f3d file
@@ -113,7 +113,7 @@ module f3dc_validate
   use f3dc_ext_gltf, only: load_gltf
   implicit none
   private
-  public :: f3dc_validate, f3dc_validate_import_deps
+  public :: validate_program, f3dc_validate_import_deps
 
   ! v2.0 P5: import record of the most recent validate run
   ! (side channel for the preview watcher; see the accessor below).
@@ -468,10 +468,12 @@ contains
     integer :: a, b
     a = 1
     b = len(s)
-    do while (a <= b .and. is_ws(s(a:a)))
+    do while (a <= b)
+      if (.not. is_ws(s(a:a))) exit
       a = a + 1
     end do
-    do while (b >= a .and. is_ws(s(b:b)))
+    do while (b >= a)
+      if (.not. is_ws(s(b:b))) exit
       b = b - 1
     end do
     if (a > b) then
@@ -1079,7 +1081,7 @@ contains
       if (dyn_dict_has(node, trim(keys(k)))) then
         v = dyn_dict_get(node, trim(keys(k)))
         if (v%kind == DYN_K_LIST) then
-          out = v
+          call dyn_assign(out, v)
           return
         end if
         if (v%kind /= DYN_K_NULL) return
@@ -1101,7 +1103,7 @@ contains
         if (dyn_dict_has(program, trim(keys(k)))) then
           v = dyn_dict_get(program, trim(keys(k)))
           if (v%kind == DYN_K_LIST) then
-            out = v
+            call dyn_assign(out, v)
             return
           end if
           if (v%kind /= DYN_K_NULL) exit
@@ -1317,7 +1319,7 @@ contains
     do j = 1, char_list_len(msgs)
       call verrn("E302", char_list_at(msgs, j), node)
     end do
-    ext_in = ext
+    call dyn_assign(ext_in, ext)
   end subroutine dispatch_ext_light
 
   !> DISPATCH(ext_lights_env): extract_env + validate_env
@@ -1350,12 +1352,15 @@ contains
     tex = dyn_dict_get(raw, "texture")
     if (tex%kind == DYN_K_STR .and. allocated(tex%s)) then
       t = tex%s
-      if (len(t) > 0 .and. t(1:1) /= "/") then
+      if (len(t) > 0) then
+       if (t(1:1) /= "/") then
         a = 1; b = len(t)
-        do while (a <= b .and. (t(a:a) == '"' .or. t(a:a) == "'"))
+        do while (a <= b)
+          if (t(a:a) /= '"' .and. t(a:a) /= "'") exit
           a = a + 1
         end do
-        do while (b >= a .and. (t(b:b) == '"' .or. t(b:b) == "'"))
+        do while (b >= a)
+          if (t(b:b) /= '"' .and. t(b:b) /= "'") exit
           b = b - 1
         end do
         if (a > b) then
@@ -1365,6 +1370,7 @@ contains
         end if
         if (len(cand) > 0 .and. path_is_file(cand)) &
           call dyn_dict_set(raw, "texture", dyn_str(cand))
+       end if
       end if
     end if
     exts = dyn_dict_get(ir_obj, "extensions")
@@ -1427,7 +1433,7 @@ contains
       call verrn("E301", char_list_at(msgs, k), node)
     end do
     call char_list_clear(msgs)
-    ext_in = ext
+    call dyn_assign(ext_in, ext)
   end subroutine dispatch_ext_particles
 
   !> DISPATCH(ext_keys): build_tracks + validate_tracks (E201
@@ -1511,7 +1517,7 @@ contains
     do i = 1, char_list_len(errs)
       call verrn("E301", char_list_at(errs, i), node)
     end do
-    ext_in = ext
+    call dyn_assign(ext_in, ext)
     v = dyn_dict_get(ext, "name")
     has_name = v%kind == DYN_K_STR .and. len(v%s) > 0
     bone_name = ""
@@ -1535,7 +1541,7 @@ contains
     do i = 1, char_list_len(errs)
       call verrn("E301", char_list_at(errs, i), node)
     end do
-    ext_in = ext
+    call dyn_assign(ext_in, ext)
     v = dyn_dict_get(ext, "target")
     has_target = v%kind == DYN_K_STR .and. len(v%s) > 0
     target_out = ""
@@ -1564,7 +1570,7 @@ contains
     do i = 1, char_list_len(errs)
       call verrn("E301", char_list_at(errs, i), node)
     end do
-    ext_in = ext
+    call dyn_assign(ext_in, ext)
     v = dyn_dict_get(ext, "target")
     has_target = v%kind == DYN_K_STR .and. len(v%s) > 0
     target_out = ""
@@ -1659,10 +1665,11 @@ contains
     call vfield(node, props, [character(12) :: "name", "title"], v)
     if (v%kind == DYN_K_STR .and. len(v%s) > 0) vs%scene_name = v%s
     call vfield(node, props, [character(12) :: "shading"], v)
-    if (v%kind == DYN_K_STR .and. &
-        (to_lower(v%s) == "smooth" .or. to_lower(v%s) == "flat")) then
-      vs%scene_shading = to_lower(v%s)
-      vs%has_scene_shading = .true.
+    if (v%kind == DYN_K_STR) then
+      if (to_lower(v%s) == "smooth" .or. to_lower(v%s) == "flat") then
+        vs%scene_shading = to_lower(v%s)
+        vs%has_scene_shading = .true.
+      end if
     end if
     call vfield(node, props, [character(12) :: "width", "w"], v)
     call get_int(v, w, has_w)
@@ -1710,7 +1717,7 @@ contains
     type(dyn) :: props, v, ir_obj, exts, tri_props
     character(:), allocatable :: prim, name, material, detail
     character(:), allocatable :: shading_emit, prim_shading_default
-    logical :: has_shading_emit
+    logical :: has_shading_emit, shading_ok
     character(:), allocatable :: mirror_emit
     logical :: has_mirror_emit
     integer :: rgb(3)
@@ -1893,8 +1900,12 @@ contains
     has_shading_emit = .false.
     shading_emit = ""
     call vfield(node, props, [character(12) :: "shading"], v)
-    if (v%kind == DYN_K_STR .and. &
-        (to_lower(v%s) == "smooth" .or. to_lower(v%s) == "flat")) then
+    shading_ok = .false.
+    if (v%kind == DYN_K_STR) then
+      shading_ok = to_lower(v%s) == "smooth" .or. &
+                   to_lower(v%s) == "flat"
+    end if
+    if (shading_ok) then
       shading_emit = to_lower(v%s)
       has_shading_emit = .true.
     else if (vs%has_scene_shading .and. &
@@ -1908,11 +1919,12 @@ contains
     has_mirror_emit = .false.
     mirror_emit = ""
     call vfield(node, props, [character(12) :: "mirror"], v)
-    if (v%kind == DYN_K_STR .and. &
-        (to_lower(v%s) == "x" .or. to_lower(v%s) == "y" .or. &
-         to_lower(v%s) == "z")) then
-      mirror_emit = to_lower(v%s)
-      has_mirror_emit = .true.
+    if (v%kind == DYN_K_STR) then
+      if (to_lower(v%s) == "x" .or. to_lower(v%s) == "y" .or. &
+          to_lower(v%s) == "z") then
+        mirror_emit = to_lower(v%s)
+        has_mirror_emit = .true.
+      end if
     end if
     if (has_segments .and. (segments < MIN_SEGMENTS .or. &
         segments > MAX_SEGMENTS)) then
@@ -1977,7 +1989,7 @@ contains
         call vfield(node, props, [character(12) :: "triangles", &
                                   "tris"], cand)
       end if
-      if (cand%kind == DYN_K_LIST) raw_tris = cand
+      if (cand%kind == DYN_K_LIST) call dyn_assign(raw_tris, cand)
     end if
     if (has_scale_vec) then
       scale3 = scale_vec
@@ -2098,7 +2110,7 @@ contains
   ! Main (validate.py: validate)
   ! ================================================================
 
-  subroutine f3dc_validate(program, bag, base_dir, scene, ok)
+  subroutine validate_program(program, bag, base_dir, scene, ok)
     type(dyn), intent(in) :: program
     type(error_bag_t), intent(inout), target :: bag
     character(*), intent(in) :: base_dir
@@ -2183,7 +2195,7 @@ contains
     near = 0.1_real64
     far = 100.0_real64
     if (vs%has_camera) then
-      node = vs%camera_node
+      call dyn_assign(node, vs%camera_node)
       props = props_of(node)
       call vfield(node, props, [character(12) :: "at", "pos", &
                                "position", "eye"], v)
@@ -2536,7 +2548,7 @@ contains
     ! ---- controls (E201 / E205 / E302) ------------------------------
     controls_kind = ""
     if (vs%has_controls) then
-      node = vs%controls_node
+      call dyn_assign(node, vs%controls_node)
       props = props_of(node)
       call vfield(node, props, [character(12) :: "kind", "type", &
                                "mode"], v)
@@ -2961,7 +2973,7 @@ contains
       wavec = dyn_dict()
       chain = dyn_list()
       if (vs%has_camera) then
-        node = vs%camera_node
+        call dyn_assign(node, vs%camera_node)
         props = props_of(node)
         call vfield(node, props, [character(12) :: "ortho"], v)
         if (py_truthy(v)) then
@@ -3112,7 +3124,7 @@ contains
     if (dyn_dict_has(prog, "_import_deps")) &
       last_import_deps = dyn_copy(dyn_dict_get(prog, "_import_deps"))
     ok = .true.
-  end subroutine f3dc_validate
+  end subroutine validate_program
 
   !> v2.0 P5 side channel: the "_import_deps" list (canonical
   !! resolved part-file paths) recorded by desugar during the most
@@ -3145,7 +3157,7 @@ contains
     type(dyn) :: node, props, v, entry, ext_in
     type(dyn) :: obj_names, seen_shaders, bone_names
     character(:), allocatable :: sname, target
-    logical :: has_target, rpn_ok
+    logical :: has_target, rpn_ok, shader_no_expr
     integer :: k, m
     type(dyn) :: rpn
     type(char_list) :: msgs
@@ -3179,7 +3191,10 @@ contains
              repr_str(sname), node)
         cycle
       end if
-      if (v%kind /= DYN_K_STR .or. len(strip_ws(v%s)) == 0) then
+      shader_no_expr = v%kind /= DYN_K_STR
+      if (.not. shader_no_expr) &
+        shader_no_expr = len(strip_ws(v%s)) == 0
+      if (shader_no_expr) then
         call verrn("E301", "shader " // repr_str(sname) // &
              " needs an expression, like: shader " // sname // &
              " expr ""c * ndl""", node)

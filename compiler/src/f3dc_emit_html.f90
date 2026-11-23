@@ -158,9 +158,11 @@ contains
     integer :: unit, ios
     integer(int64) :: sz
     ok = .false.
-    text = ""
     inquire (file=path, exist=ok)
-    if (.not. ok) return
+    if (.not. ok) then
+      text = ""
+      return
+    end if
     ok = .false.
     open (newunit=unit, file=path, status="old", access="stream", &
           form="unformatted", iostat=ios)

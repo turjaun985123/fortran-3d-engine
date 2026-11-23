@@ -63,7 +63,7 @@
 module f3dc_desugar
   use, intrinsic :: iso_fortran_env, only: int64, real64
   use f3dc_dyn, only: dyn, dyn_null, dyn_bool, dyn_int, dyn_real, &
-                      dyn_str, dyn_list, dyn_dict, dyn_copy, &
+                      dyn_str, dyn_list, dyn_dict, dyn_copy, dyn_assign, &
                       dyn_dict_get, dyn_dict_set, dyn_dict_has, &
                       dyn_dict_len, dyn_dict_key_at, &
                       dyn_list_push, dyn_list_len, dyn_list_at, &
@@ -450,7 +450,7 @@ contains
       if (dyn_dict_has(obj, trim(syns(i)))) then
         v = dyn_dict_get(obj, trim(syns(i)))
         if (v%kind /= DYN_K_NULL) then
-          val = v
+          call dyn_assign(val, v)
           found = .true.
           return
         end if
@@ -460,7 +460,7 @@ contains
     if (props%kind == DYN_K_DICT .and. dyn_dict_has(props, key)) then
       v = dyn_dict_get(props, key)
       if (v%kind /= DYN_K_NULL) then
-        val = v
+        call dyn_assign(val, v)
         found = .true.
       end if
     end if
@@ -1096,7 +1096,7 @@ contains
     end if
     call raw_get(stmt, trim(k_main), raw, present)
     if (present .and. is_truthy(raw)) then
-      val = raw
+      call dyn_assign(val, raw)
     else
       call get_attr(stmt, trim(k_main), val, found)
       if (.not. found) val = dyn_null()
@@ -1104,11 +1104,11 @@ contains
     if (.not. is_truthy(val)) then
       call get_attr(stmt, trim(k1), v, found)
       if (found .and. is_truthy(v)) then
-        val = v
+        call dyn_assign(val, v)
       else
         call get_attr(stmt, trim(k2), v, found)
         if (found .and. is_truthy(v)) then
-          val = v
+          call dyn_assign(val, v)
         else
           call get_attr(stmt, trim(k3), val, found)
           if (.not. found) val = dyn_null()
@@ -1246,12 +1246,12 @@ contains
           size_num = dyn_int(2_int64)
         end if
       else
-        size_num = size_val
+        call dyn_assign(size_num, size_val)
       end if
       if (size_num%kind == DYN_K_NULL) then
         eff = dyn_int(2_int64)
       else
-        eff = size_num
+        call dyn_assign(eff, size_num)
       end if
       spacing = num_mul(eff, dyn_real(1.5_real64))
     end if
@@ -1268,8 +1268,8 @@ contains
         end if
       end if
     else
-      sx = spacing
-      sz = spacing
+      call dyn_assign(sx, spacing)
+      call dyn_assign(sz, spacing)
     end if
     radius = dyn_dict_get(rprops, "radius")
     if (radius%kind == DYN_K_NULL) radius = dyn_real(5.0_real64)
@@ -1437,7 +1437,8 @@ contains
     logical :: absolute
     character(len=:), allocatable :: c
     integer :: i, j
-    absolute = len(path) > 0 .and. path(1:1) == "/"
+    absolute = .false.
+    if (len(path) > 0) absolute = path(1:1) == "/"
     call str_split(path, "/", parts)
     do i = 1, char_list_len(parts)
       c = char_list_at(parts, i)
@@ -1483,13 +1484,19 @@ contains
   logical function path_contained(resolved, root)
     character(len=*), intent(in) :: resolved, root
     if (root == "/") then
-      path_contained = len(resolved) > 0 .and. resolved(1:1) == "/"
+      path_contained = .false.
+      if (len(resolved) > 0) path_contained = resolved(1:1) == "/"
     else if (root == ".") then
-      path_contained = .not. (resolved == ".." .or. &
-        (len(resolved) >= 3 .and. resolved(1:3) == "../"))
+      block
+        logical :: is_parent
+        is_parent = .false.
+        if (len(resolved) >= 3) is_parent = resolved(1:3) == "../"
+        path_contained = .not. (resolved == ".." .or. is_parent)
+      end block
     else
-      path_contained = len(resolved) > len(root) + 1 .and. &
-        resolved(1:len(root) + 1) == root // "/"
+      path_contained = .false.
+      if (len(resolved) > len(root) + 1) &
+        path_contained = resolved(1:len(root) + 1) == root // "/"
     end if
   end function path_contained
 
@@ -1501,12 +1508,17 @@ contains
     integer :: unit, ios, sz
     logical :: there
     ok = .false.
-    text = ""
     inquire (file=path, exist=there, size=sz)
-    if (.not. there) return
+    if (.not. there) then
+      text = ""
+      return
+    end if
     open (newunit=unit, file=path, access="stream", &
           form="unformatted", status="old", iostat=ios)
-    if (ios /= 0) return
+    if (ios /= 0) then
+      text = ""
+      return
+    end if
     allocate (character(len=max(sz, 0)) :: text)
     if (sz > 0) read (unit, iostat=ios) text
     close (unit)
@@ -1545,7 +1557,7 @@ contains
     character(len=:), allocatable :: kind
     bad = .false.
     do k = 1, stmts%n
-      node = stmts%items(k)
+      call dyn_assign(node, stmts%items(k))
       kind = ""
       if (is_node(node, "SceneStmt")) then
         kind = "scene"
@@ -1601,11 +1613,13 @@ contains
     path_str = str_of(dyn_dict_get(node, "import_path"))
     as_name = str_of(dyn_dict_get(node, "name"))
     call props_of(node, iprops)
-    if (len(path_str) > 0 .and. path_str(1:1) == "/") then
+    if (len(path_str) > 0) then
+     if (path_str(1:1) == "/") then
       call emit_diag(bag, "E103", "error", &
         "import '" // path_str // "': absolute paths are not " &
         // "allowed (give a path relative to the importing file)")
       return
+     end if
     end if
     resolved = canon_path(join_dir(cur_dir, path_str))
     if (.not. path_contained(resolved, root_canon)) then
@@ -1821,10 +1835,10 @@ contains
       logical :: sf
       call raw_get(work, "span", sv, sf)
       if (sf .and. sv%kind /= DYN_K_NULL) then
-        span0 = sv
+        call dyn_assign(span0, sv)
       else if (stmts%n > 0) then
         call raw_get(stmts%items(1), "span", sv, sf)
-        if (sf .and. sv%kind /= DYN_K_NULL) span0 = sv
+        if (sf .and. sv%kind /= DYN_K_NULL) call dyn_assign(span0, sv)
       end if
     end block
     was_empty = (stmts%n == 0)
@@ -1849,7 +1863,11 @@ contains
       imp_out%cap = 0
       call expand_imports(stmts, base_dir, root_canon, stack, bag, &
                           import_deps, deps_seen, imp_out)
-      stmts = imp_out
+      call move_alloc(imp_out%items, stmts%items)
+      stmts%n = imp_out%n
+      stmts%cap = imp_out%cap
+      imp_out%n = 0
+      imp_out%cap = 0
     end block
 
     ! 1-2. Expand groups and repeats, in source order.
@@ -2025,7 +2043,11 @@ contains
       merged%cap = 0
       call arr_extend(merged, injected)
       call arr_extend(merged, flat)
-      flat = merged
+      call move_alloc(merged%items, flat%items)
+      flat%n = merged%n
+      flat%cap = merged%cap
+      merged%n = 0
+      merged%cap = 0
     end block
 
     ! 3d. Missing output defaults to a plain render.

@@ -1439,14 +1439,22 @@ contains
     end if
     do
       call json_skip_ws(p)
-      if (p%pos > len(p%s) .or. p%s(p%pos:p%pos) /= '"') then
+      if (p%pos > len(p%s)) then
+        p%ok = .false.
+        return
+      end if
+      if (p%s(p%pos:p%pos) /= '"') then
         p%ok = .false.
         return
       end if
       call json_parse_string(p, key)
       if (.not. p%ok) return
       call json_skip_ws(p)
-      if (p%pos > len(p%s) .or. p%s(p%pos:p%pos) /= ":") then
+      if (p%pos > len(p%s)) then
+        p%ok = .false.
+        return
+      end if
+      if (p%s(p%pos:p%pos) /= ":") then
         p%ok = .false.
         return
       end if

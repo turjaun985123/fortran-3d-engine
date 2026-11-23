@@ -265,9 +265,11 @@ contains
         character(len=:), allocatable :: code_k
         code_k = str_of(bag%diags(k)%code)
         if (str_of(bag%diags(k)%severity) == "error" .and. &
-            len(code_k) >= 2 .and. code_k(1:2) == "E5") then
+            len(code_k) >= 2) then
+         if (code_k(1:2) == "E5") then
           error_bag_fail_code = 3
           return
+         end if
         end if
       end block
     end do

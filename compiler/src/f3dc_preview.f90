@@ -78,7 +78,7 @@ module f3dc_preview
        error_bag_len, error_bag_at, error_bag_has_errors, &
        json_escape
   use f3dc_parser, only: f3dc_parse
-  use f3dc_validate, only: f3dc_validate, f3dc_validate_import_deps
+  use f3dc_validate, only: validate_program, f3dc_validate_import_deps
   use f3dc_optimize, only: optimize
   use f3dc_compat, only: ast_from_obj, ast_from_legacy_json, &
        is_legacy_json
@@ -252,12 +252,17 @@ contains
     integer :: unit, ios, sz
     logical :: there
     ok = .false.
-    text = ""
     inquire (file=path, exist=there, size=sz)
-    if (.not. there) return
+    if (.not. there) then
+      text = ""
+      return
+    end if
     open (newunit=unit, file=path, access="stream", &
           form="unformatted", status="old", iostat=ios)
-    if (ios /= 0) return
+    if (ios /= 0) then
+      text = ""
+      return
+    end if
     allocate (character(len=max(sz, 0)) :: text)
     if (sz > 0) read (unit, iostat=ios) text
     close (unit)
@@ -346,7 +351,7 @@ contains
        call f3dc_parse(text, path, bag, prog)
     end if
     if (error_bag_has_errors(bag)) return
-    call f3dc_validate(prog, bag, path_dirname(path), ir, vok)
+    call validate_program(prog, bag, path_dirname(path), ir, vok)
     if (.not. vok .or. error_bag_has_errors(bag)) return
     call optimize(ir, bag, 1, ir_opt)
     ir = dyn_copy(ir_opt)
@@ -374,11 +379,17 @@ contains
   function pv_resolve(base_dir, s) result(out)
     character(len=*), intent(in) :: base_dir, s
     character(len=:), allocatable :: out
-    if (len(s) > 0 .and. s(1:1) == "/") then
+    logical :: is_abs, already
+    is_abs = .false.
+    if (len(s) > 0) is_abs = s(1:1) == "/"
+    already = .false.
+    if (len(base_dir) > 0 .and. base_dir /= ".") then
+       if (len(s) > len(base_dir) + 1) &
+          already = s(1:len(base_dir) + 1) == base_dir//"/"
+    end if
+    if (is_abs) then
        out = s
-    else if (len(base_dir) > 0 .and. base_dir /= "." .and. &
-             len(s) > len(base_dir) + 1 .and. &
-             s(1:len(base_dir) + 1) == base_dir//"/") then
+    else if (already) then
        out = s  ! already resolved against base_dir by validate
     else if (len(base_dir) == 0) then
        out = s

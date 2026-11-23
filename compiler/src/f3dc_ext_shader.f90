@@ -387,6 +387,7 @@ contains
     integer :: i, j, n
     character(len=1) :: ch
     character(len=:), allocatable :: text
+    logical :: is_num_start
     call char_list_clear(tokens)
     err = ""
     ok = .true.
@@ -398,8 +399,11 @@ contains
         i = i + 1
         cycle
       end if
-      if (is_digit_ch(ch) .or. (ch == "." .and. i + 1 <= n .and. &
-                                is_digit_ch(src(i + 1:i + 1)))) then
+      is_num_start = is_digit_ch(ch)
+      if (.not. is_num_start .and. ch == ".") then
+        if (i + 1 <= n) is_num_start = is_digit_ch(src(i + 1:i + 1))
+      end if
+      if (is_num_start) then
         j = i
         do while (j <= n)
           if (.not. (is_digit_ch(src(j:j)) .or. src(j:j) == ".")) exit

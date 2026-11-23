@@ -203,10 +203,12 @@ contains
     x = 0.0_real64
     a = 1
     b = len(s)
-    do while (a <= b .and. is_py_space(s(a:a)))
+    do while (a <= b)
+      if (.not. is_py_space(s(a:a))) exit
       a = a + 1
     end do
-    do while (b >= a .and. is_py_space(s(b:b)))
+    do while (b >= a)
+      if (.not. is_py_space(s(b:b))) exit
       b = b - 1
     end do
     if (a > b) return

@@ -467,28 +467,38 @@ contains
     val = dyn_null()
     start = p%pos
     i = p%pos
-    if (i <= len(p%text) .and. p%text(i:i) == "-") i = i + 1
-    if (i > len(p%text) .or. .not. is_digit(p%text(i:i))) then
+    if (i <= len(p%text)) then
+      if (p%text(i:i) == "-") i = i + 1
+    end if
+    if (i > len(p%text)) then
+      call jerr(p, "Expecting value", start)
+      return
+    end if
+    if (.not. is_digit(p%text(i:i))) then
       call jerr(p, "Expecting value", start)
       return
     end if
     if (p%text(i:i) == "0") then
       i = i + 1
     else
-      do while (i <= len(p%text) .and. is_digit(p%text(i:i)))
+      do while (i <= len(p%text))
+        if (.not. is_digit(p%text(i:i))) exit
         i = i + 1
       end do
     end if
     is_int = .true.
     ! Fraction: taken only when a digit follows the dot (CPython's
     ! number regex backtracks the same way).
-    if (i + 1 <= len(p%text) .and. p%text(i:i) == "." .and. &
-        is_digit(p%text(i + 1:i + 1))) then
-      is_int = .false.
-      i = i + 2
-      do while (i <= len(p%text) .and. is_digit(p%text(i:i)))
-        i = i + 1
-      end do
+    if (i + 1 <= len(p%text)) then
+      if (p%text(i:i) == "." .and. &
+          is_digit(p%text(i + 1:i + 1))) then
+        is_int = .false.
+        i = i + 2
+        do while (i <= len(p%text))
+          if (.not. is_digit(p%text(i:i))) exit
+          i = i + 1
+        end do
+      end if
     end if
     ! Exponent: taken only when digits (after an optional sign) follow.
     if (i <= len(p%text)) then
@@ -500,7 +510,8 @@ contains
         if (j <= len(p%text) .and. is_digit(p%text(j:j))) then
           is_int = .false.
           i = j
-          do while (i <= len(p%text) .and. is_digit(p%text(i:i)))
+          do while (i <= len(p%text))
+            if (.not. is_digit(p%text(i:i))) exit
             i = i + 1
           end do
         end if
@@ -563,13 +574,20 @@ contains
       val = dyn_dict()
       p%pos = p%pos + 1
       call jskip_ws(p)
-      if (p%pos <= n .and. p%text(p%pos:p%pos) == "}") then
-        p%pos = p%pos + 1
-        return
+      if (p%pos <= n) then
+        if (p%text(p%pos:p%pos) == "}") then
+          p%pos = p%pos + 1
+          return
+        end if
       end if
       do
         call jskip_ws(p)
-        if (p%pos > n .or. p%text(p%pos:p%pos) /= '"') then
+        if (p%pos > n) then
+          call jerr(p, "Expecting property name enclosed in " // &
+                    "double quotes", p%pos)
+          return
+        end if
+        if (p%text(p%pos:p%pos) /= '"') then
           call jerr(p, "Expecting property name enclosed in " // &
                     "double quotes", p%pos)
           return
@@ -577,7 +595,11 @@ contains
         call jparse_string(p, key, ok)
         if (.not. ok) return
         call jskip_ws(p)
-        if (p%pos > n .or. p%text(p%pos:p%pos) /= ":") then
+        if (p%pos > n) then
+          call jerr(p, "Expecting ':' delimiter", p%pos)
+          return
+        end if
+        if (p%text(p%pos:p%pos) /= ":") then
           call jerr(p, "Expecting ':' delimiter", p%pos)
           return
         end if
@@ -586,13 +608,17 @@ contains
         if (p%failed) return
         call dyn_dict_set(val, key, item)
         call jskip_ws(p)
-        if (p%pos <= n .and. p%text(p%pos:p%pos) == ",") then
-          p%pos = p%pos + 1
-          cycle
+        if (p%pos <= n) then
+          if (p%text(p%pos:p%pos) == ",") then
+            p%pos = p%pos + 1
+            cycle
+          end if
         end if
-        if (p%pos <= n .and. p%text(p%pos:p%pos) == "}") then
-          p%pos = p%pos + 1
-          return
+        if (p%pos <= n) then
+          if (p%text(p%pos:p%pos) == "}") then
+            p%pos = p%pos + 1
+            return
+          end if
         end if
         call jerr(p, "Expecting ',' delimiter", p%pos)
         return
@@ -601,22 +627,28 @@ contains
       val = dyn_list()
       p%pos = p%pos + 1
       call jskip_ws(p)
-      if (p%pos <= n .and. p%text(p%pos:p%pos) == "]") then
-        p%pos = p%pos + 1
-        return
+      if (p%pos <= n) then
+        if (p%text(p%pos:p%pos) == "]") then
+          p%pos = p%pos + 1
+          return
+        end if
       end if
       do
         call jparse_value(p, item)
         if (p%failed) return
         call dyn_list_push(val, item)
         call jskip_ws(p)
-        if (p%pos <= n .and. p%text(p%pos:p%pos) == ",") then
-          p%pos = p%pos + 1
-          cycle
+        if (p%pos <= n) then
+          if (p%text(p%pos:p%pos) == ",") then
+            p%pos = p%pos + 1
+            cycle
+          end if
         end if
-        if (p%pos <= n .and. p%text(p%pos:p%pos) == "]") then
-          p%pos = p%pos + 1
-          return
+        if (p%pos <= n) then
+          if (p%text(p%pos:p%pos) == "]") then
+            p%pos = p%pos + 1
+            return
+          end if
         end if
         call jerr(p, "Expecting ',' delimiter", p%pos)
         return
@@ -626,49 +658,78 @@ contains
       if (.not. ok) return
       val = dyn_str(sval)
     case ("t")
-      if (p%pos + 3 <= n .and. p%text(p%pos:p%pos + 3) == "true") then
+      block
+        logical :: is_lit
+        is_lit = .false.
+        if (p%pos + 3 <= n) is_lit = p%text(p%pos:p%pos + 3) == "true"
+        if (is_lit) then
         val = dyn_bool(.true.)
         p%pos = p%pos + 4
-      else
+        else
         call jerr(p, "Expecting value", start)
-      end if
+        end if
+      end block
     case ("f")
-      if (p%pos + 4 <= n .and. p%text(p%pos:p%pos + 4) == "false") then
+      block
+        logical :: is_lit
+        is_lit = .false.
+        if (p%pos + 4 <= n) is_lit = p%text(p%pos:p%pos + 4) == "false"
+        if (is_lit) then
         val = dyn_bool(.false.)
         p%pos = p%pos + 5
-      else
+        else
         call jerr(p, "Expecting value", start)
-      end if
+        end if
+      end block
     case ("n")
-      if (p%pos + 3 <= n .and. p%text(p%pos:p%pos + 3) == "null") then
+      block
+        logical :: is_lit
+        is_lit = .false.
+        if (p%pos + 3 <= n) is_lit = p%text(p%pos:p%pos + 3) == "null"
+        if (is_lit) then
         val = dyn_null()
         p%pos = p%pos + 4
-      else
+        else
         call jerr(p, "Expecting value", start)
-      end if
+        end if
+      end block
     case ("N")
-      if (p%pos + 2 <= n .and. p%text(p%pos:p%pos + 2) == "NaN") then
+      block
+        logical :: is_lit
+        is_lit = .false.
+        if (p%pos + 2 <= n) is_lit = p%text(p%pos:p%pos + 2) == "NaN"
+        if (is_lit) then
         val = dyn_real(ieee_value(0.0_real64, ieee_quiet_nan))
         p%pos = p%pos + 3
-      else
+        else
         call jerr(p, "Expecting value", start)
-      end if
+        end if
+      end block
     case ("I")
-      if (p%pos + 7 <= n .and. p%text(p%pos:p%pos + 7) == "Infinity") &
-        then
-        val = dyn_real(ieee_value(0.0_real64, ieee_positive_inf))
-        p%pos = p%pos + 8
-      else
-        call jerr(p, "Expecting value", start)
-      end if
+      block
+        logical :: is_lit
+        is_lit = .false.
+        if (p%pos + 7 <= n) is_lit = p%text(p%pos:p%pos + 7) == "Infinity"
+        if (is_lit) then
+          val = dyn_real(ieee_value(0.0_real64, ieee_positive_inf))
+          p%pos = p%pos + 8
+        else
+          call jerr(p, "Expecting value", start)
+        end if
+      end block
     case ("-")
-      if (p%pos + 8 <= n .and. &
-          p%text(p%pos:p%pos + 8) == "-Infinity") then
-        val = dyn_real(-ieee_value(0.0_real64, ieee_positive_inf))
-        p%pos = p%pos + 9
-      else
-        call jparse_number(p, val)
-      end if
+      block
+        logical :: is_lit
+        is_lit = .false.
+        if (p%pos + 8 <= n) is_lit = &
+            p%text(p%pos:p%pos + 8) == "-Infinity"
+        if (is_lit) then
+          val = dyn_real(-ieee_value(0.0_real64, ieee_positive_inf))
+          p%pos = p%pos + 9
+        else
+          call jparse_number(p, val)
+        end if
+      end block
     case default
       if (is_digit(c)) then
         call jparse_number(p, val)
@@ -892,12 +953,14 @@ contains
     integer :: i, start
     i = 1
     do while (i <= len(line))
-      do while (i <= len(line) .and. is_py_space(line(i:i)))
+      do while (i <= len(line))
+        if (.not. is_py_space(line(i:i))) exit
         i = i + 1
       end do
       if (i > len(line)) exit
       start = i
-      do while (i <= len(line) .and. .not. is_py_space(line(i:i)))
+      do while (i <= len(line))
+        if (is_py_space(line(i:i))) exit
         i = i + 1
       end do
       call char_list_append(tokens, line(start:i - 1))
@@ -1028,17 +1091,22 @@ contains
         intpart_ok = .true.
         i = e + 1
       end if
-      if (i <= len(t) .and. t(i:i) == ".") then
+      if (i <= len(t)) then
+       if (t(i:i) == ".") then
         i = i + 1
-        if (i <= len(t) .and. is_digit(t(i:i))) then
+        if (i <= len(t)) then
+         if (is_digit(t(i:i))) then
           call scan_digitpart(t, i, e, okk, nd)
           if (.not. okk) return
           frac_ok = .true.
           i = e + 1
+         end if
         end if
+       end if
       end if
       if (.not. intpart_ok .and. .not. frac_ok) return
-      if (i <= len(t) .and. (t(i:i) == "e" .or. t(i:i) == "E")) then
+      if (i <= len(t)) then
+       if ((t(i:i) == "e" .or. t(i:i) == "E")) then
         i = i + 1
         if (i <= len(t)) then
           if (t(i:i) == "+" .or. t(i:i) == "-") i = i + 1
@@ -1047,6 +1115,7 @@ contains
         call scan_digitpart(t, i, e, okk, nd)
         if (.not. okk) return
         i = e + 1
+       end if
       end if
       if (i <= len(t)) return
     end block
@@ -1106,11 +1175,12 @@ contains
     nfields = 0
     start = 1
     do i = 1, len(tok) + 1
-      if (i > len(tok) .or. tok(i:i) == "/") then
-        call char_list_append(fields, tok(start:i - 1))
-        nfields = nfields + 1
-        start = i + 1
+      if (i <= len(tok)) then
+        if (tok(i:i) /= "/") cycle
       end if
+      call char_list_append(fields, tok(start:i - 1))
+      nfields = nfields + 1
+      start = i + 1
     end do
   end subroutine split_slash
 

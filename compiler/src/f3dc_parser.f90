@@ -63,7 +63,7 @@
 module f3dc_parser
   use iso_fortran_env, only: int64, real64
   use f3dc_dyn, only: dyn, dyn_null, dyn_bool, dyn_int, dyn_real, &
-                      dyn_str, dyn_list, dyn_dict, dyn_copy, &
+                      dyn_str, dyn_list, dyn_dict, dyn_copy, dyn_assign, &
                       dyn_list_push, dyn_list_len, dyn_list_at, &
                       dyn_dict_set, dyn_dict_get, dyn_dict_has, &
                       dyn_dict_len, dyn_dict_key_at, &
@@ -294,9 +294,13 @@ contains
         if (a(i:i) == b(j:j)) cost = 0
         d(i, j) = min(d(i - 1, j) + 1, d(i, j - 1) + 1, &
                       d(i - 1, j - 1) + cost)
-        if (i > 1 .and. j > 1 .and. a(i:i) == b(j - 1:j - 1) &
-            .and. a(i - 1:i - 1) == b(j:j)) then
-          d(i, j) = min(d(i, j), d(i - 2, j - 2) + 1)
+        if (i > 1) then
+          if (j > 1) then
+            if (a(i:i) == b(j - 1:j - 1) &
+                .and. a(i - 1:i - 1) == b(j:j)) then
+              d(i, j) = min(d(i, j), d(i - 2, j - 2) + 1)
+            end if
+          end if
         end if
       end do
     end do
@@ -425,7 +429,6 @@ contains
     if (colour%kind == DYN_K_STR) then
       t = str_lower(colour%s)
       allocate(character(len(t)) :: s)
-      s = ""
       block
         integer :: m
         m = 0
@@ -473,13 +476,17 @@ contains
     n = len(s)
     is_zero_frac_text = .false.
     i = 1
-    if (i <= n .and. s(1:1) == '-') i = 2
+    if (i <= n) then
+      if (s(1:1) == '-') i = 2
+    end if
     if (i > n) return
     if (s(i:i) < '0' .or. s(i:i) > '9') return
-    do while (i <= n .and. s(i:i) >= '0' .and. s(i:i) <= '9')
+    do while (i <= n)
+      if (s(i:i) < '0' .or. s(i:i) > '9') exit
       i = i + 1
     end do
-    if (i > n .or. s(i:i) /= '.') return
+    if (i > n) return
+    if (s(i:i) /= '.') return
     i = i + 1
     if (i > n) return
     do while (i <= n)
@@ -702,10 +709,9 @@ contains
     character(:), allocatable :: severity, why, help, cap
     integer :: idx, j, sline, scol
     if (.not. associated(p%bag)) return
-    if (len(code) >= 1 .and. code(1:1) == 'W') then
-      severity = "warning"
-    else
-      severity = "error"
+    severity = "error"
+    if (len(code) >= 1) then
+      if (code(1:1) == 'W') severity = "warning"
     end if
     why = ""
     help = ""
@@ -757,11 +763,13 @@ contains
   function unquote(s) result(r)
     character(*), intent(in) :: s
     character(:), allocatable :: r
-    if (len(s) >= 2 .and. s(1:1) == '"' .and. s(len(s):len(s)) == '"') then
-      r = s(2:len(s) - 1)
-    else
-      r = s
+    if (len(s) >= 2) then
+      if (s(1:1) == '"' .and. s(len(s):len(s)) == '"') then
+        r = s(2:len(s) - 1)
+        return
+      end if
     end if
+    r = s
   end function unquote
 
   subroutine push_itok(arr, n, cap, t)
@@ -1102,6 +1110,7 @@ contains
     type(dyn), allocatable :: nums(:)
     character(:), allocatable :: pt
     integer :: n
+    logical :: is_vec
     val = dyn_null()
     call lp_numbers_ahead(lp, nums, n)
     if (n == 0) then
@@ -1109,13 +1118,17 @@ contains
       call raise_line(p, "E102", "expected a number, got '" // pt // "'")
       return
     end if
-    if (n >= 3 .and. (lp%i + 3 > size(lp%toks) &
-        .or. lp%toks(lp%i + 3)%kind == K_WORD)) then
+    is_vec = .false.
+    if (n >= 3) then
+      is_vec = lp%i + 3 > size(lp%toks)
+      if (.not. is_vec) is_vec = lp%toks(lp%i + 3)%kind == K_WORD
+    end if
+    if (is_vec) then
       lp%i = lp%i + 3
       val = vec3_of(nums(1), nums(2), nums(3))
     else
       lp%i = lp%i + 1
-      val = nums(1)
+      call dyn_assign(val, nums(1))
     end if
   end subroutine lp_num_or_vec3
 
@@ -1580,13 +1593,13 @@ contains
       if (dyn_dict_has(props, "colour")) then
         v = dget(props, "colour")
         if (v%kind /= DYN_K_NULL) then
-          colour = v
+          call dyn_assign(colour, v)
           has_colour = .true.
         end if
       else if (dyn_dict_has(props, "color")) then
         v = dget(props, "color")
         if (v%kind /= DYN_K_NULL) then
-          colour = v
+          call dyn_assign(colour, v)
           has_colour = .true.
         end if
       end if
@@ -1714,7 +1727,7 @@ contains
       v = dget(props, key)
       call dset(node, key, v)
     end do
-    stmt = node
+    call dyn_assign(stmt, node)
     has_stmt = .true.
   end subroutine parse_object
 
@@ -1898,7 +1911,7 @@ contains
       call dset(node, "shading", dyn_str(shading_val))
     call dset(node, "props", props)
     call dset(node, "line", dyn_int(int(lp%no, int64)))
-    stmt = node
+    call dyn_assign(stmt, node)
     has_stmt = .true.
   end subroutine parse_scene
 
@@ -1965,7 +1978,7 @@ contains
     call dset(node, "look", dget(props, "look"))
     call dset(node, "props", props)
     call dset(node, "line", dyn_int(int(lp%no, int64)))
-    stmt = node
+    call dyn_assign(stmt, node)
     has_stmt = .true.
   end subroutine parse_camera
 
@@ -2045,7 +2058,7 @@ contains
                               dyn_neg(dyn_list_at(frm, 2)), &
                               dyn_neg(dyn_list_at(frm, 3)))
         else
-          direction = frm
+          call dyn_assign(direction, frm)
         end if
       else if (hasw .and. (w == "intensity" .or. w == "strength")) then
         call lp_next(lp)
@@ -2084,7 +2097,7 @@ contains
     if (.not. has_pos) then
       ! For point/spot, `from` names the position; for directional
       ! lights this preserves the v1 position=frm.
-      position = frm
+      call dyn_assign(position, frm)
       has_pos = has_frm
     end if
     props = dyn_dict()
@@ -2183,7 +2196,7 @@ contains
     end if
     call dset(node, "props", props)
     call dset(node, "line", dyn_int(int(lp%no, int64)))
-    stmt = node
+    call dyn_assign(stmt, node)
     has_stmt = .true.
   end subroutine parse_light
 
@@ -2243,7 +2256,7 @@ contains
           cycle
         end if
         call group_node(name, props, children, header%no, node)
-        stmt = node
+        call dyn_assign(stmt, node)
         has_stmt = .true.
         return
       end if
@@ -2270,7 +2283,7 @@ contains
                       // "' has no closing 'end'", header%no, 0)
     if (p%stopped) return
     call group_node(name, props, children, header%no, node)
-    stmt = node
+    call dyn_assign(stmt, node)
     has_stmt = .true.
   end subroutine parse_group
 
@@ -2564,7 +2577,7 @@ contains
     call dset(node, "fps", dget(props, "fps"))
     call dset(node, "ease", dget(props, "ease"))
     call dset(node, "loop", dget(props, "loop"))
-    stmt = node
+    call dyn_assign(stmt, node)
     has_stmt = .true.
   end subroutine parse_anim
 
@@ -2636,7 +2649,7 @@ contains
       v = dget(props, key)
       call dset(node, key, v)
     end do
-    stmt = node
+    call dyn_assign(stmt, node)
     has_stmt = .true.
   end subroutine parse_load
 
@@ -2693,7 +2706,7 @@ contains
     call dset(node, "props", dyn_copy(props))
     call dset(node, "span", dyn_null())
     call dset(node, "line", dyn_int(int(lp%no, int64)))
-    stmt = node
+    call dyn_assign(stmt, node)
     has_stmt = .true.
   end subroutine parse_import
 
@@ -2821,7 +2834,7 @@ contains
     call dset(node, "props", props)
     call dset(node, "line", dyn_int(int(lp%no, int64)))
     call dset(node, "span", dyn_null())
-    stmt = node
+    call dyn_assign(stmt, node)
     has_stmt = .true.
   end subroutine parse_sprite
 
@@ -2861,7 +2874,7 @@ contains
     call dset(node, "props", props)
     call dset(node, "line", dyn_int(int(lp%no, int64)))
     call dset(node, "span", dyn_null())
-    stmt = node
+    call dyn_assign(stmt, node)
     has_stmt = .true.
   end subroutine parse_particles
 
@@ -2908,7 +2921,7 @@ contains
     call dset(node, "props", props)
     call dset(node, "line", dyn_int(int(lp%no, int64)))
     call dset(node, "span", dyn_null())
-    stmt = node
+    call dyn_assign(stmt, node)
     has_stmt = .true.
   end subroutine parse_filter
 
@@ -2958,7 +2971,7 @@ contains
     call dset(node, "props", props)
     call dset(node, "line", dyn_int(int(lp%no, int64)))
     call dset(node, "span", dyn_null())
-    stmt = node
+    call dyn_assign(stmt, node)
     has_stmt = .true.
   end subroutine parse_shader
 
@@ -3010,7 +3023,7 @@ contains
     call dset(node, "props", props)
     call dset(node, "line", dyn_int(int(lp%no, int64)))
     call dset(node, "span", dyn_null())
-    stmt = node
+    call dyn_assign(stmt, node)
     has_stmt = .true.
   end subroutine parse_morph
 
@@ -3078,7 +3091,7 @@ contains
       v = dget(props, key)
       call dset(node, key, v)
     end do
-    stmt = node
+    call dyn_assign(stmt, node)
     has_stmt = .true.
   end subroutine parse_bone
 
@@ -3121,7 +3134,7 @@ contains
     call dset(node, "props", props)
     call dset(node, "line", dyn_int(int(lp%no, int64)))
     call dset(node, "span", dyn_null())
-    stmt = node
+    call dyn_assign(stmt, node)
     has_stmt = .true.
   end subroutine parse_skin
 
@@ -3175,7 +3188,7 @@ contains
     call dset(node, "props", props)
     call dset(node, "line", dyn_int(int(lp%no, int64)))
     call dset(node, "span", dyn_null())
-    stmt = node
+    call dyn_assign(stmt, node)
     has_stmt = .true.
   end subroutine parse_instance
 
@@ -3249,7 +3262,7 @@ contains
     call dset(node, "props", props)
     call dset(node, "line", dyn_int(int(lp%no, int64)))
     call dset(node, "span", dyn_null())
-    stmt = node
+    call dyn_assign(stmt, node)
     has_stmt = .true.
   end subroutine parse_text
 
@@ -3331,7 +3344,7 @@ contains
     call dset(node, "props", props)
     call dset(node, "line", dyn_int(int(lp%no, int64)))
     call dset(node, "span", dyn_null())
-    stmt = node
+    call dyn_assign(stmt, node)
     has_stmt = .true.
   end subroutine parse_keys_header
 
@@ -3425,7 +3438,7 @@ contains
     call dset(node, "props", props)
     call dset(node, "line", dyn_int(int(lp%no, int64)))
     call dset(node, "span", dyn_null())
-    stmt = node
+    call dyn_assign(stmt, node)
     has_stmt = .true.
   end subroutine parse_key
 
@@ -3495,7 +3508,7 @@ contains
     call dset(node, "object", dyn_copy(obj))
     call dset(node, "props", dyn_dict())
     call dset(node, "line", dyn_int(int(lp%no, int64)))
-    stmt = node
+    call dyn_assign(stmt, node)
     has_stmt = .true.
   end subroutine parse_repeat
 
@@ -3551,7 +3564,7 @@ contains
     call dset(node, "min", dget(props, "min"))
     call dset(node, "max", dget(props, "max"))
     call dset(node, "line", dyn_int(int(lp%no, int64)))
-    stmt = node
+    call dyn_assign(stmt, node)
     has_stmt = .true.
   end subroutine parse_controls
 
@@ -3690,7 +3703,7 @@ contains
     call dset(node, "duration", dget(props, "duration"))
     call dset(node, "props", props)
     call dset(node, "line", dyn_int(int(lp%no, int64)))
-    stmt = node
+    call dyn_assign(stmt, node)
     has_stmt = .true.
   end subroutine parse_output
 

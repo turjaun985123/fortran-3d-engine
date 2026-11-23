@@ -129,10 +129,13 @@ contains
     end if
     if (index(t, ".") > 0) then
       n = len(t)
-      do while (n > 0 .and. t(n:n) == "0")
+      do while (n > 0)
+        if (t(n:n) /= "0") exit
         n = n - 1
       end do
-      if (n > 0 .and. t(n:n) == ".") n = n - 1
+      if (n > 0) then
+        if (t(n:n) == ".") n = n - 1
+      end if
       t = t(1:n)
     end if
     if (len(t) == 0 .or. t == "-0") then
@@ -860,7 +863,8 @@ contains
     call named_color(low, rgb, ok)
     if (ok) return
     ! #rrggbb
-    if (len(text) == 7 .and. text(1:1) == "#") then
+    if (len(text) == 7) then
+     if (text(1:1) == "#") then
       ok = .true.
       do i = 1, 3
         v = hex2(text(2 * i:2 * i + 1))
@@ -869,6 +873,7 @@ contains
       end do
       if (.not. ok) rgb = 0
       return
+     end if
     end if
     ! rgb(r,g,b), case-insensitive, \s* around numbers and commas
     n = len(text)
@@ -893,7 +898,11 @@ contains
           vals(i) = v
           call skip_ws(text, pos)
           if (i < 3) then
-            if (pos > n - 1 .or. text(pos:pos) /= ",") ok = .false.
+            if (pos > n - 1) then
+              ok = .false.
+            else if (text(pos:pos) /= ",") then
+              ok = .false.
+            end if
             pos = pos + 1
           end if
         end do

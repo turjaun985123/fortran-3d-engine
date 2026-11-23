@@ -504,23 +504,23 @@ contains
         if (first%kind == DYN_K_LIST .and. dyn_list_len(first) > 0) then
           first0 = dyn_list_at(first, 1)
           if (first0%kind == DYN_K_LIST) then
-            verts = first
+            call dyn_assign(verts, first)
             color = dyn_list_at(tri, 2)
             has_color = color%kind /= DYN_K_NULL
           else
-            verts = tri
+            call dyn_assign(verts, tri)
           end if
         else
-          verts = tri
+          call dyn_assign(verts, tri)
         end if
       else
-        verts = tri
+        call dyn_assign(verts, tri)
       end if
       if (verts%kind /= DYN_K_LIST) cycle
       if (dyn_list_len(verts) /= 3) cycle
       if (.not. has_color) then
         if (obj_color%kind /= DYN_K_NULL) then
-          color = obj_color
+          call dyn_assign(color, obj_color)
           has_color = .true.
         end if
       end if

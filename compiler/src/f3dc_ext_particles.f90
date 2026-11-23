@@ -34,7 +34,7 @@ module f3dc_ext_particles
        ieee_is_nan, ieee_is_negative, ieee_value, ieee_quiet_nan, &
        ieee_positive_inf
   use f3dc_dyn, only: dyn, dyn_null, dyn_bool, dyn_int, dyn_real, &
-       dyn_str, dyn_list, dyn_dict, dyn_copy, dyn_list_push, &
+       dyn_str, dyn_list, dyn_dict, dyn_copy, dyn_assign, dyn_list_push, &
        dyn_list_len, dyn_list_at, dyn_dict_get, dyn_dict_set, &
        dyn_dict_has, dyn_dict_len, dyn_dict_key_at, &
        dyn_dict_value_at, DYN_K_NULL, DYN_K_BOOL, DYN_K_INT, &
@@ -170,7 +170,8 @@ contains
           pos = pos + 1
       end if
       any_digit = .false.
-      do while (pos <= m .and. is_digit(clean(pos:pos)))
+      do while (pos <= m)
+        if (.not. is_digit(clean(pos:pos))) exit
         any_digit = .true.
         pos = pos + 1
       end do
@@ -178,7 +179,8 @@ contains
       if (pos <= m) then
         if (clean(pos:pos) == ".") then
           pos = pos + 1
-          do while (pos <= m .and. is_digit(clean(pos:pos)))
+          do while (pos <= m)
+            if (.not. is_digit(clean(pos:pos))) exit
             any_frac = .true.
             pos = pos + 1
           end do
@@ -193,7 +195,8 @@ contains
               pos = pos + 1
           end if
           exp_digits = .false.
-          do while (pos <= m .and. is_digit(clean(pos:pos)))
+          do while (pos <= m)
+            if (.not. is_digit(clean(pos:pos))) exit
             exp_digits = .true.
             pos = pos + 1
           end do
@@ -1070,7 +1073,7 @@ contains
     character(len=:), allocatable, intent(out) :: line
     type(dyn) :: d, origin
     logical :: ok
-    d = d_in
+    call dyn_assign(d, d_in)
     if (d%kind /= DYN_K_DICT) d = dyn_dict()
     call vec3(dget(d, "origin"), origin, ok)
     if (.not. ok) call vec3(dget(d, "at"), origin, ok)
@@ -1121,7 +1124,7 @@ contains
     integer(int64) :: count, n, seed
     real(real64) :: life, speed, spread, gravity, age
     real(real64) :: h0, h1, h2, vel(3), org(3)
-    d = d_in
+    call dyn_assign(d, d_in)
     if (d%kind /= DYN_K_DICT) d = dyn_dict()
     call vec3(dget(d, "origin"), origin, ok)
     if (.not. ok) call vec3(dget(d, "at"), origin, ok)

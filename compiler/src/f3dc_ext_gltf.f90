@@ -40,7 +40,7 @@ module f3dc_ext_gltf
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite, &
        ieee_is_nan
   use f3dc_dyn, only: dyn, dyn_str_box, dyn_null, dyn_int, dyn_real, &
-       dyn_str, dyn_list, dyn_dict, dyn_copy, dyn_dict_get, &
+       dyn_str, dyn_list, dyn_dict, dyn_copy, dyn_assign, dyn_dict_get, &
        dyn_dict_has, dyn_dict_set, dyn_dict_len, dyn_dict_key_at, &
        dyn_dict_value_at, dyn_list_push, dyn_list_len, dyn_list_at, &
        DYN_K_NULL, DYN_K_BOOL, DYN_K_INT, DYN_K_REAL, DYN_K_STR, &
@@ -498,10 +498,9 @@ contains
   function stack_top(st) result(out)
     type(str_stack), intent(in) :: st
     character(:), allocatable :: out
-    if (st%n < 1 .or. .not. allocated(st%items(st%n)%s)) then
-      out = ""
-    else
-      out = st%items(st%n)%s
+    out = ""
+    if (st%n >= 1) then
+      if (allocated(st%items(st%n)%s)) out = st%items(st%n)%s
     end if
   end function stack_top
 
@@ -614,7 +613,11 @@ contains
       prefix = "/"
       if (len(p) >= 2) then
         if (p(1:2) == "//") then
-          if (len(p) == 2 .or. p(3:3) /= "/") prefix = "//"
+          if (len(p) == 2) then
+            prefix = "//"
+          else if (p(3:3) /= "/") then
+            prefix = "//"
+          end if
         end if
       end if
     end if
@@ -1377,17 +1380,21 @@ contains
     integer :: unit, ios
     integer(int64) :: sz
     logical :: there
-    data = ""
     status = 2
     inquire (file=path, exist=there, size=sz)
     if (.not. there) then
+      data = ""
       status = 1
       return
     end if
     open (newunit=unit, file=path, access="stream", &
          form="unformatted", status="old", iostat=ios)
-    if (ios /= 0) return
+    if (ios /= 0) then
+      data = ""
+      return
+    end if
     if (sz < 0) then
+      data = ""
       close (unit)
       return
     end if
@@ -1610,7 +1617,7 @@ contains
       out = dyn_list()
       return
     end if
-    out = v
+    call dyn_assign(out, v)
   end subroutine require_list
 
   !> _require_index.
@@ -2702,7 +2709,7 @@ contains
            " JSON chunk is not an object")
       return
     end if
-    doc = json_doc
+    call dyn_assign(doc, json_doc)
   end subroutine parse_glb
 
   !> _parse_gltf_json.
@@ -3009,7 +3016,7 @@ contains
     call char_list_append(lines, "tris " // name // " " // &
          trim(fmt_int(int(dyn_list_len(tris), int64))))
     do i = 1, tris%n_items
-      tri = tris%items(i)
+      call dyn_assign(tri, tris%items(i))
       ! Python: colour, verts = triangle; int() per colour
       ! component; float() per vertex component -- TypeError /
       ! ValueError there is "malformed", a flattened coordinate
@@ -3019,8 +3026,8 @@ contains
       bad = tri%kind /= DYN_K_LIST .or. tri%n_items /= 2
       ncoords = 0
       if (.not. bad) then
-        cold = tri%items(1)
-        vertl = tri%items(2)
+        call dyn_assign(cold, tri%items(1))
+        call dyn_assign(vertl, tri%items(2))
         bad = cold%kind /= DYN_K_LIST .or. cold%n_items /= 3 .or. &
              vertl%kind /= DYN_K_LIST
       end if
@@ -3029,7 +3036,7 @@ contains
           if (.not. is_number(cold%items(a))) bad = .true.
         end do
         do a = 1, vertl%n_items
-          vtx = vertl%items(a)
+          call dyn_assign(vtx, vertl%items(a))
           if (vtx%kind /= DYN_K_LIST) then
             bad = .true.
             exit
@@ -3062,7 +3069,7 @@ contains
         else
           rgb(a) = int(cold%items(a)%r, int64)
         end if
-        vtx = vertl%items(a)
+        call dyn_assign(vtx, vertl%items(a))
         do b = 1, 3
           coords((a - 1) * 3 + b) = as_real(vtx%items(b))
         end do

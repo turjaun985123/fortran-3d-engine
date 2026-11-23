@@ -50,7 +50,7 @@ module f3dc_emit_fortran
                                            ieee_value, ieee_quiet_nan, &
                                            ieee_positive_inf
   use f3dc_dyn, only: dyn, dyn_null, dyn_bool, dyn_int, dyn_real, &
-                      dyn_str, dyn_list, dyn_dict, dyn_copy, &
+                      dyn_str, dyn_list, dyn_dict, dyn_copy, dyn_assign, &
                       dyn_dict_get, dyn_dict_set, dyn_dict_has, dyn_list_at, &
                       dyn_list_len, dyn_list_push, dyn_kind, &
                       dyn_dict_len, dyn_dict_key_at, &
@@ -373,7 +373,8 @@ contains
     end if
     if (index(t, ".") > 0) then
       i = len(t)
-      do while (i > 0 .and. t(i:i) == "0")
+      do while (i > 0)
+        if (t(i:i) /= "0") exit
         i = i - 1
       end do
       t = t(1:i)
@@ -651,7 +652,7 @@ contains
     type(dyn), intent(in) :: v
     character(len=:), allocatable :: out
     integer :: i, j, n
-    character(len=:), allocatable :: key
+    character(len=:), allocatable :: key, sub_json
     type(dyn) :: val
     integer, allocatable :: order(:)
     select case (v%kind)
@@ -688,7 +689,8 @@ contains
       do i = 1, v%n_items
         if (i > 1) out = out // ","
         val = dyn_list_at(v, i)
-        out = out // canonical_json(val)
+        sub_json = canonical_json(val)
+        out = out // sub_json
       end do
       out = out // "]"
     case (DYN_K_DICT)
@@ -718,8 +720,8 @@ contains
         if (i > 1) out = out // ","
         key = dyn_key_of(v, order(i))
         val = dyn_dict_value_copy(v, order(i))
-        out = out // '"' // json_escape_raw(key) // '":' // &
-              canonical_json(val)
+        sub_json = canonical_json(val)
+        out = out // '"' // json_escape_raw(key) // '":' // sub_json
       end do
       out = out // "}"
       deallocate (order)
@@ -930,7 +932,7 @@ contains
       o = dyn_list_at(outputs, i)
       if (to_lower(py_str(gvd(o, "kind", dyn_str("")))) == "render") &
         then
-        out = o
+        call dyn_assign(out, o)
         found = .true.
         return
       end if
@@ -948,7 +950,7 @@ contains
     call render_output(ir, o, found)
     if (found) then
       nc = nc + 1
-      cand(nc) = o
+      call dyn_assign(cand(nc), o)
     end if
     outputs = gvd(ir, "outputs", dyn_list())
     if (outputs%kind == DYN_K_LIST) then
@@ -958,7 +960,7 @@ contains
           then
           if (nc < 64) then
             nc = nc + 1
-            cand(nc) = o
+            call dyn_assign(cand(nc), o)
           end if
         end if
       end do
@@ -1087,7 +1089,7 @@ contains
         do i = 1, 4
           item = gv(tri, trim(KEYS(i)))
           if (item%kind == DYN_K_LIST) then
-            verts = item
+            call dyn_assign(verts, item)
             have_verts = .true.
             exit
           end if
@@ -1113,7 +1115,7 @@ contains
       if (tri%n_items == 2 .and. nseq == 1) then
         item = dyn_list_at(tri, 2)
         if (is_vec3_list(item)) then
-          verts = item
+          call dyn_assign(verts, item)
           have_verts = .true.
           call color_ints(dyn_list_at(tri, 1), cols, have_color)
         end if
@@ -1143,7 +1145,7 @@ contains
     do i = 1, 3
       pt = dyn_list_at(verts, i)
       if (pt%kind /= DYN_K_LIST .or. pt%n_items < 3) return
-      vlist(i) = pt
+      call dyn_assign(vlist(i), pt)
     end do
     if (.not. have_color) then
       call color_ints(obj_color, cols, ok)
@@ -1982,7 +1984,8 @@ contains
       write (buf, "(F512.6)") x
       t = trim(adjustl(buf))
       i = len(t)
-      do while (i > 0 .and. t(i:i) == "0")
+      do while (i > 0)
+        if (t(i:i) /= "0") exit
         i = i - 1
       end do
       t = t(1:i)
@@ -2082,10 +2085,12 @@ contains
     ! str.strip("_"): strip leading/trailing underscores only.
     lo = 1
     hi = len(stem)
-    do while (lo <= hi .and. stem(lo:lo) == "_")
+    do while (lo <= hi)
+      if (stem(lo:lo) /= "_") exit
       lo = lo + 1
     end do
-    do while (hi >= lo .and. stem(hi:hi) == "_")
+    do while (hi >= lo)
+      if (stem(hi:hi) /= "_") exit
       hi = hi - 1
     end do
     if (lo > hi) then
@@ -2432,18 +2437,20 @@ contains
     call char_list_clear(parts)
     i = 1
     do while (i <= len(s))
-      do while (i <= len(s) .and. (s(i:i) == " " .or. &
-                                   s(i:i) == achar(9) .or. &
-                                   s(i:i) == achar(10) .or. &
-                                   s(i:i) == achar(13)))
+      do while (i <= len(s))
+        if (.not. (s(i:i) == " " .or. &
+                   s(i:i) == achar(9) .or. &
+                   s(i:i) == achar(10) .or. &
+                   s(i:i) == achar(13))) exit
         i = i + 1
       end do
       if (i > len(s)) exit
       start = i
-      do while (i <= len(s) .and. .not. (s(i:i) == " " .or. &
-                                         s(i:i) == achar(9) .or. &
-                                         s(i:i) == achar(10) .or. &
-                                         s(i:i) == achar(13)))
+      do while (i <= len(s))
+        if (s(i:i) == " " .or. &
+            s(i:i) == achar(9) .or. &
+            s(i:i) == achar(10) .or. &
+            s(i:i) == achar(13)) exit
         i = i + 1
       end do
       call char_list_append(parts, s(start:i - 1))

@@ -22,7 +22,7 @@ module f3dc_ext_cameras
        ieee_is_nan, ieee_is_negative, ieee_value, ieee_quiet_nan, &
        ieee_positive_inf
   use f3dc_dyn, only: dyn, dyn_null, dyn_bool, dyn_int, dyn_real, &
-       dyn_str, dyn_list, dyn_dict, dyn_copy, dyn_list_push, &
+       dyn_str, dyn_list, dyn_dict, dyn_copy, dyn_assign, dyn_list_push, &
        dyn_list_len, dyn_list_at, dyn_dict_get, dyn_dict_set, &
        dyn_dict_has, dyn_dict_len, dyn_dict_key_at, &
        dyn_dict_value_at, DYN_K_NULL, DYN_K_BOOL, DYN_K_INT, &
@@ -154,10 +154,12 @@ contains
     w = ""
     do i = 1, len(t)
       if (t(i:i) == "_") then
-        prev_digit = i > 1 .and. t(i - 1:i - 1) >= "0" .and. &
-                     t(i - 1:i - 1) <= "9"
-        next_digit = i < len(t) .and. t(i + 1:i + 1) >= "0" .and. &
-                     t(i + 1:i + 1) <= "9"
+        prev_digit = (i > 1)
+        if (prev_digit) prev_digit = (t(i - 1:i - 1) >= "0" .and. &
+                                      t(i - 1:i - 1) <= "9")
+        next_digit = (i < len(t))
+        if (next_digit) next_digit = (t(i + 1:i + 1) >= "0" .and. &
+                                      t(i + 1:i + 1) <= "9")
         if (.not. (prev_digit .and. next_digit)) return
         cycle
       end if
@@ -179,8 +181,10 @@ contains
         nexp = nexp + 1
         if (nexp > 1 .or. ndig == 0) return
       case ("+", "-")
-        if (i /= 1 .and. t(i - 1:i - 1) /= "e" .and. &
-            t(i - 1:i - 1) /= "E") return
+        if (i /= 1) then
+          if (t(i - 1:i - 1) /= "e" .and. &
+              t(i - 1:i - 1) /= "E") return
+        end if
       case default
         return
       end select
@@ -226,18 +230,21 @@ contains
     if (ios /= 0) exp10 = 0
     mant = mant(:epos - 1)
     neg = .false.
-    if (len(mant) > 0 .and. mant(1:1) == "-") then
-      neg = .true.
-      mant = mant(2:)
-    else if (len(mant) > 0 .and. mant(1:1) == "+") then
-      mant = mant(2:)
+    if (len(mant) > 0) then
+      if (mant(1:1) == "-") then
+        neg = .true.
+        mant = mant(2:)
+      else if (mant(1:1) == "+") then
+        mant = mant(2:)
+      end if
     end if
     ! mant is d.ddddd (ES) -- collect the 6 significant digits.
     digits = ""
     do i = 1, len(mant)
       if (mant(i:i) >= "0" .and. mant(i:i) <= "9") digits = digits // mant(i:i)
     end do
-    if (len(mant) >= 2 .and. mant(1:1) == "0" .and. mant(2:2) == ".") then
+    if (len(mant) >= 2) then
+     if (mant(1:1) == "0" .and. mant(2:2) == ".") then
       ! 0.ddddd form: value is 0.digits * 10**exp10.
       exp10 = exp10 - 1
       zc = 0
@@ -249,6 +256,7 @@ contains
         digits = digits(zc + 1:)
         exp10 = exp10 - zc
       end if
+     end if
     end if
     do while (len(digits) < 6)
       digits = digits // "0"
@@ -747,7 +755,7 @@ contains
           cycle
         end if
         call vec3_of(out, vec, ok)
-        if (ok) out = vec
+        if (ok) call dyn_assign(out, vec)
         return
       end if
     end do

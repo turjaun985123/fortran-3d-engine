@@ -913,7 +913,7 @@ contains
   ! Pass registry (Python PASSES / register_pass)
   ! ------------------------------------------------------------------
 
-  subroutine register_pass(name, fn)
+  recursive subroutine register_pass(name, fn)
     character(len=*), intent(in) :: name
     procedure(pass_iface) :: fn
     type(pass_entry), allocatable :: tmp(:)
@@ -948,7 +948,7 @@ contains
     if (.not. allocated(pass_registry)) allocate (pass_registry(8))
   end subroutine ensure_registry_storage
 
-  subroutine ensure_registry()
+  recursive subroutine ensure_registry()
     if (registry_ready) return
     registry_ready = .true.
     call register_pass("O1-drop", pass_o1_drop)

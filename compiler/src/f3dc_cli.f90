@@ -68,7 +68,7 @@ program f3dc
        error_bag_format_text, error_bag_format_json, &
        error_bag_use_color, error_bag_debug_text
   use f3dc_parser, only: f3dc_parse
-  use f3dc_validate, only: f3dc_validate
+  use f3dc_validate, only: validate_program
   use f3dc_ext_geometry, only: eg_estimate => estimate_triangles
   use f3dc_optimize, only: optimize
   use f3dc_desugar, only: desugar
@@ -321,10 +321,12 @@ contains
     integer :: a, b
     a = 1
     b = len(s)
-    do while (a <= b .and. is_ws(s(a:a)))
+    do while (a <= b)
+       if (.not. is_ws(s(a:a))) exit
        a = a + 1
     end do
-    do while (b >= a .and. is_ws(s(b:b)))
+    do while (b >= a)
+       if (.not. is_ws(s(b:b))) exit
        b = b - 1
     end do
     if (b < a) then
@@ -355,12 +357,17 @@ contains
     integer :: unit, ios, sz
     logical :: there
     ok = .false.
-    text = ""
     inquire (file=path, exist=there, size=sz)
-    if (.not. there) return
+    if (.not. there) then
+       text = ""
+       return
+    end if
     open (newunit=unit, file=path, access="stream", &
           form="unformatted", status="old", iostat=ios)
-    if (ios /= 0) return
+    if (ios /= 0) then
+       text = ""
+       return
+    end if
     allocate (character(len=max(sz, 0)) :: text)
     if (sz > 0) read (unit, iostat=ios) text
     close (unit)
@@ -706,7 +713,7 @@ contains
     last_program = dyn_copy(prog)
     last_program_set = .true.
     if (error_bag_has_errors(bag)) return
-    call f3dc_validate(prog, bag, path_dirname(path), ir, vok)
+    call validate_program(prog, bag, path_dirname(path), ir, vok)
     if (.not. vok .or. error_bag_has_errors(bag)) return
     call optimize(ir, bag, 1, ir_opt)
     ir = dyn_copy(ir_opt)
@@ -1316,7 +1323,8 @@ contains
     character(len=:), allocatable :: out
     integer :: i
     i = 1
-    do while (i <= len(s) .and. .not. is_ws(s(i:i)))
+    do while (i <= len(s))
+       if (is_ws(s(i:i))) exit
        i = i + 1
     end do
     out = s(1:i - 1)
@@ -1330,9 +1338,12 @@ contains
     is_scene_line = .false.
     if (len(s) == 0) return
     if (s(1:1) == "#") return
-    if (len(s) >= 2 .and. s(1:2) == "//") return
+    if (len(s) >= 2) then
+       if (s(1:2) == "//") return
+    end if
     w = first_word(s)
-    do while (len(w) > 0 .and. w(len(w):len(w)) == ":")
+    do while (len(w) > 0)
+       if (w(len(w):len(w)) /= ":") exit
        w = w(1:len(w) - 1)
     end do
     is_scene_line = (to_lower(w) == "scene")
@@ -1391,7 +1402,8 @@ contains
        s = strip_ws(trim(lines(i)))
        if (len(s) == 0) cycle
        w = first_word(s)
-       do while (len(w) > 0 .and. w(len(w):len(w)) == ":")
+       do while (len(w) > 0)
+          if (w(len(w):len(w)) /= ":") exit
           w = w(1:len(w) - 1)
        end do
        if (to_lower(w) /= "scene") cycle
@@ -1410,16 +1422,17 @@ contains
          cnt = 0
          a = 1
          do j = 1, len(t) + 1
-            if (j > len(t) .or. is_ws(t(j:j))) then
-               if (j > a) then
-                  cnt = cnt + 1
-                  if (cnt == 2) then
-                     out = t(a:j - 1)
-                     return
-                  end if
-               end if
-               a = j + 1
+            if (j <= len(t)) then
+               if (.not. is_ws(t(j:j))) cycle
             end if
+            if (j > a) then
+               cnt = cnt + 1
+               if (cnt == 2) then
+                  out = t(a:j - 1)
+                  return
+               end if
+            end if
+            a = j + 1
          end do
          b = cnt
        end block
@@ -2123,7 +2136,7 @@ contains
           explain = .true.
        else if (allow_json .and. tok == "--json") then
           as_json = .true.
-       else if (len(tok) > 0 .and. tok(1:1) == "-") then
+       else if (starts_with(tok, "-")) then
           n_extra = n_extra + 1
           if (n_extra > 1) extras = extras//" "
           extras = extras//tok
@@ -2203,7 +2216,7 @@ contains
        if (tok == "-h" .or. tok == "--help") then
           call print_sub_help("new")
           call finish(0)
-       else if (len(tok) > 0 .and. tok(1:1) == "-") then
+       else if (starts_with(tok, "-")) then
           n_extra = n_extra + 1
           if (n_extra > 1) extras = extras//" "
           extras = extras//tok
@@ -2257,7 +2270,7 @@ contains
                "argument --port: invalid int value: '"//val//"'")
        else if (tok == "--no-browser") then
           no_browser = .true.
-       else if (len(tok) > 0 .and. tok(1:1) == "-") then
+       else if (starts_with(tok, "-")) then
           n_extra = n_extra + 1
           if (n_extra > 1) extras = extras//" "
           extras = extras//tok
@@ -2371,7 +2384,7 @@ contains
        call parse_preview_args(file, port, no_browser)
        call do_preview(file, port, no_browser, code)
     case default
-       if (len(a1) > 0 .and. a1(1:1) == "-") then
+       if (starts_with(a1, "-")) then
           call usage_error_main("unrecognized arguments: "// &
                                 join_args(1, nargs))
        else if (is_scene_file(a1)) then

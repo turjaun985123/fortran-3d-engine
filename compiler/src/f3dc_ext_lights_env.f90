@@ -33,7 +33,7 @@ module f3dc_ext_lights_env
                       char_list_at, char_list_clear, to_lower, &
                       fmt_int, fmt_real
   use f3dc_dyn, only: dyn, dyn_null, dyn_bool, dyn_int, dyn_real, &
-                      dyn_str, dyn_list, dyn_dict, dyn_dict_get, &
+                      dyn_str, dyn_list, dyn_dict, dyn_copy, dyn_assign, dyn_dict_get, &
                       dyn_dict_set, dyn_dict_has, dyn_dict_len, &
                       dyn_dict_key_at, dyn_dict_value_at, &
                       dyn_list_push, dyn_list_len, dyn_list_at, &
@@ -387,7 +387,8 @@ contains
       end if
     end do
     ! ^#([0-9a-fA-F]{6})$
-    if (len(t) == 7 .and. t(1:1) == "#") then
+    if (len(t) == 7) then
+     if (t(1:1) == "#") then
       block
         logical :: okhex
         integer :: j, d
@@ -407,9 +408,11 @@ contains
           return
         end if
       end block
+     end if
     end if
     ! ^rgb\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)$
-    if (len(low) >= 5 .and. low(1:4) == "rgb(" .and. &
+    if (len(low) >= 5) then
+     if (low(1:4) == "rgb(" .and. &
         low(len(low):len(low)) == ")") then
       inner = t(5:len(t) - 1)
       block
@@ -459,6 +462,7 @@ contains
         has = .true.
         return
       end block
+     end if
     end if
   end subroutine parse_color_fallback
 
@@ -710,7 +714,7 @@ contains
         call dyn_dict_set(merged, dyn_dict_key_at(props, k), &
                           dyn_dict_value_at(props, k))
       end do
-      props = merged
+      call dyn_assign(props, merged)
     end if
     ext = dyn_dict()
     call first_val(props, [character(len=16) :: "at", "position", &
@@ -756,7 +760,7 @@ contains
     logical :: has
     kind = to_lower(strip_ws(kind_in))
     if (ext_in%kind == DYN_K_DICT) then
-      ext = ext_in
+      call dyn_assign(ext, ext_in)
     else
       ext = dyn_dict()
     end if
@@ -814,7 +818,7 @@ contains
     kind = to_lower(strip_ws(kind_in))
     if (kind /= "point" .and. kind /= "spot") return
     if (ext_in%kind == DYN_K_DICT) then
-      ext = ext_in
+      call dyn_assign(ext, ext_in)
     else
       ext = dyn_dict()
     end if
