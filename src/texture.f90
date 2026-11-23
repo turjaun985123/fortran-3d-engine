@@ -706,8 +706,19 @@ contains
         integer(int8), intent(in) :: bytes(:)
         integer, intent(in) :: pos
         integer :: v
-        v = ubyte(bytes(pos)) * 16777216 + ubyte(bytes(pos + 1)) * 65536 &
-            + ubyte(bytes(pos + 2)) * 256 + ubyte(bytes(pos + 3))
+        integer(int64) :: u
+        ! Accumulate in int64 and wrap to signed int32 explicitly:
+        ! the old default-integer expression overflowed (UB) for
+        ! any field >= 2**31 -- e.g. a hostile IHDR width or chunk
+        ! length -- even though callers rely on the wrapped sign
+        ! (clen < 0 rejects, crc32_stored unwraps).  Found by
+        ! tests/fuzz/fuzz_png (seed 12345) under -fsanitize=undefined.
+        u = int(ubyte(bytes(pos)), int64) * 16777216_int64 &
+            + int(ubyte(bytes(pos + 1)), int64) * 65536_int64 &
+            + int(ubyte(bytes(pos + 2)), int64) * 256_int64 &
+            + int(ubyte(bytes(pos + 3)), int64)
+        if (u >= 2147483648_int64) u = u - 4294967296_int64
+        v = int(u)
     end function be32
 
     ! =================================================================

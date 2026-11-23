@@ -16,9 +16,9 @@
 !
 ! Usage
 ! -----
-!   fuzz_loaders [seed [iterations]]
-!     seed        int64 splitmix64 seed   (default 305419896)
+!   fuzz_loaders [iterations [seed]]
 !     iterations  bounded iteration count (default 5000, min 1)
+!     seed        int64 splitmix64 seed   (default 305419896)
 !   Each iteration mutates ONE seed (chosen by the PRNG), writes it
 !   to a scratch file in the CURRENT directory
 !   ("fuzz_load_tmp.obj" or "fuzz_load_tmp.gltf", deleted after the
@@ -31,12 +31,12 @@
 ! Build (sanitizers are the whole point; run from a scratch dir)
 ! ---------------------------------------------------------------
 !   gfortran -g -O1 -fsanitize=address,undefined \
-!            -fno-sanitize=signed-integer-overflow \
 !            -o fuzz_loaders tests/fuzz/fuzz_loaders.f90 <link set>
-!   The -fno-sanitize=signed-integer-overflow carve-out is ONLY for
-!   the splitmix64 PRNG below, whose arithmetic is defined modulo
-!   2**64 (signed wrap on two's-complement targets); every other
-!   undefined-behaviour check stays on, and ASan stays on in full.
+!   No signed-integer-overflow carve-out is needed: the splitmix64
+!   PRNG below does its add and multiplies in 16-bit limbs
+!   (add64/mul64 helpers, bit-exact modulo 2**64), so the harness
+!   itself never commits signed overflow; every undefined-behaviour
+!   check stays on, and ASan stays on in full.
 !   Leak checking (ASan's default) matters here: every iteration
 !   frees its mesh + info, so a leak report points at a loader path
 !   that kept something.
@@ -87,16 +87,18 @@ program fuzz_loaders
     integer(int64) :: total_tris
     integer, allocatable :: seed_obj(:), seed_gltf(:), work(:)
     logical :: use_obj, ok
-    type(Mesh) :: mesh
+    type(Mesh) :: fmesh
     type(ObjInfo) :: oinfo
     type(GltfInfo) :: ginfo
     character(len=64) :: arg
     integer :: ios, arglen
 
     ! ----------------------------------------------------------------
-    ! Arguments: [seed [iterations]], both optional and forgiving --
+    ! Arguments: [iterations [seed]], both optional and forgiving --
     ! an unparseable argument falls back to the default, it never
-    ! stops the harness before it starts.
+    ! stops the harness before it starts.  (Order matches
+    ! run_fuzz.sh and the other harnesses; it was [seed [iterations]]
+    ! until the v3.0 verification pass aligned it.)
     ! ----------------------------------------------------------------
     seed = DEFAULT_SEED
     n_iters = DEFAULT_ITERS
@@ -104,9 +106,11 @@ program fuzz_loaders
         call get_command_argument(1, arg, arglen, ios)
         if (ios == 0) then
             block
-                integer(int64) :: v
+                integer :: v
                 read (arg, *, iostat=ios) v
-                if (ios == 0) seed = v
+                if (ios == 0) then
+                    if (v >= 1) n_iters = v
+                end if
             end block
         end if
     end if
@@ -114,11 +118,9 @@ program fuzz_loaders
         call get_command_argument(2, arg, arglen, ios)
         if (ios == 0) then
             block
-                integer :: v
+                integer(int64) :: v
                 read (arg, *, iostat=ios) v
-                if (ios == 0) then
-                    if (v >= 1) n_iters = v
-                end if
+                if (ios == 0) seed = v
             end block
         end if
     end if
@@ -134,17 +136,17 @@ program fuzz_loaders
 
     ! Sanity: the unmutated seeds must load.  Results are counted
     ! separately (not in the fuzz tallies below).
-    call run_one(seed_obj, .true., ok, mesh, oinfo, ginfo)
+    call run_one(seed_obj, .true., ok, fmesh, oinfo, ginfo)
     write (output_unit, '(A,L1,A,I0,A)') &
         'fuzz_loaders: sanity OBJ seed ok=', ok, &
-        ' triangles=', mesh%num_triangles, ' (failure = suspect seed)'
-    call free_mesh(mesh)
+        ' triangles=', fmesh%num_triangles, ' (failure = suspect seed)'
+    call free_mesh(fmesh)
     call obj_free_info(oinfo)
-    call run_one(seed_gltf, .false., ok, mesh, oinfo, ginfo)
+    call run_one(seed_gltf, .false., ok, fmesh, oinfo, ginfo)
     write (output_unit, '(A,L1,A,I0,A)') &
         'fuzz_loaders: sanity glTF seed ok=', ok, &
-        ' triangles=', mesh%num_triangles, ' (failure = suspect seed)'
-    call free_mesh(mesh)
+        ' triangles=', fmesh%num_triangles, ' (failure = suspect seed)'
+    call free_mesh(fmesh)
     call gltf_free_info(ginfo)
 
     ! ----------------------------------------------------------------
@@ -161,7 +163,7 @@ program fuzz_loaders
         end if
         call mutate(work)
 
-        call run_one(work, use_obj, ok, mesh, oinfo, ginfo)
+        call run_one(work, use_obj, ok, fmesh, oinfo, ginfo)
         if (use_obj) then
             n_obj = n_obj + 1
             call obj_free_info(oinfo)
@@ -171,11 +173,11 @@ program fuzz_loaders
         end if
         if (ok) then
             n_ok = n_ok + 1
-            total_tris = total_tris + int(mesh%num_triangles, int64)
+            total_tris = total_tris + int(fmesh%num_triangles, int64)
         else
             n_fail = n_fail + 1
         end if
-        call free_mesh(mesh)
+        call free_mesh(fmesh)
         if (allocated(work)) deallocate (work)
 
         if (mod(iter, PROGRESS_EVERY) == 0) then
@@ -201,19 +203,83 @@ contains
 
     ! ================================================================
     ! Deterministic PRNG: splitmix64 (Stafford / Vigna).  All
-    ! arithmetic is modulo 2**64 by design; see the header for the
-    ! UBSan carve-out that implies.
+    ! arithmetic is modulo 2**64 by design; the add and the two
+    ! multiplies are done in 16-bit limbs (add64/mul64 below), so
+    ! no signed overflow occurs under UBSan.  Only the xor/shift
+    ! mixing touches the raw int64 bit pattern.
     ! ================================================================
     function next_u64() result(z)
         integer(int64) :: z
-        rng_state = rng_state + (-7046029254386353131_int64)  ! 9E3779B97F4A7C15
+        rng_state = add64(rng_state, -7046029254386353131_int64)  ! 9E3779B97F4A7C15
         z = rng_state
         z = ieor(z, ishft(z, -30))
-        z = z * (-4658895280553007687_int64)                  ! BF58476D1CE4E5B9
+        z = mul64(z, -4658895280553007687_int64)                  ! BF58476D1CE4E5B9
         z = ieor(z, ishft(z, -27))
-        z = z * (-7723592293110705685_int64)                  ! 94D049BB133111EB
+        z = mul64(z, -7723592293110705685_int64)                  ! 94D049BB133111EB
         z = ieor(z, ishft(z, -31))
     end function next_u64
+
+    ! Split an int64 bit pattern into four 16-bit limbs (limb 1 is
+    ! least significant), each a non-negative value in 0..65535.
+    pure function limbs_of(x) result(l)
+        integer(int64), intent(in) :: x
+        integer(int64) :: l(4)
+        integer :: i
+        do i = 1, 4
+            l(i) = iand(ishft(x, -16 * (i - 1)), 65535_int64)
+        end do
+    end function limbs_of
+
+    ! Reassemble four 16-bit limbs into an int64 bit pattern, using
+    ! only shifts and ors.
+    pure function from_limbs(l) result(x)
+        integer(int64), intent(in) :: l(4)
+        integer(int64) :: x
+        integer :: i
+        x = 0_int64
+        do i = 4, 1, -1
+            x = ior(ishft(x, 16), l(i))
+        end do
+    end function from_limbs
+
+    ! (a + b) mod 2**64, limb by limb.
+    pure function add64(a, b) result(r)
+        integer(int64), intent(in) :: a, b
+        integer(int64) :: r, la(4), lb(4), lr(4), s, carry
+        integer :: i
+        la = limbs_of(a)
+        lb = limbs_of(b)
+        carry = 0_int64
+        do i = 1, 4
+            s = la(i) + lb(i) + carry
+            lr(i) = iand(s, 65535_int64)
+            carry = ishft(s, -16)
+        end do
+        r = from_limbs(lr)
+    end function add64
+
+    ! (a * b) mod 2**64, limb by limb.  Partial sums stay below
+    ! 4 * 65535**2 + carry (about 2**35), far inside int64.
+    pure function mul64(a, b) result(r)
+        integer(int64), intent(in) :: a, b
+        integer(int64) :: r, la(4), lb(4), lr(4), s, carry
+        integer :: i, j, k
+        la = limbs_of(a)
+        lb = limbs_of(b)
+        carry = 0_int64
+        do k = 1, 4
+            s = carry
+            do i = 1, 4
+                j = k + 1 - i
+                if (j < 1) cycle
+                if (j > 4) cycle
+                s = s + la(i) * lb(j)
+            end do
+            lr(k) = iand(s, 65535_int64)
+            carry = ishft(s, -16)
+        end do
+        r = from_limbs(lr)
+    end function mul64
 
     ! Uniform-enough draw in [0, n); n must be >= 1.  The draw is
     ! masked to a non-negative int64 first, so mod never sees a

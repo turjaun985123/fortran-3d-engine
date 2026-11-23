@@ -53,7 +53,6 @@
 !
 !   clang-18 -c compiler/preview_http.c -o preview_http.o
 !   flang-new-18 -g -O1 -fsanitize=address,undefined \
-!     -fno-sanitize=signed-integer-overflow -fwrapv \
 !     compiler/src/f3dc_str.f90    \
 !     compiler/src/f3dc_dyn.f90    \
 !     compiler/src/f3dc_errors.f90 \
@@ -66,12 +65,13 @@
 !   ./fuzz_parser            ! 5000 iterations, default seed
 !   ./fuzz_parser 200000 42  ! iterations, seed
 !
-! The -fno-sanitize=signed-integer-overflow / -fwrapv pair covers
-! ONLY the splitmix64 PRNG below: splitmix64 is defined over
-! unsigned 64-bit wrap-around arithmetic, and Fortran has no
-! unsigned integer type, so its multiplications are written over
-! int64 bit patterns and must wrap modulo 2^64 instead of trapping.
-! Everything else in the run stays under full ASan + UBSan.
+! No signed-integer-overflow carve-out is needed for the
+! splitmix64 PRNG below: splitmix64 is defined over unsigned
+! 64-bit wrap-around arithmetic, and Fortran has no unsigned
+! integer type, so its add and multiplications are done in
+! 16-bit limbs (add64/mul64 helpers, bit-exact modulo 2^64)
+! over int64 bit patterns instead of trapping.  Everything in
+! the run stays under full ASan + UBSan.
 !
 ! Exact module link set (traced from the `use` statements)
 ! ---------------------------------------------------------
@@ -278,20 +278,83 @@ contains
   ! splitmix64 PRNG (Stafford / Vigna): state advances by the
   ! golden-gamma constant, the result is the state passed through
   ! three xor-shift / multiply mixing rounds.  All arithmetic is
-  ! over the int64 BIT PATTERN and relies on modulo-2^64 wrap (see
-  ! the build note in the header).  The BOZ -> int64 conversions
-  ! below are the standard way to spell those bit patterns.
+  ! over the int64 BIT PATTERN modulo 2^64, done in 16-bit limbs
+  ! (add64/mul64 below, bit-exact; see the build note in the
+  ! header).  The BOZ -> int64 conversions below are the standard
+  ! way to spell those bit patterns.
   ! ================================================================
   function prng_next() result(z)
     integer(int64) :: z
-    rng_state = rng_state + int(z'9E3779B97F4A7C15', int64)
+    rng_state = add64(rng_state, int(z'9E3779B97F4A7C15', int64))
     z = rng_state
     z = ieor(z, ishft(z, -30))
-    z = z * int(z'BF58476D1CE4E5B9', int64)
+    z = mul64(z, int(z'BF58476D1CE4E5B9', int64))
     z = ieor(z, ishft(z, -27))
-    z = z * int(z'94D049BB133111EB', int64)
+    z = mul64(z, int(z'94D049BB133111EB', int64))
     z = ieor(z, ishft(z, -31))
   end function prng_next
+
+    ! Split an int64 bit pattern into four 16-bit limbs (limb 1 is
+    ! least significant), each a non-negative value in 0..65535.
+    pure function limbs_of(x) result(l)
+        integer(int64), intent(in) :: x
+        integer(int64) :: l(4)
+        integer :: i
+        do i = 1, 4
+            l(i) = iand(ishft(x, -16 * (i - 1)), 65535_int64)
+        end do
+    end function limbs_of
+
+    ! Reassemble four 16-bit limbs into an int64 bit pattern, using
+    ! only shifts and ors.
+    pure function from_limbs(l) result(x)
+        integer(int64), intent(in) :: l(4)
+        integer(int64) :: x
+        integer :: i
+        x = 0_int64
+        do i = 4, 1, -1
+            x = ior(ishft(x, 16), l(i))
+        end do
+    end function from_limbs
+
+    ! (a + b) mod 2**64, limb by limb.
+    pure function add64(a, b) result(r)
+        integer(int64), intent(in) :: a, b
+        integer(int64) :: r, la(4), lb(4), lr(4), s, carry
+        integer :: i
+        la = limbs_of(a)
+        lb = limbs_of(b)
+        carry = 0_int64
+        do i = 1, 4
+            s = la(i) + lb(i) + carry
+            lr(i) = iand(s, 65535_int64)
+            carry = ishft(s, -16)
+        end do
+        r = from_limbs(lr)
+    end function add64
+
+    ! (a * b) mod 2**64, limb by limb.  Partial sums stay below
+    ! 4 * 65535**2 + carry (about 2**35), far inside int64.
+    pure function mul64(a, b) result(r)
+        integer(int64), intent(in) :: a, b
+        integer(int64) :: r, la(4), lb(4), lr(4), s, carry
+        integer :: i, j, k
+        la = limbs_of(a)
+        lb = limbs_of(b)
+        carry = 0_int64
+        do k = 1, 4
+            s = carry
+            do i = 1, 4
+                j = k + 1 - i
+                if (j < 1) cycle
+                if (j > 4) cycle
+                s = s + la(i) * lb(j)
+            end do
+            lr(k) = iand(s, 65535_int64)
+            carry = ishft(s, -16)
+        end do
+        r = from_limbs(lr)
+    end function mul64
 
   ! Uniform draw in 0 .. n-1 (n >= 1).  The sign bit is shifted
   ! out first (ishft is a bit shift: vacated bits are zero), so

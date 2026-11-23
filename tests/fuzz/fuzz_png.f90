@@ -188,6 +188,11 @@ program fuzz_png
         ' roundtrips=', n_roundtrip, &
         ' zero_size_rejected=', n_roundtrip_zero, &
         ' findings=0'
+    ! Free the seed corpus: main-program allocatables are not
+    ! released at end program, and LeakSanitizer (detect_leaks=1
+    ! in run_fuzz.sh) reports them as direct leaks.  Found in the
+    ! v3.0 verification pass fuzz smoke (500 iters, seed 12345).
+    deallocate(seed_main, seed_rgb, seed_grey)
 
 contains
 

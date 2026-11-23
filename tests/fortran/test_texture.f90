@@ -345,6 +345,26 @@ program test_texture
     call assert_false(ok, 'png_decode rejects garbage bytes')
     deallocate(pngbytes)
 
+    ! Regression (tests/fuzz/fuzz_png, seed 12345, found in the
+    ! v3.0 verification pass): IHDR width bytes AE 42 60 00 are
+    ! 2,923,865,856 unsigned; be32 accumulated the field in a
+    ! default integer and overflowed -- UB that -fsanitize=
+    ! undefined aborts on.  The wrapped dimension must be rejected
+    ! cleanly (tex_dims_ok), never crash or load.
+    allocate(pngbytes(33))
+    ! (int8 literals: -119 == 137 and -82 == 174 unsigned.)
+    pngbytes = int([-119, 80, 78, 71, 13, 10, 26, 10, &  ! signature
+                    0, 0, 0, 13, &                        ! IHDR length
+                    73, 72, 68, 82, &                     ! 'IHDR'
+                    -82, 66, 96, 0, &                     ! width (hostile)
+                    0, 0, 0, 1, &                         ! height 1
+                    8, 2, 0, 0, 0, &                     ! 8-bit RGB
+                    0, 0, 0, 0], int8)                    ! CRC (unchecked)
+    call png_decode(pngbytes, tpng, ok)
+    call assert_false(ok, 'png_decode rejects hostile IHDR width')
+    call assert_false(tpng%loaded, 'hostile IHDR width: not loaded')
+    deallocate(pngbytes)
+
     ! ---- Dispatcher: texture_load sniffs magic bytes ----
     call texture_load(trim(fxdir) // 'tex_rgb.png', tpng, ok)
     call assert_true(ok, 'texture_load dispatches PNG ok')

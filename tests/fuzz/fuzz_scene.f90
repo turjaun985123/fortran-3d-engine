@@ -45,15 +45,16 @@
 !
 !   gfortran -O1 -g -fcheck=all -Wall -Wextra \
 !       -fsanitize=address,undefined \
-!       -fno-sanitize=signed-integer-overflow \
 !       -Jinclude -Iinclude \
 !       <engine sources, see LINK SET> \
 !       tests/fuzz/fuzz_scene.f90 -o fuzz_scene
 !
-!   The signed-integer-overflow exclusion exists for ONE reason:
-!   splitmix64 below is defined over modulo-2**64 wrap-around
-!   arithmetic, and gfortran's wrapping behaviour is what the
-!   algorithm specifies.  Every other UB class stays sanitized.
+!   No signed-integer-overflow exclusion is needed: splitmix64
+!   below is defined over modulo-2**64 wrap-around arithmetic,
+!   and its add and multiplications are done in 16-bit limbs
+!   (add64/mul64 helpers, bit-exact modulo 2**64), so the harness
+!   itself never commits signed overflow.  Every UB class stays
+!   sanitized.
 !
 ! LINK SET
 !   This program is a standalone program unit: link it INSTEAD of
@@ -119,15 +120,78 @@ contains
         integer(int64) :: z
         ! 0x9E3779B97F4A7C15, 0xBF58476D1CE4E5B9, 0x94D049BB133111EB
         ! written as signed decimal int64 literals (same bit
-        ! patterns); the multiplications wrap modulo 2**64.
-        rng_state = rng_state + (-7046029254386353131_int64)
+        ! patterns); the add and multiplications are modulo 2**64
+        ! via the 16-bit limb helpers below (add64/mul64).
+        rng_state = add64(rng_state, -7046029254386353131_int64)
         z = rng_state
         z = ieor(z, ishft(z, -30))
-        z = z * (-4658895280553007687_int64)
+        z = mul64(z, -4658895280553007687_int64)
         z = ieor(z, ishft(z, -27))
-        z = z * (-7723592293110705685_int64)
+        z = mul64(z, -7723592293110705685_int64)
         z = ieor(z, ishft(z, -31))
     end function rng_next
+
+    ! Split an int64 bit pattern into four 16-bit limbs (limb 1 is
+    ! least significant), each a non-negative value in 0..65535.
+    pure function limbs_of(x) result(l)
+        integer(int64), intent(in) :: x
+        integer(int64) :: l(4)
+        integer :: i
+        do i = 1, 4
+            l(i) = iand(ishft(x, -16 * (i - 1)), 65535_int64)
+        end do
+    end function limbs_of
+
+    ! Reassemble four 16-bit limbs into an int64 bit pattern, using
+    ! only shifts and ors.
+    pure function from_limbs(l) result(x)
+        integer(int64), intent(in) :: l(4)
+        integer(int64) :: x
+        integer :: i
+        x = 0_int64
+        do i = 4, 1, -1
+            x = ior(ishft(x, 16), l(i))
+        end do
+    end function from_limbs
+
+    ! (a + b) mod 2**64, limb by limb.
+    pure function add64(a, b) result(r)
+        integer(int64), intent(in) :: a, b
+        integer(int64) :: r, la(4), lb(4), lr(4), s, carry
+        integer :: i
+        la = limbs_of(a)
+        lb = limbs_of(b)
+        carry = 0_int64
+        do i = 1, 4
+            s = la(i) + lb(i) + carry
+            lr(i) = iand(s, 65535_int64)
+            carry = ishft(s, -16)
+        end do
+        r = from_limbs(lr)
+    end function add64
+
+    ! (a * b) mod 2**64, limb by limb.  Partial sums stay below
+    ! 4 * 65535**2 + carry (about 2**35), far inside int64.
+    pure function mul64(a, b) result(r)
+        integer(int64), intent(in) :: a, b
+        integer(int64) :: r, la(4), lb(4), lr(4), s, carry
+        integer :: i, j, k
+        la = limbs_of(a)
+        lb = limbs_of(b)
+        carry = 0_int64
+        do k = 1, 4
+            s = carry
+            do i = 1, 4
+                j = k + 1 - i
+                if (j < 1) cycle
+                if (j > 4) cycle
+                s = s + la(i) * lb(j)
+            end do
+            lr(k) = iand(s, 65535_int64)
+            carry = ishft(s, -16)
+        end do
+        r = from_limbs(lr)
+    end function mul64
 
     ! Uniform-enough draw in 0 .. n-1 (n >= 1).  Modulo bias is
     ! irrelevant for fuzzing.  ishft(..., -1) is a LOGICAL shift in

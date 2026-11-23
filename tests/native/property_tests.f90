@@ -584,9 +584,14 @@ contains
   !             isolated build; all 4 verified fmt-idempotent with
   !             byte-identical artifacts in a real examples tree)
   !   corpus:   91 parsing sources, 91 full pass, 0 xfail
+  ! Adjusted 2026-11-23 (v3.0 verification pass): the wave added
+  ! examples/v3-showcase.f3d (release prep), so the example count
+  ! baseline moves 15 -> 16; the new file round-trips cleanly, so
+  ! the pass floor tightens 11 -> 12.  Xfail counts unchanged.
+  !   examples: 16 files, 12 full pass, 4 xfail (all class 3)
   ! -------------------------------------------------------------
   subroutine section_sweep()
-    integer, parameter :: EX_PASS_MIN = 11, EX_XFAIL_MAX = 4
+    integer, parameter :: EX_PASS_MIN = 12, EX_XFAIL_MAX = 4
     integer, parameter :: CO_PASS_MIN = 91, CO_XFAIL_MAX = 0
     integer :: fails, rc, i, cc, cls
     integer :: ex_n, ex_pass, ex_x(3), co_n, co_pass, co_x(3)
@@ -671,7 +676,7 @@ contains
     write(*, '(A,I0,A,I0,A,I0,A,I0,A,I0,A,I0,A)') &
       '  sweep corpus: ', co_n, ' parsing sources, pass ', co_pass, &
       ', xfail class1/2/3 = ', co_x(1), '/', co_x(2), '/', co_x(3)
-    if (ex_n /= 15) fails = fails + 1
+    if (ex_n /= 16) fails = fails + 1
     if (ex_pass < EX_PASS_MIN) fails = fails + 1
     if (sum(ex_x) > EX_XFAIL_MAX) fails = fails + 1
     if (co_n < 90) fails = fails + 1
