@@ -199,6 +199,9 @@ module scene_3d
         integer :: tonemap_mode = 0         ! 0 none, 1 reinhard, 2 aces
         real(dp) :: tonemap_exposure = 1.0_dp
         integer :: shadow_mode = 0          ! 0 off, 1 on (hard), 2 soft
+        ! v3.0 Phase 3: PCF kernel radius for the v3 per-light
+        ! shadow maps (0 = single tap).  Legacy path ignores it.
+        integer :: shadow_pcf = 1
         integer :: shadow_size = 512
         ! Wave B entities (coordinator integration).
         type(SceneSprite), allocatable :: sprites(:)
@@ -1111,6 +1114,9 @@ contains
                 else
                     call warn_line(lineno, line)
                 end if
+            case ('shadow_pcf')
+                ! shadow_pcf N (v3.0 Phase 3; v3 path only)
+                if (ntok >= 2) sc%shadow_pcf = tok_int(tokens, 2)
             case ('shadow')
                 ! shadow MODE SIZE (on|soft|off)
                 if (ntok >= 2) then
