@@ -1,14 +1,22 @@
-// Forge3D PBR sidecar - OPTIONAL module, load AFTER runtime/f3d.js.
+// f3d-pbr -- Forge3D PBR sidecar: Cook-Torrance physically based
+// shading (GGX / Smith-Schlick / Fresnel-Schlick) and light
+// attenuation / spot falloff for the Forge3D browser runtime.
+// Role: OPTIONAL shading module, used alongside runtime/f3d.js.
+// ES module (Phase 7); the classic bundle is built from the modules
+// by tools/build_runtime.mjs. This module is self-contained: it
+// defines its own local vec/colour helpers and uses no
+// sibling-runtime globals (nothing is read from runtime/f3d.js),
+// so it imports nothing. A compatibility footer at the bottom
+// attaches the exported names onto globalThis.F3D (and keeps the
+// legacy globalThis.F3DPBR alias).
 // Mirrors the Fortran modules src/material_pbr.f90 and src/lighting.f90:
 // MeshStandard-style Cook-Torrance PBR (GGX D, Smith-Schlick G,
 // Fresnel-Schlick), physical point/spot attenuation and spot cone
 // falloff, summed as ambient + per-light diffuse*atten*spot*shadow
 // (diffuse weighted by 1-ambient, matching the legacy Fortran
 // intensity = ambient + (1-ambient)*diffuse for one directional
-// light) + specular*255. Plain script, zero deps, no modules.
+// light) + specular*255. Zero deps.
 // The 15,360 B budget of f3d.js does NOT apply to this sidecar.
-'use strict';
-(function (g) {
 var PI = Math.PI, D2R = PI / 180;
 function clamp(x, a, b) { return x < a ? a : (x > b ? b : x); }
 function dot(a, b) { return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]; }
@@ -145,9 +153,28 @@ function shadePoint(o) {
   return out;
 }
 
-g.F3DPBR = { attenuate: attenuate, spotFactor: spotFactor,
+export {
+  attenuate,
+  spotFactor,
+  fresnelSchlick,
+  ggxD,
+  specularBRDF,
+  shadePoint,
+  DEFAULT_MATERIAL
+};
+
+// Compatibility footer: attach the exported names onto
+// globalThis.F3D (creating it if absent) for classic-bundle and
+// non-module consumers, and keep the legacy F3DPBR alias.
+globalThis.F3D = globalThis.F3D || {};
+globalThis.F3D.attenuate = attenuate;
+globalThis.F3D.spotFactor = spotFactor;
+globalThis.F3D.fresnelSchlick = fresnelSchlick;
+globalThis.F3D.ggxD = ggxD;
+globalThis.F3D.specularBRDF = specularBRDF;
+globalThis.F3D.shadePoint = shadePoint;
+globalThis.F3D.DEFAULT_MATERIAL = DEFAULT_MATERIAL;
+globalThis.F3DPBR = { attenuate: attenuate, spotFactor: spotFactor,
   fresnelSchlick: fresnelSchlick, ggxD: ggxD,
   specularBRDF: specularBRDF, shadePoint: shadePoint,
   DEFAULT_MATERIAL: DEFAULT_MATERIAL };
-if (typeof window !== 'undefined') window.F3DPBR = g.F3DPBR;
-})(typeof globalThis !== 'undefined' ? globalThis : this);

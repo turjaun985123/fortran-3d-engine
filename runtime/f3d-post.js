@@ -1,8 +1,14 @@
-// Forge3D Post sidecar - OPTIONAL module, load AFTER runtime/f3d.js.
-// JS mirror of the post-processing filters in src/postprocess.f90
-// (MASTER-PLAN parity row 30, seat B75): a chain of screen-space
-// filters applied, in order, to a finished frame.
-// Plain script, zero deps, no modules.
+// Forge3D module "f3d-post" - OPTIONAL post-processing sidecar.
+// Role: a chain of screen-space filters applied, in order, to a
+// finished frame; JS mirror of the post-processing filters in
+// src/postprocess.f90 (MASTER-PLAN parity row 30, seat B75).
+// ES module (Phase 7): the public API is the named export below.
+// No sibling-runtime imports: this module uses no helpers from
+// runtime/f3d.js (core) and defines everything it needs locally.
+// The classic bundle is built from these ES modules via
+// tools/build_runtime.mjs; the compatibility footer at the end
+// attaches the exported names onto globalThis.F3D for
+// classic-bundle / legacy-global consumers.
 //
 // Pixel layout: `pixels` is a Uint8ClampedArray of RGB triplets,
 // 3*w*h entries, row-major, top row first. A 4*w*h RGBA buffer is
@@ -38,7 +44,6 @@
 //             255 (unrounded): matrix rows [0.393, 0.769, 0.189],
 //             [0.349, 0.686, 0.168] and [0.272, 0.534, 0.131].
 'use strict';
-(function (g) {
 
 function lum(r, gg, b) { return 0.299 * r + 0.587 * gg + 0.114 * b; }
 function fix(v) { return v < 0 ? 0 : (v > 255 ? 255 : Math.round(v)); }
@@ -140,6 +145,13 @@ function apply(pixels, w, h, chain) {
   return pixels;
 }
 
-g.F3DPost = { apply: apply };
-if (typeof window !== 'undefined') window.F3DPost = g.F3DPost;
-})(typeof globalThis !== 'undefined' ? globalThis : this);
+export { apply };
+
+// Compatibility footer (Phase 7): attach the exported names onto
+// globalThis.F3D for classic-bundle / legacy-global consumers,
+// and keep the historical globalThis.F3DPost alias unchanged.
+var F3DPost = { apply: apply };
+globalThis.F3D = globalThis.F3D || {};
+globalThis.F3D.F3DPost = F3DPost;
+globalThis.F3DPost = F3DPost;
+if (typeof window !== 'undefined') window.F3DPost = F3DPost;

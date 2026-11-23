@@ -1,12 +1,17 @@
-// Forge3D Particles sidecar - OPTIONAL module, load AFTER runtime/f3d.js.
-// JS mirror of the deterministic particle system in src/particles.f90
+// f3d-particles -- Forge3D particles module.
+// Role: OPTIONAL sidecar, load AFTER runtime/f3d.js. JS mirror of
+// the deterministic particle system in src/particles.f90
 // (MASTER-PLAN row 32): a seeded, fixed-formula point-sprite emitter.
 // Every particle's state is a pure function of (sys, index, t) -- no
 // simulation state, no wall clock, no Math.random -- so a scene renders
 // identically in the Fortran engine, here, and on any re-run.
-// Plain script, zero deps, no modules.
-'use strict';
-(function (g) {
+// ES module (Phase 7): the public names are declared as named
+// exports below; a classic bundle is also produced via
+// tools/build_runtime.mjs.
+
+// No sibling-runtime imports: this module uses no names from
+// runtime/f3d.js or any other sidecar -- the vec helpers below
+// (v3 / num / dot / cross / norm) are defined locally in this file.
 var MOD = 2147483648; // 2^31
 
 // Exact (a * b) % 2^31 for a, b < 2^31 using plain numbers. The raw
@@ -121,7 +126,17 @@ function quad(sys, i, t, camPos) {
   return out;
 }
 
-g.F3DParticles = { hash01: hash01, state: state,
+export { hash01, state, positions, quad };
+
+// Compatibility footer: attach the exported names onto
+// globalThis.F3D (and keep the legacy F3DParticles global) for
+// classic-bundle / non-module consumers.
+globalThis.F3D = globalThis.F3D || {};
+globalThis.F3D.F3DParticles = { hash01: hash01, state: state,
   positions: positions, quad: quad };
-if (typeof window !== 'undefined') window.F3DParticles = g.F3DParticles;
-})(typeof globalThis !== 'undefined' ? globalThis : this);
+globalThis.F3D.hash01 = hash01;
+globalThis.F3D.state = state;
+globalThis.F3D.positions = positions;
+globalThis.F3D.quad = quad;
+globalThis.F3DParticles = globalThis.F3D.F3DParticles;
+if (typeof window !== 'undefined') window.F3DParticles = globalThis.F3DParticles;

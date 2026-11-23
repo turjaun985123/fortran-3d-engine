@@ -1,5 +1,13 @@
-// Forge3D WebXR runtime sidecar - OPTIONAL module, load AFTER
-// runtime/f3d.js (or standalone: it has no dependencies).
+// f3d-xr -- Forge3D WebXR runtime sidecar: immersive-vr
+// session, reference space and stereo views behind feature
+// detection with graceful degradation.
+// ES module (Phase 7): public names are the named exports at
+// the bottom of this file; the classic bundle is built from
+// the ES modules by tools/build_runtime.mjs. No sibling
+// imports: this module is standalone (it uses no globals from
+// runtime/f3d.js).
+// OPTIONAL module, load AFTER runtime/f3d.js (or standalone:
+// it has no dependencies).
 // Exposes window.Forge3DXR: the WebXR surface this engine needs
 // (immersive-vr session, reference space, stereo views), behind
 // feature detection with graceful degradation: every method
@@ -13,15 +21,13 @@
 // session on XR hardware is UNVERIFIED: this machine has no XR
 // device and no browser, so no claim is made that a headset
 // session, tracking, or presentation works until a user checks
-// it on a real device. Plain script, zero deps, no modules.
-'use strict';
-(function (g) {
+// it on a real device. Zero dependencies.
 var current = null; // active XRSession, or null
 
 function getXR() {
   try {
     var nav = (typeof navigator !== 'undefined') ? navigator
-      : g.navigator;
+      : globalThis.navigator;
     return (nav && nav.xr) ? nav.xr : null;
   } catch (e) { return null; }
 }
@@ -159,7 +165,14 @@ async function endSession() {
 
 function shouldFallback() { return !current; }
 
-g.Forge3DXR = {
+export { isSupported, requestVRSession, requestReferenceSpace,
+  stereoViews, currentSession, endSession, shouldFallback,
+  invert4 };
+
+// Compatibility footer: attach the exported names onto
+// globalThis.F3D (as F3D.XR) and keep the legacy Forge3DXR
+// global for classic-bundle consumers.
+var api = {
   isSupported: isSupported,
   requestVRSession: requestVRSession,
   requestReferenceSpace: requestReferenceSpace,
@@ -169,5 +182,7 @@ g.Forge3DXR = {
   shouldFallback: shouldFallback,
   _invert4: invert4
 };
-if (typeof window !== 'undefined') window.Forge3DXR = g.Forge3DXR;
-})(typeof globalThis !== 'undefined' ? globalThis : this);
+globalThis.F3D = globalThis.F3D || {};
+globalThis.F3D.XR = api;
+globalThis.Forge3DXR = api;
+if (typeof window !== 'undefined') window.Forge3DXR = api;

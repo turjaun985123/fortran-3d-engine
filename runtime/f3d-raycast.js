@@ -1,5 +1,12 @@
-// Forge3D raycasting / picking sidecar - OPTIONAL module, load
-// AFTER runtime/f3d.js (or standalone: it has no dependencies).
+// f3d-raycast -- Forge3D raycasting / picking sidecar:
+// Moeller-Trumbore ray/triangle intersection and pixel picking.
+// ES module (Phase 7): public names are the named exports at
+// the bottom of this file; the classic bundle is built from
+// the ES modules by tools/build_runtime.mjs. No sibling
+// imports: this module is standalone (it uses no globals from
+// runtime/f3d.js; its vec helpers are local copies).
+// OPTIONAL module, load AFTER runtime/f3d.js (or standalone:
+// it has no dependencies).
 // Mirrors the Fortran module src/raycast.f90 EXACTLY: ray/triangle
 // intersection by Moeller-Trumbore, with the shared tolerance
 // contract eps = 1e-9 -- a ray is parallel / a triangle is
@@ -8,9 +15,7 @@
 // culling: det is used signed, never culled on its sign), bary-
 // centric u / v must lie in the triangle, and when several
 // triangles are hit the nearest t wins (the first triangle wins
-// an exact tie). Plain script, zero deps, no modules.
-'use strict';
-(function (g) {
+// an exact tie). Zero dependencies.
 var EPS = 1e-9;
 var D2R = Math.PI / 180;
 function sub(a, b) { return [a[0]-b[0], a[1]-b[1], a[2]-b[2]]; }
@@ -94,6 +99,13 @@ function pick(px, py, width, height, camPos, camTarget, camUp,
   return cast(camPos, dir, triangles);
 }
 
-g.F3DRay = { rayTriangle: rayTriangle, cast: cast, pick: pick };
-if (typeof window !== 'undefined') window.F3DRay = g.F3DRay;
-})(typeof globalThis !== 'undefined' ? globalThis : this);
+export { rayTriangle, cast, pick };
+
+// Compatibility footer: attach the exported names onto
+// globalThis.F3D (as F3D.Ray) and keep the legacy F3DRay
+// global for classic-bundle consumers.
+var api = { rayTriangle: rayTriangle, cast: cast, pick: pick };
+globalThis.F3D = globalThis.F3D || {};
+globalThis.F3D.Ray = api;
+globalThis.F3DRay = api;
+if (typeof window !== 'undefined') window.F3DRay = api;

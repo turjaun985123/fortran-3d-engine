@@ -1,8 +1,17 @@
-// Forge3D instancing sidecar - OPTIONAL module, load AFTER
-// runtime/f3d.js. JS mirror of the Fortran instancing data model
-// (src/instancing.f90, seat B81; MASTER-PLAN parity row 22):
-// ONE shared base geometry plus a list of per-instance transforms.
-// Plain script, zero deps, no modules.
+// Forge3D module "f3d-instanced" -- instancing sidecar.
+// Role: OPTIONAL module, load AFTER runtime/f3d.js. JS mirror of
+// the Fortran instancing data model (src/instancing.f90, seat B81;
+// MASTER-PLAN parity row 22): ONE shared base geometry plus a list
+// of per-instance transforms.
+// ES module (Phase 7): the public names are declared with named
+// exports below. A classic (non-module) bundle is produced from
+// this module by tools/build_runtime.mjs; the compatibility
+// footer at the bottom preserves the legacy globals for classic
+// consumers.
+// Imports: none. This module uses no sibling-runtime globals --
+// the core helpers in runtime/f3d.js are not exported individually
+// and this file defines its own num / v3 / matrix helpers, exactly
+// as the classic script did. Zero deps.
 //
 // Parity with B81 (verified against src/instancing.f90):
 // InstanceSet is { base, transforms(:), count } and
@@ -61,8 +70,6 @@
 //   math_3d.f90's mat4_rotate_x/y/z take RADIANS, while
 //   mat4_compose_trs (rot_deg), mat4_axis_angle and everything in
 //   f3d.js take DEGREES. compose() here takes degrees.
-'use strict';
-(function (g) {
 var D2R = Math.PI / 180;
 
 function num(v, d) { return v == null ? d : (+v || 0); }
@@ -279,10 +286,20 @@ function expandTriangles(set) {
   return out;
 }
 
-g.F3DInstanced = { create: create, add: add, count: count,
+export { create, add, count, matrices, compose, compose as trs,
+  fromTRS, apply, baseVertices, expand, buildPositions,
+  expandTriangles };
+
+// Compatibility footer: preserve the classic-script globals --
+// the exported names are attached onto globalThis.F3D (as
+// globalThis.F3D.instanced) as well as the legacy
+// globalThis.F3DInstanced.
+const F3DInstanced = { create: create, add: add, count: count,
   matrices: matrices, compose: compose, trs: compose,
   fromTRS: fromTRS, apply: apply, baseVertices: baseVertices,
   expand: expand, buildPositions: buildPositions,
   expandTriangles: expandTriangles };
-if (typeof window !== 'undefined') window.F3DInstanced = g.F3DInstanced;
-})(typeof globalThis !== 'undefined' ? globalThis : this);
+globalThis.F3DInstanced = F3DInstanced;
+globalThis.F3D = globalThis.F3D || {};
+globalThis.F3D.instanced = F3DInstanced;
+if (typeof window !== 'undefined') window.F3DInstanced = F3DInstanced;

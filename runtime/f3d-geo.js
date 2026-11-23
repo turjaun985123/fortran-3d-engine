@@ -1,6 +1,13 @@
-// Forge3D Geometry sidecar - OPTIONAL module, load AFTER
-// runtime/f3d.js. JS mirror of the Wave D geometry builders:
-// ten additional primitives in the exact output format of the
+// f3d-geo -- Forge3D geometry builders (geometry sidecar).
+// Role: ten additional primitives (circle, ring, capsule, tube,
+// lathe, extrude, the four Platonic solids and torusknot) plus
+// triCount, in the exact output format of the f3d-core builders.
+// ES module (Phase 7): this file is authored as an ES module;
+// the classic bundle is produced from it by
+// tools/build_runtime.mjs. OPTIONAL module, load AFTER
+// runtime/f3d.js (module name "f3d-core"). JS mirror of the
+// Wave D geometry builders: ten additional primitives in the
+// exact output format of the
 // f3d.js builders -- each builder returns a flat array of
 // triangles [[a, b, c, faceIdx], ...] where a/b/c are plain
 // [x, y, z] vertex arrays and faceIdx is an integer part index
@@ -9,8 +16,14 @@
 // (capsule, tube, lathe, torusknot) additionally set the optional index-5
 // element to [na, nb, nc] per-vertex normals in local space,
 // the smooth-shading contract of runtime/f3d.js (P1).
-// Plain script, zero deps, no modules. Loading it without
-// f3d.js is safe: the registry hook at the bottom is guarded.
+// Zero deps. No sibling imports are added: although f3d-core
+// (runtime/f3d.js) has helpers of the same names, this module
+// defines and uses its own local tri/sub/cross/dot/norm below,
+// exactly as the classic script did, and f3d-core exports none
+// of those helpers. Its only contact with f3d-core is the
+// optional, guarded registry hook in the compatibility footer,
+// which reads globalThis.F3D at runtime rather than importing
+// it, so loading it without f3d.js is safe.
 //
 // Builders and EXACT triangle counts (seg is clamped to >= 3
 // unless noted; counts are after the stated normalisation):
@@ -51,9 +64,6 @@
 // `triCount` mirrors each builder's signature (minus nothing)
 // and returns the exact triangle count the builder produces
 // for the same arguments, applying the same normalisation.
-'use strict';
-(function (g) {
-
 function tri(o, a, b, c, f, n) {
   var t = [a, b, c, f || 0]; if (n) t[5] = n; o.push(t);
 }
@@ -428,15 +438,34 @@ var builders = {
 };
 
 var api = { builders: builders, triCount: triCount };
-g.Forge3DGeo = api;
-if (typeof window !== 'undefined') window.Forge3DGeo = api;
 
-// Registry hook: if f3d.js (or another host) exposes a builder
-// registry, extend it -- guarded so this sidecar never throws
-// when f3d.js is absent or has no registry.
+export { circle, ring, capsule, tube, lathe, extrude,
+  tetrahedron, octahedron, icosahedron, dodecahedron, torusknot,
+  triCount, builders };
+export { api as Forge3DGeo };
+
+// ---- compatibility footer --------------------------------------
+// Attach the exported names onto globalThis.F3D (creating it if
+// absent), so classic-script consumers that expect the global
+// registry keep working when this module is bundled or loaded
+// as a module. This also preserves the classic sidecar surface:
+// globalThis.Forge3DGeo, and the registry hook that extends a
+// host's builder registry -- guarded so this sidecar never
+// throws when f3d.js is absent or has no registry.
+globalThis.Forge3DGeo = api;
+if (typeof window !== 'undefined') window.Forge3DGeo = api;
 try {
-  var host = g.F3D || g.Forge3D || null;
-  if (host) {
+  var F3D = globalThis.F3D || (globalThis.F3D = {});
+  Object.keys(builders).forEach(function (k) { F3D[k] = builders[k]; });
+  F3D.triCount = triCount;
+  F3D.builders = F3D.builders || {};
+  Object.keys(builders).forEach(function (k) {
+    F3D.builders[k] = builders[k];
+  });
+  F3D.geo = api;
+  F3D.Forge3DGeo = api;
+  var host = globalThis.Forge3D || null;
+  if (host && host !== F3D) {
     host.builders = host.builders || {};
     Object.keys(builders).forEach(function (k) {
       host.builders[k] = builders[k];
@@ -444,4 +473,3 @@ try {
     host.geo = api;
   }
 } catch (e) { /* no registry: the sidecar stands alone */ }
-})(typeof globalThis !== 'undefined' ? globalThis : this);

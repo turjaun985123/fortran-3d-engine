@@ -1,5 +1,13 @@
-// Forge3D orthographic camera sidecar - OPTIONAL module, load
-// AFTER runtime/f3d.js (or standalone: it has no dependencies).
+// f3d-ortho -- Forge3D orthographic camera sidecar:
+// orthographic projection matrices mirroring
+// src/camera_ortho.f90 (mat4_ortho).
+// ES module (Phase 7): public names are the named exports at
+// the bottom of this file; the classic bundle is built from
+// the ES modules by tools/build_runtime.mjs. No sibling
+// imports: this module is standalone (it uses no globals from
+// runtime/f3d.js).
+// OPTIONAL module, load AFTER runtime/f3d.js (or standalone:
+// it has no dependencies).
 // Mirrors the Fortran module src/camera_ortho.f90 (mat4_ortho),
 // built with the same matrix conventions as mat4_perspective in
 // src/math_3d.f90 and as the inline projection in runtime/f3d.js.
@@ -28,9 +36,7 @@
 //   z is what flips view-space -z-forward into NDC +z-away.
 //   Unlike perspective there is NO depth-dependent divide for
 //   x/y: an ortho x/y NDC depends only on x/y, never on z.
-// Plain script, zero deps, no modules.
-'use strict';
-(function (g) {
+// Zero dependencies.
 
 // Orthographic projection for the view-space box
 // [left, right] x [bottom, top] x [-near, -far].
@@ -74,9 +80,16 @@ function project(m, x, y, z) {
   return [cx, cy, cz];
 }
 
-g.F3DOrtho = { ortho: ortho, fromSize: fromSize, project: project };
-if (typeof window !== 'undefined') window.F3DOrtho = g.F3DOrtho;
+export { ortho, fromSize, project };
+
+// Compatibility footer: attach the exported names onto
+// globalThis.F3D (as F3D.Ortho) and keep the legacy F3DOrtho
+// global for classic-bundle consumers.
+var api = { ortho: ortho, fromSize: fromSize, project: project };
+globalThis.F3D = globalThis.F3D || {};
+globalThis.F3D.Ortho = api;
+globalThis.F3DOrtho = api;
+if (typeof window !== 'undefined') window.F3DOrtho = api;
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = g.F3DOrtho;
+  module.exports = api;
 }
-})(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -1,11 +1,16 @@
-// Forge3D custom shaders sidecar - OPTIONAL module, load AFTER
-// runtime/f3d.js (or standalone: it has no dependencies).
-// GLSL-free: this is the CPU mirror of src/shader.f90. It takes
-// the identical RPN token stream the Fortran compiler emits and
+// Forge3D module "f3d-shader" - OPTIONAL custom-shader sidecar.
+// Role: GLSL-free CPU mirror of src/shader.f90. It takes the
+// identical RPN token stream the Fortran compiler emits and
 // produces identical results -- there is no GLSL anywhere in the
 // pipeline; the same expression can be evaluated on the CPU here
-// or in Fortran and must agree. Plain script, zero deps, no
-// modules; registers window.Forge3DShader.
+// or in Fortran and must agree.
+// ES module (Phase 7): the public API is the named exports below.
+// No sibling-runtime imports: this module is standalone and uses
+// no helpers from runtime/f3d.js (core). The classic bundle is
+// built from these ES modules via tools/build_runtime.mjs; the
+// compatibility footer at the end attaches the exported names
+// onto globalThis.F3D for classic-bundle / legacy-global
+// consumers.
 //
 // RPN tokens: numbers (as numbers or numeric strings); the
 // variables c r g b x y z u v ndl t (c = current channel value,
@@ -24,7 +29,7 @@
 // dividend) -- so a % b here matches Fortran MOD directly.
 // (Python's %, by contrast, takes the sign of the divisor.)
 'use strict';
-(function (g) {
+
 var VARS = { c: 1, r: 1, g: 1, b: 1, x: 1, y: 1, z: 1,
              u: 1, v: 1, ndl: 1, t: 1 };
 var OPS = { '+': 1, '-': 1, '*': 1, '/': 1, '%': 1, '^': 1 };
@@ -172,8 +177,16 @@ function shadeRGB(rpn, baseRGB, envBase) {
   return out;
 }
 
-g.Forge3DShader = { parseRPN: parseRPN, evalRPN: evalRPN,
+export { parseRPN, evalRPN, shadeChannel, shadeRGB };
+
+// Compatibility footer (Phase 7): attach the exported names onto
+// globalThis.F3D for classic-bundle / legacy-global consumers,
+// and keep the historical globalThis.Forge3DShader alias
+// unchanged.
+var Forge3DShader = { parseRPN: parseRPN, evalRPN: evalRPN,
   shadeChannel: shadeChannel, shadeRGB: shadeRGB };
+globalThis.F3D = globalThis.F3D || {};
+globalThis.F3D.Forge3DShader = Forge3DShader;
+globalThis.Forge3DShader = Forge3DShader;
 if (typeof window !== 'undefined')
-  window.Forge3DShader = g.Forge3DShader;
-})(typeof globalThis !== 'undefined' ? globalThis : this);
+  window.Forge3DShader = Forge3DShader;

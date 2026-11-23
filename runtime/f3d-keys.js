@@ -1,16 +1,23 @@
-// Forge3D keyframe sidecar - OPTIONAL module, load AFTER
-// runtime/f3d.js. Mirrors the Fortran module src/keyframe.f90
-// (key_eval): keyframed pos / rot / scale tracks with named easing
-// and once / forever / pingpong looping. Plain script, zero deps,
-// no modules.
+// Forge3D module "f3d-keys" -- keyframe sidecar.
+// Role: OPTIONAL module, load AFTER runtime/f3d.js. Mirrors the
+// Fortran module src/keyframe.f90 (key_eval): keyframed pos / rot /
+// scale tracks with named easing and once / forever / pingpong
+// looping.
+// ES module (Phase 7): the public names are declared with named
+// exports below. A classic (non-module) bundle is produced from
+// this module by tools/build_runtime.mjs; the compatibility
+// footer at the bottom preserves the legacy globals for classic
+// consumers.
+// Imports: none. This module uses no sibling-runtime globals --
+// the core helpers in runtime/f3d.js are not exported individually
+// and this file defines its own clamp / v3 / pose helpers, exactly
+// as the classic script did. Zero deps.
 //
 // Track shape:
 //   { target, duration, loop,
 //     keys: [{ time, pos: [x, y, z], rot: [x, y, z], scale, ease }] }
 // The ease named on a key drives the segment ENDING at that key.
 // evalTrack(track, t) -> { pos: [3], rot: [3], scale }.
-'use strict';
-(function (g) {
 function clamp(x, a, b) { return x < a ? a : (x > b ? b : x); }
 function v3(v, d) { return v == null ? d.slice()
   : [ +v[0] || 0, +v[1] || 0, +v[2] || 0 ]; }
@@ -81,6 +88,13 @@ function evalTrack(track, t) {
   return pose(last); // single-key track (first pose == last pose)
 }
 
-g.F3DKeys = { ease: ease, evalTrack: evalTrack };
-if (typeof window !== 'undefined') window.F3DKeys = g.F3DKeys;
-})(typeof globalThis !== 'undefined' ? globalThis : this);
+export { ease, evalTrack };
+
+// Compatibility footer: preserve the classic-script globals --
+// the exported names are attached onto globalThis.F3D (as
+// globalThis.F3D.keys) as well as the legacy globalThis.F3DKeys.
+const F3DKeys = { ease: ease, evalTrack: evalTrack };
+globalThis.F3DKeys = F3DKeys;
+globalThis.F3D = globalThis.F3D || {};
+globalThis.F3D.keys = F3DKeys;
+if (typeof window !== 'undefined') window.F3DKeys = F3DKeys;

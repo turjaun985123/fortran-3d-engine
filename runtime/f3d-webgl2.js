@@ -1,5 +1,16 @@
-// Forge3D WebGL2 sidecar - OPTIONAL module, load AFTER
-// runtime/f3d.js (or standalone: it has no dependencies).
+// f3d-webgl2 -- Forge3D WebGL2 sidecar: GPU rasterisation path
+// for the scene triangles the Canvas2D core draws.
+// ES module (Phase 7): public names are the named exports at
+// the bottom of this file; the classic bundle is built from
+// the ES modules by tools/build_runtime.mjs. No sibling
+// imports: this module is standalone (it uses no globals from
+// runtime/f3d.js; its Lambert helpers mirror the core's
+// shading math locally, as documented below).
+// OPTIONAL module, load AFTER runtime/f3d.js (or standalone:
+// it has no dependencies). The viewer boots WebGL2-first:
+// attach() tries WebGL2 and reports 'canvas2d' when it is
+// unavailable, so the caller falls back to the Canvas2D core
+// runtime (runtime/f3d.js); there is no WebGL1 path.
 // GPU rasterisation path for the same scene triangles the
 // Canvas2D core (runtime/f3d.js) draws with the painter's
 // algorithm. This sidecar replaces painter sorting with a real
@@ -61,9 +72,7 @@
 //   w  = m[3]*x + m[7]*y + m[11]*z + m[15]
 // This is the order WebGL expects, so renderScene() passes the
 // array to uniformMatrix4fv(loc, false, ...) untransposed.
-// Plain script, zero deps, no modules.
-'use strict';
-(function (g) {
+// Zero dependencies.
 var VERT_SRC = [
   '#version 300 es',
   'in vec3 aPos;',
@@ -401,9 +410,17 @@ function attach(canvas, tris, mvp, opts) {
   }
 }
 
-g.Forge3DWebGL2 = { VERT_SRC: VERT_SRC, FRAG_SRC: FRAG_SRC,
+export { VERT_SRC, FRAG_SRC, isAvailable, create, renderScene,
+  projectPoint, attach };
+
+// Compatibility footer: attach the exported names onto
+// globalThis.F3D (as F3D.WebGL2) and keep the legacy
+// Forge3DWebGL2 global for classic-bundle consumers.
+var api = { VERT_SRC: VERT_SRC, FRAG_SRC: FRAG_SRC,
   isAvailable: isAvailable, create: create,
   renderScene: renderScene, projectPoint: projectPoint,
   attach: attach };
-if (typeof window !== 'undefined') window.Forge3DWebGL2 = g.Forge3DWebGL2;
-})(typeof globalThis !== 'undefined' ? globalThis : this);
+globalThis.F3D = globalThis.F3D || {};
+globalThis.F3D.WebGL2 = api;
+globalThis.Forge3DWebGL2 = api;
+if (typeof window !== 'undefined') window.Forge3DWebGL2 = api;

@@ -1,8 +1,11 @@
-// Forge3D sprites + text sidecar - OPTIONAL module, load AFTER
-// runtime/f3d.js. Mirrors the Fortran modules src/sprite.f90
-// (billboards, MASTER-PLAN row 23) and src/text_render.f90 (5x7
-// bitmap text, row 29): 2D-in-3D overlay parity for the JS backend.
-// Plain script, zero deps, no modules.
+// f3d-sprites-text -- Forge3D sprites + text module.
+// Role: OPTIONAL sidecar, load AFTER runtime/f3d.js. Mirrors the
+// Fortran modules src/sprite.f90 (billboards, MASTER-PLAN row 23)
+// and src/text_render.f90 (5x7 bitmap text, row 29): 2D-in-3D
+// overlay parity for the JS backend.
+// ES module (Phase 7): the public names are declared as named
+// exports below; a classic bundle is also produced via
+// tools/build_runtime.mjs.
 //
 // FROZEN FONT REPRESENTATION: GLYPHS is an array of 43 glyphs, one
 // per character of CHARSET, each glyph an array of 7 row values
@@ -14,8 +17,9 @@
 // GLYPH_MASKS exactly (each JS row array is derived from the
 // Fortran integer mask for the same glyph index); the Wave B
 // parity test cross-checks them against the Fortran.
-'use strict';
-(function (g) {
+// No sibling-runtime imports: this module uses no names from
+// runtime/f3d.js or any other sidecar -- the vec helpers below
+// (dot / sub / cross / norm / v3) are defined locally in this file.
 function dot(a, b) { return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]; }
 function sub(a, b) { return [a[0]-b[0], a[1]-b[1], a[2]-b[2]]; }
 function cross(a, b) { return [a[1]*b[2]-a[2]*b[1],
@@ -143,8 +147,23 @@ function textWidth(text, size) {
   return n === 0 ? 0 : n * 6 * ((size || 0) / 7) - (size || 0) / 7;
 }
 
-g.F3DSpritesText = { spriteBasis: spriteBasis, spriteQuad: spriteQuad,
-  glyphRows: glyphRows, textTriangles: textTriangles,
-  textWidth: textWidth, CHARSET: CHARSET, GLYPHS: GLYPHS };
-if (typeof window !== 'undefined') window.F3DSpritesText = g.F3DSpritesText;
-})(typeof globalThis !== 'undefined' ? globalThis : this);
+export { spriteBasis, spriteQuad, glyphRows, textTriangles,
+  textWidth, CHARSET, GLYPHS };
+
+// Compatibility footer: attach the exported names onto
+// globalThis.F3D (and keep the legacy F3DSpritesText global) for
+// classic-bundle / non-module consumers.
+globalThis.F3D = globalThis.F3D || {};
+globalThis.F3D.F3DSpritesText = { spriteBasis: spriteBasis,
+  spriteQuad: spriteQuad, glyphRows: glyphRows,
+  textTriangles: textTriangles, textWidth: textWidth,
+  CHARSET: CHARSET, GLYPHS: GLYPHS };
+globalThis.F3D.spriteBasis = spriteBasis;
+globalThis.F3D.spriteQuad = spriteQuad;
+globalThis.F3D.glyphRows = glyphRows;
+globalThis.F3D.textTriangles = textTriangles;
+globalThis.F3D.textWidth = textWidth;
+globalThis.F3D.CHARSET = CHARSET;
+globalThis.F3D.GLYPHS = GLYPHS;
+globalThis.F3DSpritesText = globalThis.F3D.F3DSpritesText;
+if (typeof window !== 'undefined') window.F3DSpritesText = globalThis.F3DSpritesText;

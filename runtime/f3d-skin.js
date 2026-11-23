@@ -1,8 +1,11 @@
-// Forge3D skinning + morph sidecar - OPTIONAL module, load
+// f3d-skin -- Forge3D skinning + morph module.
+// Role: OPTIONAL sidecar for the C1 skinning + morph contract,
+// operating on FLAT vertex arrays (number[], xyz triples,
+// triangle soup -- the layout the other sidecars use). Load
 // AFTER runtime/f3d.js (or standalone: it has no dependencies).
-// C1 skinning + morph contract, operating on FLAT vertex arrays
-// (number[], xyz triples, triangle soup -- the layout the other
-// sidecars use). Plain script, zero deps, no modules.
+// ES module (Phase 7): the public names are declared as named
+// exports below; a classic bundle is also produced via
+// tools/build_runtime.mjs.
 //
 // Morphs (centroid = mean of all vertices):
 //   bulge: barrel profile — x/z scale s = 1 + factor*0.5*(1 - q^2), q = (y - cy)/halfh, strongest at the middle height, poles unchanged
@@ -27,8 +30,8 @@
 //   Rz: x' = c*x - s*y,  y' = s*x + c*y
 // p' = (1-w)*p + w*(M*p) with w = skinWeight(|p-pivot|, radius);
 // vertices at dist >= radius are bit-identical to the input.
-'use strict';
-(function (g) {
+// No sibling-runtime imports: this module uses no names from
+// runtime/f3d.js or any other sidecar -- it is self-contained.
 var D2R = Math.PI / 180;
 
 function centroid(verts) {
@@ -126,7 +129,16 @@ function skinApply(verts, pivot, rotDeg, radius) {
   return out;
 }
 
-g.Forge3DSkin = { morphApply: morphApply, skinWeight: skinWeight,
-                  skinApply: skinApply };
-if (typeof window !== 'undefined') window.Forge3DSkin = g.Forge3DSkin;
-})(typeof globalThis !== 'undefined' ? globalThis : this);
+export { morphApply, skinWeight, skinApply };
+
+// Compatibility footer: attach the exported names onto
+// globalThis.F3D (and keep the legacy Forge3DSkin global) for
+// classic-bundle / non-module consumers.
+globalThis.F3D = globalThis.F3D || {};
+globalThis.F3D.Forge3DSkin = { morphApply: morphApply,
+  skinWeight: skinWeight, skinApply: skinApply };
+globalThis.F3D.morphApply = morphApply;
+globalThis.F3D.skinWeight = skinWeight;
+globalThis.F3D.skinApply = skinApply;
+globalThis.Forge3DSkin = globalThis.F3D.Forge3DSkin;
+if (typeof window !== 'undefined') window.Forge3DSkin = globalThis.Forge3DSkin;

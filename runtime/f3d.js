@@ -1,3 +1,24 @@
+/**
+ * f3d-core — the Forge3D core browser runtime.
+ *
+ * Role: the dependency-free Canvas2D player for f3dc scenes. It owns
+ * scene normalisation, the geometry builders, animation evaluation,
+ * the create()/auto() player (with its <f3d-view> custom element),
+ * and worldTris() for the WebGL2 sidecar.
+ *
+ * This file is an ES module (Phase 7). Its public API is published as
+ * named exports at the bottom of the file; a compatibility footer
+ * there also attaches the same names onto globalThis.F3D so classic
+ * consumers keep working. A classic (non-module) bundle is produced
+ * from the ES modules by tools/build_runtime.mjs.
+ *
+ * Imports: none. This module is self-contained — every helper it
+ * uses (PALETTE/NAMED, the vec/geometry builders, build, animState,
+ * normScene, create, worldTris, auto) is defined in this file. The
+ * only global it reads is F3D_SCENE, which is scene *data* supplied
+ * by the host page, not code from a sibling runtime file, so it is
+ * deliberately not converted into an import.
+ */
 // Forge3D runtime v2.0.0 - dependency-free player for f3dc v2 scenes.
 // DECISION: Canvas2D only. It renders with the identical math to the
 // Fortran engine (lookAt + perspective, flat per-face normals, Lambert
@@ -264,3 +285,23 @@ if(typeof customElements!=='undefined'&&!customElements.get('f3d-view')){
       else if(g.F3D_SCENE)go(g.F3D_SCENE);}
     disconnectedCallback(){if(this._p)this._p.destroy();}});}
 })(typeof window!=='undefined'?window:globalThis);
+// ---- ES module exports + classic compatibility footer (Phase 7) ----
+// The IIFE above is unchanged and already published its public API as
+// g.F3D = {create, auto, worldTris, version} on window/globalThis.
+// Re-export those exact same function objects (and the version
+// string) as named module exports — no logic is duplicated here.
+const _f3dCore=(typeof window!=='undefined'?window:globalThis).F3D;
+const create=_f3dCore.create;
+const auto=_f3dCore.auto;
+const worldTris=_f3dCore.worldTris;
+const version=_f3dCore.version;
+export { create, auto, worldTris, version };
+// Compatibility footer: attach the same exported names onto
+// globalThis.F3D (creating it if absent) so classic consumers that
+// expect the global keep working when the classic bundle built by
+// tools/build_runtime.mjs is used.
+globalThis.F3D=globalThis.F3D||{};
+globalThis.F3D.create=create;
+globalThis.F3D.auto=auto;
+globalThis.F3D.worldTris=worldTris;
+globalThis.F3D.version=version;

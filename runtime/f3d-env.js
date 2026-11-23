@@ -1,4 +1,12 @@
-// Forge3D environment runtime -- fog + tonemapping, zero dependencies.
+// f3d-env -- Forge3D environment runtime: fog + tonemapping.
+// Role: environment post-effects (fog factors, NDC view distance,
+// fog blending, tonemapping) for the Forge3D browser runtime.
+// ES module (Phase 7); the classic bundle is built from the modules
+// by tools/build_runtime.mjs. Zero dependencies: this module uses no
+// sibling-runtime globals (the core helpers in runtime/f3d.js are not
+// needed here), so it imports nothing. A compatibility footer at the
+// bottom attaches the exported names onto globalThis.F3D (and keeps
+// the legacy globalThis.F3DEnv alias).
 // Mirrors src/fog.f90 and src/tonemapping.f90 EXACTLY (frozen formulas):
 //   linear fog amount  f = clamp((dist - near) / (far - near), 0, 1)
 //   exp2 fog amount    f = 1 - exp(-(density * dist)^2)
@@ -11,9 +19,6 @@
 //                            (y*(2.43*y + 0.59) + 0.14), 0, 1)
 // Pixels are [r, g, b] integer triples in 0..255; tonemapping works on
 // the normalised channel x = c / 255 and returns integers again.
-// Attaches F3DEnv to window (browser) / globalThis (any other host).
-'use strict';
-(function (g) {
   function clamp01(v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
   function byte(v) {
     var n = Math.round(v);
@@ -111,18 +116,33 @@
     return applyFogPixel(rgb, fogSpec.color, f);
   }
 
-  var api = {
-    fogFactorLinear: fogFactorLinear,
-    fogFactorExp2: fogFactorExp2,
-    viewDistanceFromNdc: viewDistanceFromNdc,
-    applyFogPixel: applyFogPixel,
-    tonemapScalar: tonemapScalar,
-    tonemapPixel: tonemapPixel,
-    fogPixel: fogPixel
-  };
-  g.F3DEnv = api;
-  if (typeof window !== 'undefined') window.F3DEnv = api;
-  if (typeof module !== 'undefined' && module.exports) {
-    module.exports = api;
-  }
-})(typeof globalThis !== 'undefined' ? globalThis : this);
+export {
+  fogFactorLinear,
+  fogFactorExp2,
+  viewDistanceFromNdc,
+  applyFogPixel,
+  tonemapScalar,
+  tonemapPixel,
+  fogPixel
+};
+
+// Compatibility footer: attach the exported names onto
+// globalThis.F3D (creating it if absent) for classic-bundle and
+// non-module consumers, and keep the legacy F3DEnv alias.
+globalThis.F3D = globalThis.F3D || {};
+globalThis.F3D.fogFactorLinear = fogFactorLinear;
+globalThis.F3D.fogFactorExp2 = fogFactorExp2;
+globalThis.F3D.viewDistanceFromNdc = viewDistanceFromNdc;
+globalThis.F3D.applyFogPixel = applyFogPixel;
+globalThis.F3D.tonemapScalar = tonemapScalar;
+globalThis.F3D.tonemapPixel = tonemapPixel;
+globalThis.F3D.fogPixel = fogPixel;
+globalThis.F3DEnv = {
+  fogFactorLinear: fogFactorLinear,
+  fogFactorExp2: fogFactorExp2,
+  viewDistanceFromNdc: viewDistanceFromNdc,
+  applyFogPixel: applyFogPixel,
+  tonemapScalar: tonemapScalar,
+  tonemapPixel: tonemapPixel,
+  fogPixel: fogPixel
+};
