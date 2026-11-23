@@ -89,9 +89,28 @@ module f3dc_validate
   use f3dc_errors, only: error_bag_t, span_t, make_span, &
        make_diagnostic, make_diagnostic_span, error_bag_add, &
        error_bag_has_errors, error_bag_error_count
-  use f3dc_str, only: fmt_int, fmt_real, to_lower
+  use f3dc_str, only: fmt_int, fmt_real, to_lower, char_list, &
+       char_list_len, char_list_at, char_list_clear
   use f3dc_desugar, only: desugar
   use f3dc_ir, only: ir_parse_color
+  use f3dc_ext_materials, only: mat_apply => apply_to_ir_object, &
+       mat_validate => validate_material_ext
+  use f3dc_ext_geometry, only: eg_estimate => estimate_triangles, &
+       eg_normalize => normalize_geometry, &
+       eg_validate => validate_geometry
+  use f3dc_ext_lights_env, only: extract_light_ext, &
+       validate_light_ext, extract_env, validate_env
+  use f3dc_ext_sprites_text, only: extract_sprite, &
+       validate_sprite, extract_text, validate_text
+  use f3dc_ext_particles, only: extract_particles, &
+       validate_particles
+  use f3dc_ext_keys, only: build_tracks, validate_tracks
+  use f3dc_ext_skin, only: extract_bone, validate_bone, &
+       extract_morph, validate_morph, extract_skin, validate_skin
+  use f3dc_ext_cameras, only: extract_camera, validate_camera
+  use f3dc_ext_post, only: extract_post, validate_post
+  use f3dc_ext_shader, only: shader_compile
+  use f3dc_ext_gltf, only: load_gltf
   implicit none
   private
   public :: f3dc_validate
@@ -1144,31 +1163,169 @@ contains
     character(*), intent(in) :: prim
     type(dyn), intent(in) :: props
     integer(int64) :: n
-    n = 0_int64
-    if (len(prim) < 0 .or. props%kind < 0) continue  ! silence warnings
+    n = eg_estimate(prim, props)
+    if (len(prim) < 0) continue  ! silence warnings
   end function dispatch_ext_geometry_estimate
 
   !> DISPATCH(ext_geometry): normalize_geometry + validate_geometry
   !! (E301 messages + IR folding of radius/size/height/segments).
-  subroutine dispatch_ext_geometry(prim, props, node)
+  subroutine dispatch_ext_geometry(prim, props, node, geom, &
+      radius, has_radius, size, has_size, obj_height, has_height, &
+      segments, has_segments)
     character(*), intent(in) :: prim
     type(dyn), intent(in) :: props, node
-    if (len(prim) < 0 .or. props%kind < 0 .or. node%kind < 0) continue
+    type(dyn), intent(out) :: geom
+    real(real64), intent(inout) :: radius, size, obj_height
+    logical, intent(inout) :: has_radius, has_size, has_height, &
+         has_segments
+    integer(int64), intent(inout) :: segments
+    type(char_list) :: codes, messages
+    type(dyn) :: v
+    integer :: k
+    geom = eg_normalize(prim, props)
+    call eg_validate(prim, props, geom, codes, messages)
+    do k = 1, char_list_len(codes)
+      call verrn(char_list_at(codes, k), &
+                 char_list_at(messages, k), node)
+    end do
+    call char_list_clear(codes); call char_list_clear(messages)
+    v = dyn_dict_get(geom, "radius")
+    if (v%kind /= DYN_K_NULL) call get_num(v, radius, has_radius)
+    if (prim == "ring") then
+      v = dyn_dict_get(geom, "inner")
+      call get_num(v, size, has_size)
+    end if
+    if (prim == "torusknot") then
+      v = dyn_dict_get(geom, "tube")
+      call get_num(v, size, has_size)
+    end if
+    if (prim == "capsule" .or. prim == "extrude") then
+      v = dyn_dict_get(geom, "height")
+      call get_num(v, obj_height, has_height)
+    end if
+    v = dyn_dict_get(geom, "segments")
+    if (v%kind /= DYN_K_NULL) &
+      call get_int(v, segments, has_segments)
   end subroutine dispatch_ext_geometry
+
+  !> DISPATCH(ext_gltf): load_gltf(full) -> 'tris' IR object
+  !! (validate.py's glTF branch of the load loop: E501 on load
+  !! failure; name / material / transform handling; total_tris).
+  subroutine dispatch_ext_gltf(node, lpath, full)
+    type(dyn), intent(in) :: node
+    character(*), intent(in) :: lpath, full
+    type(dyn) :: props, v, gdata, countv, ir_obj, exts
+    type(dyn) :: gscale_raw
+    character(:), allocatable :: gname, gmaterial, errmsg
+    logical :: ok, has_gscale_vec, has_gscale_num
+    real(real64) :: gpos(3), grot(3), gscale3(3), gscale_vec(3)
+    real(real64) :: gscale_num
+
+    call load_gltf(full, gdata, ok, errmsg)
+    if (.not. ok) then
+      call verrn("E501", "could not load glTF " // &
+           repr_str(lpath) // ": " // errmsg, node)
+      return
+    end if
+    props = props_of(node)
+    call vfield(node, props, [character(12) :: "name", "id"], v)
+    if (v%kind == DYN_K_STR .and. len(v%s) > 0) then
+      gname = v%s
+    else
+      gname = "gltf" // istr(int(dyn_list_len(vs%ir_objects), &
+           int64) + 1_int64)
+    end if
+    if (dyn_dict_has(vs%names, gname)) then
+      call verrn("E201", "there are two objects called " // &
+           repr_str(gname) // &
+           "; give each object its own name", node)
+      return
+    end if
+    call vfield(node, props, [character(12) :: "material"], v)
+    if (v%kind /= DYN_K_NULL) then
+      gmaterial = to_lower(py_str(v))
+      if (.not. in_words(gmaterial, MATERIALS)) then
+        call verrn("E205", "material " // repr_str(gmaterial) // &
+             " is not built yet", node)
+        gmaterial = "lambert"
+      end if
+    else
+      gmaterial = "lambert"
+    end if
+    call vfield(node, props, [character(12) :: "at", "pos", &
+                             "position"], v)
+    call vec3_or(v, [0.0_real64, 0.0_real64, 0.0_real64], gpos)
+    call vfield(node, props, [character(12) :: "rotate", &
+                             "rotation", "rot"], v)
+    call vec3_or(v, [0.0_real64, 0.0_real64, 0.0_real64], grot)
+    call vfield(node, props, [character(12) :: "scale"], gscale_raw)
+    call get_vec3(gscale_raw, gscale_vec, has_gscale_vec)
+    call get_num(gscale_raw, gscale_num, has_gscale_num)
+    if (has_gscale_vec) then
+      gscale3 = gscale_vec
+    else if (has_gscale_num) then
+      gscale3 = [gscale_num, gscale_num, gscale_num]
+    else
+      gscale3 = [1.0_real64, 1.0_real64, 1.0_real64]
+    end if
+    call dyn_dict_set(vs%names, gname, node)
+    countv = dyn_dict_get(gdata, "count")
+    vs%total_tris = vs%total_tris + countv%i
+    ir_obj = dyn_dict()
+    call dyn_dict_set(ir_obj, "name", dyn_str(gname))
+    call dyn_dict_set(ir_obj, "prim", dyn_str("tris"))
+    call dyn_dict_set(ir_obj, "color", dyn_null())
+    call dyn_dict_set(ir_obj, "pos", vec3_dyn(gpos))
+    call dyn_dict_set(ir_obj, "rotate", vec3_dyn(grot))
+    call dyn_dict_set(ir_obj, "scale", vec3_dyn(gscale3))
+    call dyn_dict_set(ir_obj, "size", dyn_null())
+    call dyn_dict_set(ir_obj, "size3", dyn_null())
+    call dyn_dict_set(ir_obj, "radius", dyn_null())
+    call dyn_dict_set(ir_obj, "height", dyn_null())
+    call dyn_dict_set(ir_obj, "segments", dyn_null())
+    call dyn_dict_set(ir_obj, "detail", dyn_str("med"))
+    call dyn_dict_set(ir_obj, "capped", dyn_bool(.true.))
+    call dyn_dict_set(ir_obj, "material", dyn_str(gmaterial))
+    call dyn_dict_set(ir_obj, "triangles", &
+         dyn_dict_get(gdata, "triangles"))
+    call dyn_dict_set(ir_obj, "source_file", dyn_str(lpath))
+    exts = dyn_dict()
+    call dyn_dict_set(ir_obj, "extensions", exts)
+    call dyn_list_push(vs%ir_objects, ir_obj)
+    vs%last_obj_name = gname
+    vs%has_last_obj = .true.
+  end subroutine dispatch_ext_gltf
 
   !> DISPATCH(ext_lights_env): extract_light_ext +
   !! validate_light_ext (E302 messages for point/spot lights).
   subroutine dispatch_ext_light(kind, ext_in, node)
     character(*), intent(in) :: kind
-    type(dyn), intent(in) :: ext_in, node
-    if (len(kind) < 0 .or. ext_in%kind < 0 .or. node%kind < 0) continue
+    type(dyn), intent(inout) :: ext_in
+    type(dyn), intent(in) :: node
+    type(dyn) :: ext
+    type(char_list) :: msgs
+    integer :: j
+    call extract_light_ext(ext_in, ext)
+    call validate_light_ext(kind, ext, msgs)
+    do j = 1, char_list_len(msgs)
+      call verrn("E302", char_list_at(msgs, j), node)
+    end do
+    ext_in = ext
   end subroutine dispatch_ext_light
 
   !> DISPATCH(ext_lights_env): extract_env + validate_env
   !! (E302 messages for scene fog/tonemap/shadow clauses).
   subroutine dispatch_ext_env(env_in)
     type(dyn), intent(in) :: env_in
-    if (env_in%kind < 0) continue
+    type(dyn) :: env
+    type(char_list) :: msgs
+    integer :: j
+    call extract_env(env_in, env)
+    call validate_env(env, msgs)
+    do j = 1, char_list_len(msgs)
+      call verr("E302", char_list_at(msgs, j))
+    end do
+    call set_scene_extension("env", env)
   end subroutine dispatch_ext_env
 
   !> DISPATCH(ext_materials): apply_to_ir_object +
@@ -1177,70 +1334,178 @@ contains
     type(dyn), intent(inout) :: ir_obj
     type(dyn), intent(in) :: raw_props, node
     character(*), intent(in) :: material
-    if (ir_obj%kind < 0 .or. raw_props%kind < 0 .or. &
-        len(material) < 0 .or. node%kind < 0) continue
+    type(dyn) :: raw, exts, extd, tex
+    type(char_list) :: msgs
+    character(:), allocatable :: cand, t
+    integer :: k, a, b
+    raw = dyn_copy(raw_props)
+    call dyn_dict_set(raw, "material", dyn_str(material))
+    tex = dyn_dict_get(raw, "texture")
+    if (tex%kind == DYN_K_STR .and. allocated(tex%s)) then
+      t = tex%s
+      if (len(t) > 0 .and. t(1:1) /= "/") then
+        a = 1; b = len(t)
+        do while (a <= b .and. (t(a:a) == '"' .or. t(a:a) == "'"))
+          a = a + 1
+        end do
+        do while (b >= a .and. (t(b:b) == '"' .or. t(b:b) == "'"))
+          b = b - 1
+        end do
+        if (a > b) then
+          cand = ""
+        else
+          cand = join_path(vs%base_dir, t(a:b))
+        end if
+        if (len(cand) > 0 .and. path_is_file(cand)) &
+          call dyn_dict_set(raw, "texture", dyn_str(cand))
+      end if
+    end if
+    exts = dyn_dict_get(ir_obj, "extensions")
+    if (exts%kind /= DYN_K_DICT) exts = dyn_dict()
+    call dyn_dict_set(exts, "raw_props", raw)
+    call dyn_dict_set(ir_obj, "extensions", exts)
+    call mat_apply(ir_obj)
+    exts = dyn_dict_get(ir_obj, "extensions")
+    extd = dyn_dict_get(exts, "material")
+    if (extd%kind == DYN_K_DICT) then
+      call mat_validate(material, extd, msgs)
+      do k = 1, char_list_len(msgs)
+        if (index(char_list_at(msgs, k), "texture") > 0) then
+          call verrn("E501", char_list_at(msgs, k), node)
+        else
+          call verrn("E301", char_list_at(msgs, k), node)
+        end if
+      end do
+    end if
   end subroutine dispatch_ext_materials
 
   !> DISPATCH(ext_sprites_text): extract_sprite + validate_sprite
   !! (E301 messages); the normalised payload is IR-only.
-  subroutine dispatch_ext_sprite(ext_in, node)
+  subroutine dispatch_ext_sprite(ext_in, node, ext)
     type(dyn), intent(in) :: ext_in, node
-    if (ext_in%kind < 0 .or. node%kind < 0) continue
+    type(dyn), intent(out) :: ext
+    type(char_list) :: msgs
+    integer :: mi
+    call extract_sprite(ext_in, ext)
+    call validate_sprite(ext, msgs)
+    do mi = 1, char_list_len(msgs)
+      call verrn("E301", char_list_at(msgs, mi), node)
+    end do
   end subroutine dispatch_ext_sprite
 
   !> DISPATCH(ext_sprites_text): extract_text + validate_text (E301).
-  subroutine dispatch_ext_text(ext_in, node)
+  subroutine dispatch_ext_text(ext_in, node, ext)
     type(dyn), intent(in) :: ext_in, node
-    if (ext_in%kind < 0 .or. node%kind < 0) continue
+    type(dyn), intent(out) :: ext
+    type(char_list) :: msgs
+    integer :: mi
+    call extract_text(ext_in, ext)
+    call validate_text(ext, msgs)
+    do mi = 1, char_list_len(msgs)
+      call verrn("E301", char_list_at(msgs, mi), node)
+    end do
   end subroutine dispatch_ext_text
 
   !> DISPATCH(ext_particles): extract_particles +
   !! validate_particles (E301 messages).
   subroutine dispatch_ext_particles(ext_in, node)
-    type(dyn), intent(in) :: ext_in, node
-    if (ext_in%kind < 0 .or. node%kind < 0) continue
+    type(dyn), intent(inout) :: ext_in
+    type(dyn), intent(in) :: node
+    type(dyn) :: ext
+    type(char_list) :: msgs
+    integer :: k
+    call extract_particles(ext_in, ext)
+    call validate_particles(ext, msgs)
+    do k = 1, char_list_len(msgs)
+      call verrn("E301", char_list_at(msgs, k), node)
+    end do
+    call char_list_clear(msgs)
+    ext_in = ext
   end subroutine dispatch_ext_particles
 
   !> DISPATCH(ext_keys): build_tracks + validate_tracks (E201
   !! messages, span-less in Python).
-  subroutine dispatch_ext_keys(headers, raw_keys)
+  subroutine dispatch_ext_keys(headers, raw_keys, tracks)
     type(dyn), intent(in) :: headers, raw_keys
-    if (headers%kind < 0 .or. raw_keys%kind < 0) continue
+    type(dyn), intent(out) :: tracks
+    type(char_list) :: errs
+    integer :: i
+    call build_tracks(headers, raw_keys, tracks)
+    errs = char_list()
+    call validate_tracks(tracks, errs)
+    do i = 1, char_list_len(errs)
+      call verr("E201", char_list_at(errs, i))
+    end do
   end subroutine dispatch_ext_keys
 
   !> DISPATCH(ext_cameras): extract_camera + validate_camera
   !! (E302 messages for ortho cameras).
-  subroutine dispatch_ext_camera(ext_in, node)
+  subroutine dispatch_ext_camera(ext_in, node, wavec)
     type(dyn), intent(in) :: ext_in, node
-    if (ext_in%kind < 0 .or. node%kind < 0) continue
+    type(dyn), intent(inout) :: wavec
+    type(dyn) :: ext, tv
+    type(char_list) :: msgs
+    integer :: k
+    call extract_camera(ext_in, ext)
+    call validate_camera(ext, msgs)
+    do k = 1, char_list_len(msgs)
+      call verrn("E302", char_list_at(msgs, k), node)
+    end do
+    tv = dyn_dict_get(ext, "type")
+    if (tv%kind == DYN_K_STR .and. tv%s == "ortho") &
+      call dyn_dict_set(wavec, "camera", ext)
   end subroutine dispatch_ext_camera
 
   !> DISPATCH(ext_post): extract_post + validate_post (E301).
-  subroutine dispatch_ext_post(ext_in, node)
+  subroutine dispatch_ext_post(ext_in, node, chain)
     type(dyn), intent(in) :: ext_in, node
-    if (ext_in%kind < 0 .or. node%kind < 0) continue
+    type(dyn), intent(inout) :: chain
+    type(dyn) :: ext
+    type(char_list) :: msgs
+    integer :: k
+    call extract_post(ext_in, ext)
+    call validate_post(ext, msgs)
+    do k = 1, char_list_len(msgs)
+      call verrn("E301", char_list_at(msgs, k), node)
+    end do
+    call dyn_list_push(chain, ext)
   end subroutine dispatch_ext_post
 
   !> DISPATCH(ext_shader): tokenize_expr + to_rpn + validate_shader
   !! (E301 messages).  ok=.false. mirrors a ValueError from to_rpn.
-  subroutine dispatch_ext_shader_rpn(name, expr, node, ok)
+  subroutine dispatch_ext_shader_rpn(name, expr, node, rpn, msgs, ok)
     character(*), intent(in) :: name, expr
     type(dyn), intent(in) :: node
+    type(dyn), intent(out) :: rpn
+    type(char_list), intent(inout) :: msgs
     logical, intent(out) :: ok
-    ok = .true.
-    if (len(name) < 0 .or. len(expr) < 0 .or. node%kind < 0) continue
+    if (node%kind < 0) continue
+    call shader_compile(name, expr, rpn, msgs, ok)
   end subroutine dispatch_ext_shader_rpn
 
   !> DISPATCH(ext_skin): extract_bone + validate_bone (E301).
-  subroutine dispatch_ext_bone(ext_in, node, bone_name, has_name)
-    type(dyn), intent(in) :: ext_in, node
+  subroutine dispatch_ext_bone(ext_in, node, bone_names, bone_name, &
+                               has_name)
+    type(dyn), intent(inout) :: ext_in
+    type(dyn), intent(in) :: node, bone_names
     character(:), allocatable, intent(out) :: bone_name
     logical, intent(out) :: has_name
-    type(dyn) :: v
-    ! The bone name set is validate.py-visible state (validate_skin
-    ! consumes it via ext_skin too); extract_bone's "name" is the
-    ! statement's name/id field, mirrored here from core data.
-    call vget(ext_in, [character(8) :: "name"], v)
+    type(dyn) :: ext, known, v
+    type(char_list) :: errs
+    integer :: i
+    call extract_bone(ext_in, ext)
+    known = dyn_list()
+    do i = 1, dyn_dict_len(bone_names)
+      call dyn_list_push(known, &
+           dyn_str(dyn_dict_key_at(bone_names, i)))
+    end do
+    errs = char_list()
+    call validate_bone(ext, known, errs)
+    do i = 1, char_list_len(errs)
+      call verrn("E301", char_list_at(errs, i), node)
+    end do
+    ext_in = ext
+    v = dyn_dict_get(ext, "name")
     has_name = v%kind == DYN_K_STR .and. len(v%s) > 0
     bone_name = ""
     if (has_name) bone_name = v%s
@@ -1250,29 +1515,53 @@ contains
   !! target_out mirrors extract_morph's "target" (the statement's
   !! target/name field) for validate.py's core E201 check.
   subroutine dispatch_ext_morph(ext_in, node, target_out, has_target)
-    type(dyn), intent(in) :: ext_in, node
+    type(dyn), intent(inout) :: ext_in
+    type(dyn), intent(in) :: node
     character(:), allocatable, intent(out) :: target_out
     logical, intent(out) :: has_target
-    type(dyn) :: v
-    call vget(ext_in, [character(8) :: "target"], v)
+    type(dyn) :: ext, v
+    type(char_list) :: errs
+    integer :: i
+    call extract_morph(ext_in, ext)
+    errs = char_list()
+    call validate_morph(ext, errs)
+    do i = 1, char_list_len(errs)
+      call verrn("E301", char_list_at(errs, i), node)
+    end do
+    ext_in = ext
+    v = dyn_dict_get(ext, "target")
     has_target = v%kind == DYN_K_STR .and. len(v%s) > 0
     target_out = ""
     if (has_target) target_out = v%s
-    if (node%kind < 0) continue
   end subroutine dispatch_ext_morph
 
   !> DISPATCH(ext_skin): extract_skin + validate_skin (E301).
   !! target_out mirrors extract_skin's "target" as above.
-  subroutine dispatch_ext_skin(ext_in, node, target_out, has_target)
-    type(dyn), intent(in) :: ext_in, node
+  subroutine dispatch_ext_skin(ext_in, node, bone_names, target_out, &
+                               has_target)
+    type(dyn), intent(inout) :: ext_in
+    type(dyn), intent(in) :: node, bone_names
     character(:), allocatable, intent(out) :: target_out
     logical, intent(out) :: has_target
-    type(dyn) :: v
-    call vget(ext_in, [character(8) :: "target"], v)
+    type(dyn) :: ext, known, v
+    type(char_list) :: errs
+    integer :: i
+    call extract_skin(ext_in, ext)
+    known = dyn_list()
+    do i = 1, dyn_dict_len(bone_names)
+      call dyn_list_push(known, &
+           dyn_str(dyn_dict_key_at(bone_names, i)))
+    end do
+    errs = char_list()
+    call validate_skin(ext, known, errs)
+    do i = 1, char_list_len(errs)
+      call verrn("E301", char_list_at(errs, i), node)
+    end do
+    ext_in = ext
+    v = dyn_dict_get(ext, "target")
     has_target = v%kind == DYN_K_STR .and. len(v%s) > 0
     target_out = ""
     if (has_target) target_out = v%s
-    if (node%kind < 0) continue
   end subroutine dispatch_ext_skin
 
   ! ================================================================
@@ -1424,6 +1713,8 @@ contains
     logical :: capped
     integer(int64) :: tris_est
     type(dyn) :: raw_tris, cand
+    type(dyn) :: geom_payload
+    logical :: has_geom_payload
     integer :: k
     character(16) :: mat_keys(4)
 
@@ -1552,12 +1843,16 @@ contains
         has_segments = .true.
       end select
     end if
+    has_geom_payload = .false.
     if (in_words(prim, GEOM_PRIMS)) then
       ! DISPATCH(ext_geometry): normalize_geometry folds radius /
       ! size / height / segments for Wave D prims and
       ! validate_geometry reports their E301s, before the segment
       ! range check below.
-      call dispatch_ext_geometry(prim, props, node)
+      call dispatch_ext_geometry(prim, props, node, geom_payload, &
+           radius, has_radius, size, has_size, obj_height, &
+           has_height, segments, has_segments)
+      has_geom_payload = .true.
     end if
     call vfield(node, props, [character(12) :: "detail"], v)
     if (py_truthy(v)) then
@@ -1688,6 +1983,8 @@ contains
       call dyn_dict_set(ir_obj, "source_file", dyn_null())
     end if
     exts = dyn_dict()
+    if (has_geom_payload) &
+      call dyn_dict_set(exts, "geometry", geom_payload)
     call dyn_dict_set(ir_obj, "extensions", exts)
     ! Wave A material/texture extension: only when the object uses
     ! a Wave A feature, so plain v1 objects keep extensions == {}.
@@ -1961,6 +2258,20 @@ contains
       call dyn_dict_set(ir_light, "direction", vec3_dyn(direction))
       call dyn_dict_set(ir_light, "color", rgb_dyn(lrgb))
       call dyn_dict_set(ir_light, "intensity", dyn_real(intensity))
+      if (lkind == "point" .or. lkind == "spot") then
+        ! Wave A payload rides on the IR light (ext_in now holds
+        ! the extract_light_ext product; see dispatch_ext_light).
+        block
+          integer :: q
+          character(12) :: pkeys(6)
+          pkeys = [character(12) :: "position", "target", &
+                   "distance", "decay", "angle", "penumbra"]
+          do q = 1, 6
+            call dyn_dict_set(ir_light, trim(pkeys(q)), &
+                 dyn_dict_get(ext_in, trim(pkeys(q))))
+          end do
+        end block
+      end if
       call dyn_list_push(vs%ir_lights, ir_light)
     end do
 
@@ -1994,10 +2305,8 @@ contains
                node)
           cycle
         end if
-        ! DISPATCH(ext_gltf): load_gltf(full) -> tris IR object
-        ! (name/material/transform handling lives in validate.py
-        ! around that call and runs there once the conversion
-        ! exists).  Until then the object is not created.
+        ! DISPATCH(ext_gltf): load_gltf(full) -> tris IR object.
+        call dispatch_ext_gltf(node, lpath, full)
         cycle
       end if
       if (path_ext_lower(lpath) /= ".obj") then
@@ -2372,7 +2681,8 @@ contains
 
     ! ---- Wave B entities (rows 17/23/24/29/32) ----------------------
     block
-      type(dyn) :: waveb, wb_list, seen, ext_in, headers, raw_keys
+      type(dyn) :: waveb, wb_list, seen, ext_in, headers, raw_keys, &
+           ext_out, tracks
       type(dyn) :: snode, sprops
       character(:), allocatable :: sname
       integer :: j
@@ -2408,9 +2718,9 @@ contains
         call dyn_dict_set(ext_in, "color", v)
         ! DISPATCH(ext_sprites_text): extract_sprite +
         ! validate_sprite (E301 messages).
-        call dispatch_ext_sprite(ext_in, snode)
-        call dyn_dict_set(ext_in, "name", dyn_str(sname))
-        call dyn_list_push(wb_list, ext_in)
+        call dispatch_ext_sprite(ext_in, snode, ext_out)
+        call dyn_dict_set(ext_out, "name", dyn_str(sname))
+        call dyn_list_push(wb_list, ext_out)
       end do
       if (dyn_list_len(wb_list) > 0) &
         call dyn_dict_set(waveb, "sprites", wb_list)
@@ -2447,9 +2757,9 @@ contains
         call dyn_dict_set(ext_in, "color", v)
         ! DISPATCH(ext_sprites_text): extract_text +
         ! validate_text (E301 messages).
-        call dispatch_ext_text(ext_in, snode)
-        call dyn_dict_set(ext_in, "name", dyn_str(sname))
-        call dyn_list_push(wb_list, ext_in)
+        call dispatch_ext_text(ext_in, snode, ext_out)
+        call dyn_dict_set(ext_out, "name", dyn_str(sname))
+        call dyn_list_push(wb_list, ext_out)
       end do
       if (dyn_list_len(wb_list) > 0) &
         call dyn_dict_set(waveb, "texts", wb_list)
@@ -2572,20 +2882,23 @@ contains
           end block
         end do
         ! DISPATCH(ext_keys): build_tracks + validate_tracks
-        ! (E201 messages, span-less).  Tracks are IR-only.
-        call dispatch_ext_keys(headers, raw_keys)
+        ! (E201 messages, span-less).
+        call dispatch_ext_keys(headers, raw_keys, tracks)
+        if (dyn_dict_len(tracks) > 0) &
+          call dyn_dict_set(waveb, "keys", tracks)
       end if
       call set_scene_extension("waveb", waveb)
     end block
 
     ! ---- Wave C entities (rows 3/22/26/30) ---------------------------
     block
-      type(dyn) :: wavec, insts, entry, snode, sprops
+      type(dyn) :: wavec, insts, entry, snode, sprops, chain
       character(:), allocatable :: iname, source
       real(real64) :: tv(3)
       logical :: has3
       type(dyn) :: kv2
       wavec = dyn_dict()
+      chain = dyn_list()
       if (vs%has_camera) then
         node = vs%camera_node
         props = props_of(node)
@@ -2605,7 +2918,7 @@ contains
             call dyn_dict_set(ext_in2, "look", v)
             ! DISPATCH(ext_cameras): extract_camera +
             ! validate_camera (E302 messages).
-            call dispatch_ext_camera(ext_in2, node)
+            call dispatch_ext_camera(ext_in2, node, wavec)
           end block
         end if
       end if
@@ -2624,10 +2937,12 @@ contains
               call dyn_dict_set(ext_in2, "amount", v)
             ! DISPATCH(ext_post): extract_post + validate_post
             ! (E301 messages).
-            call dispatch_ext_post(ext_in2, snode)
+            call dispatch_ext_post(ext_in2, snode, chain)
           end block
         end do
       end if
+      if (dyn_list_len(chain) > 0) &
+        call dyn_dict_set(wavec, "post", chain)
       ! Instances are pure validate.py core (no ext call).
       insts = dyn_list()
       do k = 1, dyn_list_len(vs%instance_nodes)
@@ -2746,7 +3061,9 @@ contains
     type(dyn) :: obj_names, seen_shaders, bone_names
     character(:), allocatable :: sname, target
     logical :: has_target, rpn_ok
-    integer :: k
+    integer :: k, m
+    type(dyn) :: rpn
+    type(char_list) :: msgs
     wavee = dyn_dict()
     obj_names = dyn_dict()
     do k = 1, dyn_list_len(vs%ir_objects)
@@ -2785,11 +3102,21 @@ contains
       end if
       ! DISPATCH(ext_shader): tokenize_expr + to_rpn (ValueError ->
       ! E301 "shader %r: %s") and validate_shader (E301 messages).
-      call dispatch_ext_shader_rpn(sname, v%s, node, rpn_ok)
-      if (.not. rpn_ok) cycle
+      call dispatch_ext_shader_rpn(sname, v%s, node, rpn, msgs, &
+                                   rpn_ok)
+      if (.not. rpn_ok) then
+        call verrn("E301", "shader " // repr_str(sname) // ": " // &
+             char_list_at(msgs, 1), node)
+        cycle
+      end if
+      do m = 1, char_list_len(msgs)
+        call verrn("E301", "shader " // repr_str(sname) // ": " // &
+             char_list_at(msgs, m), node)
+      end do
       call dyn_dict_set(seen_shaders, sname, dyn_bool(.true.))
       entry = dyn_dict()
       call dyn_dict_set(entry, "name", dyn_str(sname))
+      call dyn_dict_set(entry, "rpn", rpn)
       call dyn_dict_set(entry, "expr", v)
       call dyn_list_push(shaders, entry)
     end do
@@ -2855,7 +3182,8 @@ contains
         block
           character(:), allocatable :: bname
           logical :: has_bname
-          call dispatch_ext_bone(ext_in, node, bname, has_bname)
+          call dispatch_ext_bone(ext_in, node, bone_names, &
+               bname, has_bname)
           if (has_bname) &
             call dyn_dict_set(bone_names, bname, dyn_bool(.true.))
         end block
@@ -2896,7 +3224,8 @@ contains
         call vfield(node, props, [character(12) :: "bone"], v)
         call dyn_dict_set(ext_in, "bone", v)
         ! DISPATCH(ext_skin): extract_skin + validate_skin (E301).
-        call dispatch_ext_skin(ext_in, node, target, has_target)
+        call dispatch_ext_skin(ext_in, node, bone_names, target, &
+             has_target)
         if (has_target .and. &
             .not. dyn_dict_has(obj_names, target)) then
           call verrn("E201", "skin targets " // &

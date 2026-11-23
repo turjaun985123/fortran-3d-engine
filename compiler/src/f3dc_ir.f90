@@ -1221,7 +1221,18 @@ contains
     case (DYN_K_INT)
       out = out // trim(fmt_int(v%i))
     case (DYN_K_REAL)
-      out = out // trim(fmt_real(v%r))
+      ! json.dumps spells non-finite values NaN/Infinity/-Infinity.
+      if (v%r /= v%r) then
+        out = out // "NaN"
+      else if (.not. (abs(v%r) <= huge(v%r))) then
+        if (v%r > 0.0_real64) then
+          out = out // "Infinity"
+        else
+          out = out // "-Infinity"
+        end if
+      else
+        out = out // trim(fmt_real(v%r))
+      end if
     case (DYN_K_STR)
       if (allocated(v%s)) then
         out = out // '"' // json_escape(v%s) // '"'

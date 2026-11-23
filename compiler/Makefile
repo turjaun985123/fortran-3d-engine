@@ -36,15 +36,25 @@ ORDERED_SRC = src/f3dc_str.f90 \
               src/f3dc_parser.f90 \
               src/f3dc_desugar.f90 \
               src/f3dc_ir.f90 \
+              src/f3dc_emit_common.f90 \
+              src/f3dc_ext_materials.f90 \
+              src/f3dc_ext_geometry.f90 \
+              src/f3dc_ext_cameras.f90 \
+              src/f3dc_ext_post.f90 \
+              src/f3dc_ext_lights_env.f90 \
+              src/f3dc_ext_particles.f90 \
+              src/f3dc_ext_sprites_text.f90 \
+              src/f3dc_ext_keys.f90 \
+              src/f3dc_ext_skin.f90 \
+              src/f3dc_ext_shader.f90 \
+              src/f3dc_ext_gltf.f90 \
               src/f3dc_validate.f90 \
               src/f3dc_optimize.f90 \
               src/f3dc_compat.f90 \
-              src/f3dc_emit_common.f90 \
               src/f3dc_emit_json.f90 \
               src/f3dc_emit_js.f90 \
               src/f3dc_emit_html.f90 \
-              src/f3dc_emit_fortran.f90 \
-              src/f3dc_emit_scene.f90
+              src/f3dc_emit_fortran.f90
 
 DRIVER_SRC = src/f3dc_driver.f90
 MAIN_SRC   = src/f3dc_cli.f90
@@ -55,7 +65,7 @@ CORE_SRC := $(foreach f,$(ORDERED_SRC),$(wildcard $(f)))
 # Extension modules (ports of tools/f3dc/ext_*.py) slot in after the
 # emitters and before the driver; alphabetical order is fine unless
 # one USEs another, in which case give it an ORDERED_SRC entry.
-EXT_SRC := $(sort $(wildcard src/f3dc_ext_*.f90))
+EXT_SRC := $(filter-out $(CORE_SRC),$(sort $(wildcard src/f3dc_ext_*.f90)))
 
 # Any other .f90 that appears in src/ without an ORDERED_SRC entry
 # is still compiled (just before the driver/main) so a forgotten

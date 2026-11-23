@@ -68,6 +68,7 @@ program f3dc
        error_bag_format_text, error_bag_format_json
   use f3dc_parser, only: f3dc_parse
   use f3dc_validate, only: f3dc_validate
+  use f3dc_ext_geometry, only: eg_estimate => estimate_triangles
   use f3dc_optimize, only: optimize
   use f3dc_desugar, only: desugar
   use f3dc_compat, only: ast_from_obj, ast_from_legacy_json, &
@@ -932,78 +933,7 @@ contains
   integer function ext_estimate(prim, props)
     character(len=*), intent(in) :: prim
     type(dyn), intent(in) :: props
-    integer :: seg, npts, rounded, hr, tseg
-    logical :: has
-    type(dyn) :: v
-    call int_or_none(dget(props, "segments"), seg, has)
-    if (.not. has) then
-       select case (prim)
-       case ("circle", "ring"); seg = 32
-       case ("capsule");        seg = 16
-       case ("tube");           seg = 12
-       case ("lathe");          seg = 24
-       case ("torusknot");      seg = 48
-       case default;            seg = 0
-       end select
-    end if
-    select case (prim)
-    case ("circle")
-       ext_estimate = 2 * seg
-    case ("ring")
-       ext_estimate = 4 * seg
-    case ("capsule")
-       rounded = int(ceiling(seg / 4.0_real64)) * 4
-       hr = rounded / 4
-       ext_estimate = 2 * rounded + 2 * rounded * (2 * hr - 1)
-    case ("tube")
-       v = dget(props, "path")
-       npts = 0
-       if (v%kind == DYN_K_LIST) npts = dyn_list_len(v)
-       if (npts < 2) then
-          ext_estimate = 0
-       else
-          ext_estimate = (npts - 1) * seg * 2 + 2 * seg
-       end if
-    case ("lathe")
-       v = dget(props, "points")
-       npts = 0
-       if (v%kind == DYN_K_LIST) npts = dyn_list_len(v)
-       if (npts < 2) then
-          ext_estimate = 0
-       else
-          ext_estimate = (npts - 1) * seg * 2
-       end if
-    case ("extrude")
-       v = dget(props, "shape")
-       npts = 0
-       if (v%kind == DYN_K_LIST) npts = dyn_list_len(v)
-       if (npts < 3) then
-          ext_estimate = 0
-       else
-          ext_estimate = 4 * npts - 4
-       end if
-    case ("tetrahedron")
-       ext_estimate = 4
-    case ("octahedron")
-       ext_estimate = 8
-    case ("icosahedron")
-       ext_estimate = 20
-    case ("dodecahedron")
-       ext_estimate = 36
-    case ("torusknot")
-       call int_or_none(dget(props, "tube_segments"), tseg, has)
-       if (.not. has) call int_or_none(dget(props, "rings"), tseg, has)
-       if (.not. has) then
-          if (seg == 0) then
-             tseg = max(6, 48 / 4)
-          else
-             tseg = max(6, seg / 4)
-          end if
-       end if
-       ext_estimate = seg * tseg * 2
-    case default
-       ext_estimate = 0
-    end select
+    ext_estimate = int(eg_estimate(prim, props))
   end function ext_estimate
 
   integer function tri_default(prim)

@@ -51,14 +51,26 @@ module f3dc_emit_fortran
                                            ieee_positive_inf
   use f3dc_dyn, only: dyn, dyn_null, dyn_bool, dyn_int, dyn_real, &
                       dyn_str, dyn_list, dyn_dict, dyn_copy, &
-                      dyn_dict_get, dyn_dict_has, dyn_list_at, &
+                      dyn_dict_get, dyn_dict_set, dyn_dict_has, dyn_list_at, &
                       dyn_list_len, dyn_list_push, dyn_kind, &
+                      dyn_dict_len, dyn_dict_key_at, &
+                      dyn_dict_value_at, &
                       DYN_K_NULL, DYN_K_BOOL, DYN_K_INT, DYN_K_REAL, &
                       DYN_K_STR, DYN_K_LIST, DYN_K_DICT
   use f3dc_str, only: char_list, char_list_append, char_list_len, &
                       char_list_at, char_list_clear, &
                       int_list, int_list_append, int_list_at, &
                       fmt_int, fmt_real, to_lower, str_replace
+  use f3dc_ext_shader, only: shader_scene_lines, shader_binding_line
+  use f3dc_ext_materials, only: mat_objmat => objmat_line
+  use f3dc_ext_geometry, only: eg_scene_extra => scene_extra_values
+  use f3dc_ext_sprites_text, only: sprite_line, text_line
+  use f3dc_ext_particles, only: particles_line
+  use f3dc_ext_lights_env, only: light_line, env_lines
+  use f3dc_ext_keys, only: ext_keys_track_lines => track_lines
+  use f3dc_ext_skin, only: ext_skin_scene_lines => scene_lines
+  use f3dc_ext_cameras, only: ext_camera_lines => camera_lines
+  use f3dc_ext_post, only: ext_post_lines => post_lines
   implicit none
   private
 
@@ -1341,12 +1353,35 @@ contains
     type(dyn), intent(in) :: light
     character(len=:), allocatable, intent(out) :: line
     logical, intent(out) :: found
+    type(dyn) :: ext, colord, iv
+    integer(int64) :: lc(3)
+    logical :: ok
+    integer :: j
+    real(real64) :: inten
     line = ""
     found = .false.
-    ! f3dc_ext_lights_env not landed: Python emit_fortran builds the
-    ! ext dict {position,target,distance,decay,angle,penumbra} from
-    ! the light and calls light_line; wire that call here.
-    if (.false.) print *, kind, light%kind  ! unreachable, keeps args
+    ext = dyn_dict()
+    call dyn_dict_set(ext, "position", gv2(light, "position", "at"))
+    call dyn_dict_set(ext, "target", gv2(light, "target", "look"))
+    call dyn_dict_set(ext, "distance", &
+                      gvd(light, "distance", dyn_real(0.0_real64)))
+    call dyn_dict_set(ext, "decay", &
+                      gvd(light, "decay", dyn_real(2.0_real64)))
+    call dyn_dict_set(ext, "angle", &
+                      gvd(light, "angle", dyn_real(45.0_real64)))
+    call dyn_dict_set(ext, "penumbra", &
+                      gvd(light, "penumbra", dyn_real(0.0_real64)))
+    call color_ints(gv2(light, "color", "colour"), lc, ok)
+    if (.not. ok) lc = [255_int64, 255_int64, 255_int64]
+    colord = dyn_list()
+    do j = 1, 3
+      call dyn_list_push(colord, dyn_int(lc(j)))
+    end do
+    iv = gvd(light, "intensity", dyn_real(1.0_real64))
+    inten = 1.0_real64
+    if (iv%kind == DYN_K_INT) inten = real(iv%i, real64)
+    if (iv%kind == DYN_K_REAL) inten = iv%r
+    call light_line(kind, ext, colord, inten, line, found)
   end subroutine hook_light_line
 
   !> EXT HOOK: ext_materials.objmat_line(name, material, extd).
@@ -1355,16 +1390,14 @@ contains
     type(dyn), intent(in) :: extd
     character(len=:), allocatable, intent(out) :: line
     logical, intent(out) :: found
-    line = ""
-    found = .false.
-    if (.false.) print *, name, material, extd%kind
+    call mat_objmat(name, material, extd, line, found)
   end subroutine hook_objmat_line
 
   !> EXT HOOK: ext_lights_env.env_lines(env) -> list of lines.
   subroutine hook_env_lines(env, lines)
     type(dyn), intent(in) :: env
     type(char_list), intent(inout) :: lines
-    if (.false.) print *, env%kind, char_list_len(lines)
+    call env_lines(env, lines)
   end subroutine hook_env_lines
 
   !> EXT HOOK: ext_sprites_text.sprite_line(name, entry).
@@ -1372,8 +1405,7 @@ contains
     character(len=*), intent(in) :: name
     type(dyn), intent(in) :: entry
     character(len=:), allocatable, intent(out) :: line
-    line = ""
-    if (.false.) print *, name, entry%kind
+    call sprite_line(name, entry, line)
   end subroutine hook_sprite_line
 
   !> EXT HOOK: ext_sprites_text.text_line(name, entry).
@@ -1381,8 +1413,7 @@ contains
     character(len=*), intent(in) :: name
     type(dyn), intent(in) :: entry
     character(len=:), allocatable, intent(out) :: line
-    line = ""
-    if (.false.) print *, name, entry%kind
+    call text_line(name, entry, line)
   end subroutine hook_text_line
 
   !> EXT HOOK: ext_particles.particles_line(name, entry).
@@ -1390,8 +1421,7 @@ contains
     character(len=*), intent(in) :: name
     type(dyn), intent(in) :: entry
     character(len=:), allocatable, intent(out) :: line
-    line = ""
-    if (.false.) print *, name, entry%kind
+    call particles_line(name, entry, line)
   end subroutine hook_particles_line
 
   !> EXT HOOK: ext_keys.track_lines(target, track) -> lines.
@@ -1399,35 +1429,61 @@ contains
     character(len=*), intent(in) :: target
     type(dyn), intent(in) :: track
     type(char_list), intent(inout) :: lines
-    if (.false.) print *, target, track%kind, char_list_len(lines)
+    call ext_keys_track_lines(target, track, lines)
   end subroutine hook_track_lines
 
   !> EXT HOOK: ext_cameras.camera_lines(cam_ext) -> lines.
   subroutine hook_camera_lines(cam_ext, lines)
     type(dyn), intent(in) :: cam_ext
     type(char_list), intent(inout) :: lines
-    if (.false.) print *, cam_ext%kind, char_list_len(lines)
+    type(char_list) :: extra
+    integer :: k
+    call ext_camera_lines(cam_ext, extra)
+    do k = 1, char_list_len(extra)
+      call char_list_append(lines, char_list_at(extra, k))
+    end do
   end subroutine hook_camera_lines
 
   !> EXT HOOK: ext_post.post_lines(chain) -> lines.
   subroutine hook_post_lines(chain, lines)
     type(dyn), intent(in) :: chain
     type(char_list), intent(inout) :: lines
-    if (.false.) print *, chain%kind, char_list_len(lines)
+    type(char_list) :: extra
+    integer :: k
+    call ext_post_lines(chain, extra)
+    do k = 1, char_list_len(extra)
+      call char_list_append(lines, char_list_at(extra, k))
+    end do
   end subroutine hook_post_lines
 
   !> EXT HOOK: ext_shader.scene_lines(defs) + binding_line.
   subroutine hook_shader_lines(we, lines)
     type(dyn), intent(in) :: we
     type(char_list), intent(inout) :: lines
-    if (.false.) print *, we%kind, char_list_len(lines)
+    type(dyn) :: defs, bindings
+    type(char_list) :: def_lines
+    integer :: k
+    defs = gv(we, "shaders")
+    call shader_scene_lines(defs, def_lines)
+    do k = 1, char_list_len(def_lines)
+      call char_list_append(lines, char_list_at(def_lines, k))
+    end do
+    bindings = gv(we, "bindings")
+    if (bindings%kind == DYN_K_DICT) then
+      do k = 1, dyn_dict_len(bindings)
+        call char_list_append(lines, shader_binding_line( &
+          dyn_dict_key_at(bindings, k), &
+          py_str(dyn_dict_value_at(bindings, k))))
+      end do
+    end if
   end subroutine hook_shader_lines
 
   !> EXT HOOK: ext_skin.scene_lines(morphs, bones, skins).
   subroutine hook_skin_lines(we, lines)
     type(dyn), intent(in) :: we
     type(char_list), intent(inout) :: lines
-    if (.false.) print *, we%kind, char_list_len(lines)
+    call ext_skin_scene_lines(gv(we, "morphs"), gv(we, "bones"), &
+                              gv(we, "skins"), lines)
   end subroutine hook_skin_lines
 
   !> ext_geometry.scene_extra_values(prim, geom), INLINED: the
@@ -1442,37 +1498,12 @@ contains
     type(dyn), intent(in) :: geom
     type(char_list), intent(inout) :: vals
     logical, intent(out) :: ok
-    character(len=8) :: key
-    type(dyn) :: raw, point, item
-    integer :: i, j
+    type(dyn) :: flat
+    integer :: i
     ok = .true.
-    select case (prim)
-    case ("tube")
-      key = "path"
-    case ("lathe")
-      key = "points"
-    case ("extrude")
-      key = "shape"
-    case default
-      return  ! key is None -> [] (no fallback in Python)
-    end select
-    raw = gv(geom, trim(key))
-    if (.not. py_truthy(raw)) return  ! `or []`
-    if (raw%kind /= DYN_K_LIST) then
-      ok = .false.
-      return
-    end if
-    do i = 1, raw%n_items
-      point = dyn_list_at(raw, i)
-      if (point%kind /= DYN_K_LIST) then
-        ok = .false.
-        call char_list_clear(vals)
-        return
-      end if
-      do j = 1, point%n_items
-        item = dyn_list_at(point, j)
-        call char_list_append(vals, fmt_num(item))
-      end do
+    flat = eg_scene_extra(prim, geom)
+    do i = 1, dyn_list_len(flat)
+      call char_list_append(vals, fmt_num(dyn_list_at(flat, i)))
     end do
   end subroutine ext_scene_extra_values
 
