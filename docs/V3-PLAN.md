@@ -406,3 +406,60 @@ primitives.
   nearest-only texture sampling with legacy texture path (G3 —
   Phase 4), near-plane-crossing triangles dropped, custom
   shaders get t = 0, sprites/text/particles via legacy fallback.
+- 2026-11-23: Phase 4 complete. G3 closed. Texture core
+  (texture_3d, +983 lines, tests 62 -> 185 assertions): own
+  inflate (stored/fixed/dynamic Huffman) PNG decoder — colour
+  types 0/2/3/4/6, all five unfilter passes, 16-bit high-byte
+  rule; Adam7 interlace is cleanly REJECTED (documented, with a
+  fixture asserting rejection); chunk CRCs ignored (documented).
+  TextureImage gains alpha + has_alpha + srgb/filter/wrap
+  fields; mip chains (2x2 box, linear-space) built at scene
+  load; texture_sample_f gives filtered (nearest/bilinear/
+  trilinear, derivative LOD at the call site) LINEAR rgba with
+  repeat/clamp/mirror wrap; texture_load dispatches PNG/PPM by
+  magic. Legacy texture API byte-identical. Material plumbing:
+  MaterialPBR gains emissive/opacity/alpha_mode/alpha_cutoff;
+  SceneObject gains normal/MR/emissive/occlusion texture slots;
+  new .scene lines objtex/objalpha/objemissive; DSL props
+  normalmap/mr/emissivemap/occlusionmap + material keys
+  emissive/opacity/alpha/cutoff (emitted only when used); JSON
+  extensions.material carries the same keys (no gap). Fragment/
+  renderer: frag_in gains screen-space derivatives (from the
+  vis buffers, same-triangle neighbours); base colour now
+  samples filtered+linear; tangent-space normal mapping via the
+  cotangent frame from derivatives (no per-vertex tangents);
+  emissive added unlit; MR map scales metalness (B) / roughness
+  (G); occlusion scales the ambient term only; alpha mask
+  discards re-shade the next covering triangle (<= 8 layers);
+  alpha blend is a sorted back-to-front pass after the opaque
+  pass (single-threaded by design — compositing is
+  order-dependent; opaque passes keep tile parallelism).
+  Examples: normal-mapped / alpha-masked / alpha-blend .f3d +
+  deterministic assets from tools/make_example_textures.f90 —
+  all three build and render end-to-end (masked fence shows the
+  backdrop through its gaps, pixel-verified). Integration fixes
+  by the coordinator: the compiler's Wave A '.ppm only' texture
+  validator now accepts .png (the ONE corpus case asserting the
+  old E501 premise — a wood.png texture — was re-based to
+  wood.jpg, preserving the E501 coverage; every other corpus
+  case byte-identical), and both scene readers load the base
+  texture through texture_load (PPM behaviour unchanged, PNG
+  now reaches %tex). Goldens: legacy pins exact (28b6a81d…,
+  090fa22a…); hello-cube v3 UNCHANGED (45a5af9d…, threads
+  1 == 8); textured v3 re-pinned 171e9713… (20.32 dB — filtered
+  linear sampling; see docs/V3-GOLDENS.md); objects-100 and
+  shadowed v3 hashes unchanged. PERF (written reason): bench
+  medians, same session — v3 vs legacy: hello-cube 205.3 vs
+  144.4, objects-100 293.2 vs 169.4, textured 206.3 vs 178.2,
+  shadowed 272.6 vs 212.4 ms/frame. Against Phase 0 baselines
+  v3 is +24% / +71% / parity / +20%. The objects-100 step vs
+  Phase 3 (226.8 -> 293.2) is the restructured shade walk +
+  per-fragment derivative computation, paid even by untextured
+  scenes; a perf pass remains future work (correctness first,
+  per the plan). Suite: full run_tests.sh PASS (Fortran 39
+  programs; test_texture 185, test_fragment_v3 103,
+  test_renderer_v3 88, test_material_pbr 49). Known v3 gaps
+  entering Phase 5: near-plane-crossing triangles dropped,
+  custom shaders get t = 0, sprites/text/particles via legacy
+  fallback, Adam7 PNGs rejected, mask fall-through search is
+  O(tris) per discarded pixel.

@@ -47,7 +47,7 @@ resolvable from the render working directory.
 | hello-cube (`examples/hello-cube.f3d`) | v3 | `45a5af9d20e53496252a52622527dbcf2f6b6c46770878583d56d78766670f77` | 25.43 dB | 1 (= 8) | 2026-11-23 |
 | objects100 (`docs/bench/scenes/objects100.f3d`) | v3 | `07457fa85ee3b15e37b6f674cede15aaff8a7a49bde1fb2fdb20fa9dee046c8e` | 19.72 dB | 1 (= 8) | 2026-11-23 |
 | shadowed (`docs/bench/scenes/shadowed.f3d`) | v3 | `ec447b1c1549a407ffd763727f5a5fdcf282b066d2c0ee20ed9fc80b5685e6fa` | 22.87 dB | 1 (= 8) | 2026-11-23 |
-| textured (`docs/bench/scenes/textured.f3d`) | v3 | `f8632c1de1243437a0151acaa68fe1bf31201aaea03ed97b10a68bf1b90a0ee6` | 20.27 dB | 1 (= 8) | 2026-11-23 |
+| textured (`docs/bench/scenes/textured.f3d`) | v3 | `171e9713d9e4975fb63a3139ad0108350c01d8a94a7cfab1256e48bdb542048d` | 20.32 dB | 1 (= 8) | 2026-11-23 |
 
 Legacy reference hashes for the same renders (for reproduction):
 hello-cube `090fa22a7faa670ef98dc16858006d6f0babb243a26e0f77dce471564942d19d`
@@ -58,6 +58,15 @@ textured `efff6a6ce8c04d83faf7e13f0db4ba5ddf9dc509c017e5c5ba7deb13e849a7e3`
 (see the Phase 3 note below).
 
 ## Re-pin history
+
+**Phase 4 (2026-11-23).** Only the textured row moved
+(`f8632c1d…` → `171e9713…`, PSNR 20.27 → 20.32 dB).  Cause: the
+Phase 4 texture path — v3 base-colour sampling switched from
+nearest-neighbour in gamma space to filtered (trilinear with
+derivative LOD) sampling in linear space, and mip chains are
+now built at scene load.  The other three scenes carry no
+textures, so their hashes are untouched; hello-cube's CI pin
+(G3c) did not change.
 
 **Phase 3 (2026-11-23).** Cause: the Phase 3 colour/lighting
 pipeline — per-light shadow maps (shadow_v3), energy-conserving

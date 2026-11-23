@@ -16759,13 +16759,13 @@
    }
   },
   {
-   "src": "cube red texture \"wood.png\"\n",
+   "src": "cube red texture \"wood.jpg\"\n",
    "check": {
     "exit": 3,
     "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "stderr_sha256": "f6b15fdbc95a731e06d448847dd481b44c09264f68c714f1335397343711d900",
+    "stderr_sha256": "6647db36ca704b1bc3e7fdce92249e5078624032a513e883ce6166a0dac3de89",
     "stdout_len": 0,
-    "stderr_len": 394,
+    "stderr_len": 392,
     "codes": [
      "W101",
      "W101",
@@ -16773,7 +16773,7 @@
      "E501"
     ],
     "stdout_text": "",
-    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\nerror E501: texture 'wood.png' has unsupported extension '.png': only .ppm textures are supported in Wave A\n"
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\nerror E501: texture 'wood.jpg' has unsupported extension '.png': only .ppm textures are supported in Wave A\n"
    }
   },
   {
