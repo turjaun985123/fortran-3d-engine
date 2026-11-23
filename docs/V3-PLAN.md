@@ -511,3 +511,58 @@ primitives.
   (ease_value accepts it where a full string reaches it);
   near-plane-crossing triangles still dropped in v3; custom
   shaders still get t = 0.
+- 2026-11-23: Phase 6 complete. C4 closed: str_builder in
+  f3dc_str.f90; every self-concat site in compiler/src
+  migrated (CI lint count 390 -> 0, CI cap ratcheted to 0).
+  C2 closed: f3dc_validate 3,401 -> 256 lines (15 per-statement
+  modules behind a registry, diagnostic order preserved);
+  f3dc_emit_fortran's three giant procedures split
+  (emit_scene_text 403 -> 30 orchestrator; module max
+  procedure now 119 lines). Named residues: val_object's
+  add_object 371 lines (one cohesive closure), val_sec_wavee
+  192. C3 closed: property tests (strict battery of 46
+  sources, error-code census 21/26 CLI-reachable with 5
+  documented-unreachable, JSON-diagnostics shape) + a curated
+  60-case golden set (246 artifact hashes) are now primary
+  gates alongside the corpus, which is RETAINED as a
+  regression layer and sweep source set (decision: correctness
+  no longer rests on baked hashes alone; deleting the corpus
+  would have deleted the sweep's 91 sources). The property
+  sweep exposed that `f3dc fmt` output often did not re-parse;
+  the fmt printer was fixed in the printer only (no desugar
+  change) and the sweep now reads corpus 91/91 full
+  round-trips, examples 11 pass + 4 structural class-3 xfails
+  (relative-asset/multi-scene originals; all 4 verified
+  idempotent with byte-identical artifacts in-tree); ratchet
+  baselines tightened to the measured values. C1 PARTIALLY
+  closed: the IR layer is now typed (ir_scene/ir_camera/
+  ir_light/ir_object/ir_anim/ir_output with a complete field
+  inventory; emit_json/emit_js consume the typed scene;
+  converters proven inverse by byte-equality both directions);
+  extension data lives in a documented dyn extension bag, and
+  the parser/desugar AST + validate internals still consume
+  dyn -- that remainder is named, not converted. C5 closed:
+  incremental compile via a per-scene SHA-256 manifest
+  (source, imports, loads, all texture slots, runtime files,
+  templates, and the f3dc binary itself), `f3dc build --force`,
+  skip line `up to date: ... (manifest match)`; error-recovery
+  audited (multi-error reporting verified; the cross-stage
+  gate intentionally unchanged with evidence). W202 remains
+  unreachable (dead bag path, documented). PERF vs Phase 5
+  baselines, with reasons: clean compiler build 95.6 s vs
+  81.29 s (+18%: 16 added compilation units from the validator
+  split + typed-IR growth; per-unit gfortran cost dominates on
+  this VM); check throughput unchanged (0.039 s vs 0.04 s x5);
+  per-example build ~130 ms vs ~27 ms implied by the 0.40 s
+  baseline -- the manifest hashes every dependency including
+  the 3.8 MB f3dc binary through the in-compiler byte-wise
+  SHA-256 (~100 ms), paid on both write and verify paths, so
+  even a cache hit costs ~109 ms; correctness unaffected and
+  repeat builds do skip all emit work, but a block-wise
+  SHA-256 is the recorded optimisation for later. Suite: full
+  run_tests.sh PASS (corpus 896 zero drift, curated 60/246,
+  property PASS, Fortran 41 programs). Goldens: Phase 6
+  touched no engine code; every pin reproduces exactly
+  (legacy 28b6a81d.../090fa22a...; v3 hello-cube 45a5af9d...,
+  objects-100 07457fa8..., textured 171e9713..., shadowed
+  ec447b1c...).

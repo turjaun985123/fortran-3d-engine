@@ -161,13 +161,14 @@ jobs:
 
       # Concat lint (C4 ratchet): the number of `x = x // ...`
       # self-concatenation sites in compiler/src may only go DOWN
-      # from the v3.0 Phase 0 baseline (390).  Phase 6 replaces the
-      # pattern with a string builder; until then, no new sites.
-      - name: Concat lint - self-concat sites in compiler/src <= 390
+      # from the v3.0 Phase 0 baseline (390).  Phase 6 replaced the
+      # pattern with the str_builder in f3dc_str.f90 and drove the
+      # count to zero; the cap is now 0 -- no new sites, ever.
+      - name: Concat lint - self-concat sites in compiler/src <= 0
         run: |
           n="$(grep -rEn '^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*) = \1 //' compiler/src/*.f90 | wc -l)"
-          echo "self-concat sites: $n (baseline cap 390)"
-          test "$n" -le 390
+          echo "self-concat sites: $n (cap 0)"
+          test "$n" -le 0
 
       # Zero Python in the entire repository: the compiler is native
       # Fortran + C (compiler/ -> bin/f3dc) and the test harness is
