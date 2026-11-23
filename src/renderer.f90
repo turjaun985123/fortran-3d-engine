@@ -8,13 +8,15 @@ module renderer_3d
     use lighting_3d, only: LightSet, shade_rgb
     use shadow_3d, only: ShadowMap, shadow_factor, shadow_factor_pcf
     use shader_3d, only: ShaderProg, shader_eval
+    use png_write_3d, only: png_save_file
     implicit none
     private
     public :: FrameBuffer, framebuffer_init, framebuffer_clear, &
               framebuffer_render_mesh, framebuffer_render_mesh_mat, &
               framebuffer_render_mesh_env, &
               framebuffer_render_mesh_shader, &
-              framebuffer_save_ppm, &
+              framebuffer_save_ppm, framebuffer_save_png, &
+              framebuffer_save_image, &
               ClipPoly, clip_triangle_frustum, CLIP_MAX_VERTS, &
               CLIP_ATTR_COUNT
 
@@ -948,5 +950,36 @@ contains
         end do
         close(u)
     end subroutine framebuffer_save_ppm
+
+    subroutine framebuffer_save_png(fb, filename)
+        type(FrameBuffer), intent(in) :: fb
+        character(len=*), intent(in) :: filename
+
+        call png_save_file(filename, fb%width, fb%height, fb%pixels)
+    end subroutine framebuffer_save_png
+
+    ! Dispatch on the output filename extension: '.png'
+    ! (case-insensitive) writes PNG, anything else writes PPM.
+    subroutine framebuffer_save_image(fb, filename)
+        type(FrameBuffer), intent(in) :: fb
+        character(len=*), intent(in) :: filename
+        integer :: n, i, c
+        character(len=4) :: ext
+
+        n = len_trim(filename)
+        if (n >= 4) then
+            ext = filename(n - 3:n)
+            do i = 1, 4
+                c = ichar(ext(i:i))
+                if (c >= ichar('A') .and. c <= ichar('Z')) &
+                    ext(i:i) = char(c - ichar('A') + ichar('a'))
+            end do
+            if (ext == '.png') then
+                call framebuffer_save_png(fb, filename)
+                return
+            end if
+        end if
+        call framebuffer_save_ppm(fb, filename)
+    end subroutine framebuffer_save_image
 
 end module renderer_3d

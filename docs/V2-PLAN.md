@@ -516,3 +516,32 @@ behaviour; no assertion dropped):
   shadow itself is unchanged (exactly 10 darkened pixels,
   0 lightened, soft vs off in both engines; the plane in this
   scene receives no spot light in either engine).
+
+### P2 — PNG output (shipped)
+
+- New `src/png_write.f90` (module `png_write_3d`): dependency-free
+  PNG encoder — DEFLATE *stored* blocks in a zlib stream, CRC-32
+  and Adler-32 implemented in Fortran, filter-0 scanlines, 8-bit
+  RGB (colour type 2).
+- `src/renderer.f90`: `framebuffer_save_png` +
+  `framebuffer_save_image` dispatcher (`.png`, case-insensitive →
+  PNG; anything else → PPM). `src/main.f90` scene path uses the
+  dispatcher for the still and the numbered animation frames;
+  the legacy no-arg demo path is untouched.
+- No compiler/language change was needed for the format itself
+  (`.f3d` already allowed `render to "x.png"`, E301 guards the
+  extension) — but `f3dc run`'s post-run flow still assumed the
+  old design (engine writes PPM, ImageMagick `convert` makes the
+  PNG). `compiler/src/f3dc_cli.f90` `do_run` now treats the
+  requested file as the primary output, globs animation frames
+  with the real extension, and the ImageMagick conversion block
+  is removed: PNG output no longer needs `convert` on PATH.
+- Verified: decoded PNG pixels byte-equal to the PPM render of
+  the same scene (64×48 still and 320×240 animation frames,
+  multi-block IDAT); numbered `anim_0001.png`… frames written;
+  uppercase `.PNG` dispatches; unknown extension falls back to
+  PPM. New `tests/e2e/test_png_e2e.sh` (4 checks). Golden
+  byte-identical; full suite PASS.
+- Hash changes: **none** (no baked expectation moved).
+- Known leftover (cosmetic): `f3dc doctor` still lists
+  `convert` as an optional tool; it is no longer used anywhere.

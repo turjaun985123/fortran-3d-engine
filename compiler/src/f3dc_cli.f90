@@ -1796,11 +1796,10 @@ contains
     end if
     output_name = render_output_name(ir, stem, scene_path)
     is_png = ends_with_ci(output_name, ".png")
-    if (is_png) then
-       ppm_name = output_name(1:len(output_name) - 4)//".ppm"
-    else
-       ppm_name = output_name
-    end if
+    ! v2.0 P2: the engine writes PNG natively when the output name
+    ! ends in .png, so the primary output IS the requested file --
+    ! no PPM twin and no ImageMagick conversion any more.
+    ppm_name = output_name
     ppm_path = out_dir//"/"//path_basename(ppm_name)
     if (file_exists(ppm_path)) then
        call out_line(ppm_path)
@@ -1834,7 +1833,8 @@ contains
          end do
          if (frames > 1) then
             call glob_names(out_dir, &
-                 path_stem(ppm_name)//"_*.ppm", frames_list, n_frames)
+                 path_stem(ppm_name)//"_*"//suffix_lower(ppm_name), &
+                 frames_list, n_frames)
             if (n_frames > 0) then
                do j = 1, n_frames
                   call out_line(out_dir//"/"//trim(frames_list(j)))
@@ -1847,38 +1847,11 @@ contains
                call out_line("animation: "// &
                     trim(fmt_int(int(frames, int64)))// &
                     " frames expected as "//out_dir//"/"// &
-                    path_stem(ppm_name)//"_%04d.ppm")
+                    path_stem(ppm_name)//"_%04d"//suffix_lower(ppm_name))
             end if
          end if
       end if
     end block
-    if (is_png) then
-       block
-         character(len=:), allocatable :: png_path
-         logical :: found
-         png_path = out_dir//"/"//path_basename(output_name)
-         call driver_find_tool("convert", conv, found)
-         if (.not. found) then
-            call err_line("error: PNG output '"//output_name// &
-                 "' was requested but ImageMagick 'convert' was "// &
-                 "not found on PATH, so the PNG cannot be written. "// &
-                 "The full-quality PPM render is at: "//ppm_path)
-            code = 1
-            return
-         end if
-         call driver_run_capture(driver_quote(conv)//" "// &
-              driver_quote(ppm_path)//" "//driver_quote(png_path), &
-              "", 0, crc, cout, cerr, timed_out)
-         if (crc /= 0) then
-            call err_line("error: 'convert' failed ("// &
-                 trim(fmt_int(int(crc, int64)))//"): "// &
-                 strip_ws(cerr)//"; the PPM render is at: "//ppm_path)
-            code = 1
-            return
-         end if
-         call out_line(png_path)
-       end block
-    end if
     code = 0
   end subroutine do_run
 

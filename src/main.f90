@@ -349,7 +349,7 @@ program main
                                       sc%post_amounts, sc%n_post)
 
             ! Frame 1 (frame 0 in t) always lands in sc%output_file.
-            if (frame_i == 1) call framebuffer_save_ppm(fb, trim(sc%output_file))
+            if (frame_i == 1) call framebuffer_save_image(fb, trim(sc%output_file))
 
             ! Multi-frame renders also write every frame, frame 1 included,
             ! as '<base>_0001.ppm', '<base>_0002.ppm', ... (P03 pattern).
@@ -364,7 +364,7 @@ program main
                 end if
                 write(numbered_file, '(A, A, I4.4, A)') trim(base_name), '_', &
                     frame_i, trim(ext_name)
-                call framebuffer_save_ppm(fb, trim(numbered_file))
+                call framebuffer_save_image(fb, trim(numbered_file))
             end if
         end do
 

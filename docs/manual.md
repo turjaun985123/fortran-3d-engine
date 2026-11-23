@@ -291,6 +291,12 @@ export html "viewer.html"
   (or any animation present) `f3dc run` also writes animation frame
   files named `<stem>_0000.ppm`, `<stem>_0001.ppm`, … (4-digit, zero-padded)
   in the output directory and reports the frame count.
+- The image format follows the filename extension: a name ending in
+  `.png` (any case) writes a **native PNG** — lossless, pixel-identical
+  to the PPM render, written by the engine itself with no external
+  tools. Any other name writes PPM as before. Animation frame files
+  inherit the extension (`<stem>_0000.png`, …). Example:
+  `render to "poster.png"`.
 - `export (json|obj|html) [ "path" | to "path" ]` — additional outputs
   alongside the render.
 
@@ -335,7 +341,7 @@ repo-root `scene.json` or `viewer.html`):
 | `<stem>.js` | Dependency-free JS module embedding the scene |
 | `<stem>.html` | Single-file viewer (template + inlined scene + runtime), `file://`-safe |
 | `<stem>_scene.f90` | Generated Fortran scene program |
-| `<stem>.ppm` | (from `run`) native render; plus `<stem>_NNNN.ppm` frames for animations |
+| `<stem>.ppm` | (from `run`) native render; plus `<stem>_NNNN.ppm` frames for animations (`.png` instead when the render filename ends in `.png`) |
 
 Exit codes:
 
