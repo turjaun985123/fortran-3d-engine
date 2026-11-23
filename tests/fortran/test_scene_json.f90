@@ -5,7 +5,7 @@
 ! reader (scene_load on build/<name>.scene) produces.
 !
 ! The test builds each example with bin/f3dc into a scratch dir
-! (~/workspace/.scratch-f3d/scene-json-test, removed at the end),
+! (.scene-json-test-scratch under the repo root, removed at the end),
 ! loads BOTH artifacts, and asserts structural equality: dimensions,
 ! background, camera, lights, frame count, object counts, and per
 ! object the primitive kind, name, position and point count, plus
@@ -26,13 +26,20 @@ program test_scene_json
     use test_assert
     implicit none
 
-    character(len=512) :: home, repo, scratch
+    character(len=512) :: env, repo, scratch
     integer :: st
 
-    call get_environment_variable('HOME', home, status=st)
-    if (st /= 0) home = '/home/hatch'
-    repo = trim(home) // '/workspace/fortran-3d-engine'
-    scratch = trim(home) // '/workspace/.scratch-f3d/scene-json-test'
+    ! Portable repo location: FORGE3D_ROOT when set, else the
+    ! current directory (the test harness runs from the repo root
+    ! both locally and in CI).  Never hardcode a home directory --
+    ! the original version of this test did, and failed in CI.
+    call get_environment_variable('FORGE3D_ROOT', env, status=st)
+    if (st == 0 .and. len_trim(env) > 0) then
+        repo = trim(env)
+    else
+        repo = '.'
+    end if
+    scratch = trim(repo) // '/.scene-json-test-scratch'
 
     call execute_command_line('rm -rf ' // trim(scratch) // &
         ' && mkdir -p ' // trim(scratch), exitstat=st)

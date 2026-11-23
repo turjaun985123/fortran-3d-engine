@@ -11,7 +11,7 @@ program test_json_reader
     logical :: ok, found
     character(len=256) :: errmsg
     character(len=:), allocatable :: s
-    integer :: child, c2, i, depth, node
+    integer :: child, c2, i, depth, node, nxt
     character(len=512) :: deep
 
     ! ---- a nested document exercising every kind ----
@@ -154,7 +154,12 @@ program test_json_reader
     node = doc%root
     do while (json_kind(doc, node) == 4)
         depth = depth + 1
-        call json_arr_at(doc, node, 1, node)
+        ! NOTE: a temp is required here -- passing `node` as both the
+        ! index argument and the result of json_arr_at aliases two
+        ! dummy arguments, which is non-conforming and broke under
+        ! gfortran 13.2 (CI) while passing on 13.3.
+        call json_arr_at(doc, node, 1, nxt)
+        node = nxt
         if (node == 0) exit
     end do
     call assert_int_eq(70, depth, 'nesting depth == 70')

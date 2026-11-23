@@ -16,3 +16,4 @@ Thumbs.db
 runtime/f3d.min.js
 build/
 docs/bench/.work-*/
+.scene-json-test-scratch/
