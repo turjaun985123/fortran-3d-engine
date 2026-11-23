@@ -162,13 +162,14 @@ module f3dc_parser
     "steelblue", "seagreen", "forestgreen", "darkred", "darkblue", &
     "darkgreen", "lightblue", "lightgreen", "hotpink", "deeppink", &
     "aqua", "azure", "fuchsia", "limegreen", "royalblue"]
-  character(16), parameter :: OBJECT_PROP_WORDS(32) = [character(16) :: &
+  character(16), parameter :: OBJECT_PROP_WORDS(36) = [character(16) :: &
     "at", "pos", "position", "size", "radius", "height", "width", &
     "depth", "rotate", "rot", "scale", "material", "segments", &
     "detail", "capped", "open", "texture", "colour", "color", &
     "named", "name", "shader", "inner", "outer", "tube", &
     "tube_segments", "extrude_depth", "path", "points", "shape", &
-    "shading", "mirror"]
+    "shading", "mirror", "normalmap", "mr", "emissivemap", &
+    "occlusionmap"]
   character(16), parameter :: ANIM_PROP_WORDS(10) = [character(16) :: &
     "axis", "speed", "duration", "fps", "ease", "loop", "amplitude", &
     "distance", "amount", "angle"]
@@ -1553,20 +1554,59 @@ contains
       call lp_dup(p, seen, "open")
       if (p%le_set) return
       call dset(props, "open", dyn_bool(.true.))
-    else if (w == "texture") then
+    else if (w == "texture" .or. w == "normalmap" .or. w == "mr" &
+             .or. w == "emissivemap" .or. w == "occlusionmap") then
+      ! 'texture' is the Wave A base-colour slot; the other four are
+      ! the v3.0 Phase 4 PBR slots.  All five share the exact same
+      ! value handling (quoted string, or a bare identifier).
       call lp_next(lp)
-      call lp_dup(p, seen, "texture")
+      call lp_dup(p, seen, w)
       if (p%le_set) return
       if (lp_peek_kind(lp) == K_STRING) then
         call lp_next_text(lp, s)
-        call dset(props, "texture", dyn_str(s))
+        call dset(props, w, dyn_str(s))
       else
         call lp_ident(lp, s, hasid)
         if (hasid) then
-          call dset(props, "texture", dyn_str(s))
+          call dset(props, w, dyn_str(s))
         else
-          call dset(props, "texture", dyn_null())
+          call dset(props, w, dyn_null())
         end if
+      end if
+    else if (w == "emissive") then
+      ! v3.0 Phase 4 material key: emissive colour (same colour
+      ! grammar as the object colour prop).
+      call lp_next(lp)
+      call lp_dup(p, seen, "emissive")
+      if (p%le_set) return
+      call lp_colour(p, lp, v)
+      if (p%le_set) return
+      call dset(props, "emissive", v)
+    else if (w == "opacity" .or. w == "cutoff") then
+      ! v3.0 Phase 4 material keys: plain numbers, like metalness.
+      call lp_next(lp)
+      call lp_dup(p, seen, w)
+      if (p%le_set) return
+      call lp_number(p, lp, w, v)
+      if (p%le_set) return
+      call dset(props, w, v)
+    else if (w == "alpha") then
+      ! v3.0 Phase 4 material key: alpha mode word.
+      call lp_next(lp)
+      call lp_dup(p, seen, "alpha")
+      if (p%le_set) return
+      call lp_ident(lp, d, hasid)
+      if (hasid) then
+        if (.not. (str_lower(d) == "opaque" .or. &
+                   str_lower(d) == "mask" .or. &
+                   str_lower(d) == "blend")) then
+          call raise_line(p, "E103", "alpha must be opaque, mask " &
+                          // "or blend, got '" // d // "'")
+          return
+        end if
+        call dset(props, "alpha", dyn_str(str_lower(d)))
+      else
+        call dset(props, "alpha", dyn_null())
       end if
     else if (w == "colour" .or. w == "color") then
       call lp_next(lp)

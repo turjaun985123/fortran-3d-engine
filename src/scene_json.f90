@@ -53,7 +53,8 @@ module scene_json_3d
     use material_3d, only: material_from_name, material_id_from_name
     use material_pbr_3d, only: MaterialPBR, MAT_STANDARD, &
                                pbr_from_material
-    use texture_3d, only: texture_load_ppm
+    use texture_3d, only: TextureImage, texture_load_ppm, &
+                          texture_load, texture_build_mips
     use lighting_3d, only: Light3, LightSet
     use particles_3d, only: particle_system_init
     use keyframe_3d, only: KeyFrame, KeyTrack
@@ -1066,6 +1067,35 @@ contains
         errmsg = ''
     end subroutine scene_load_json
 
+    ! v3.0 Phase 4: one extra PBR texture slot from a path key in
+    ! extensions.material (primary key, alias key).  Mirrors the
+    ! base-texture handling in j_load_object: resolve against the
+    ! scene directory, load, warn (never fail) on a bad file.
+    ! srgb_flag: colour/emissive maps .true., data maps .false.
+    subroutine j_load_slot(doc, mat, key, alias, scene_dir, path, &
+                           tex, srgb_flag)
+        type(json_doc), intent(in) :: doc
+        integer, intent(in) :: mat
+        character(len=*), intent(in) :: key, alias, scene_dir
+        character(len=*), intent(inout) :: path
+        type(TextureImage), intent(inout) :: tex
+        logical, intent(in) :: srgb_flag
+        character(len=512) :: sval
+        logical :: tex_ok
+        sval = j_str_field(doc, mat, key)
+        if (len_trim(sval) == 0) sval = j_str_field(doc, mat, alias)
+        if (len_trim(sval) == 0) return
+        path = j_resolve_path(scene_dir, trim(sval))
+        call texture_load(trim(path), tex, tex_ok)
+        if (.not. tex_ok) then
+            print *, 'scene_json: warning: cannot load texture ', &
+                trim(path)
+            return
+        end if
+        tex%srgb = srgb_flag
+        call texture_build_mips(tex)
+    end subroutine j_load_slot
+
     ! ------------------------------------------------------------------
     ! One object entry.
     ! ------------------------------------------------------------------
@@ -1233,12 +1263,64 @@ contains
                         if (len_trim(sval) > 0) then
                             o%texture_path = j_resolve_path( &
                                 scene_dir, trim(sval))
-                            call texture_load_ppm( &
+                            ! v3.0 Phase 4: magic-sniffing
+                            ! dispatch (PPM as before; PNG too).
+                            call texture_load( &
                                 trim(o%texture_path), o%tex, tex_ok)
                             if (.not. tex_ok) print *, &
                                 'scene_json: warning: cannot load ', &
                                 'texture ', trim(o%texture_path)
                         end if
+                        ! v3.0 Phase 4 (additive; absent keys keep
+                        ! the legacy-equivalent defaults): emissive
+                        ! colour [r,g,b] in 0..1, opacity, alpha
+                        ! mode ("opaque"|"mask"|"blend" string, or
+                        ! the integer alpha_mode 0/1/2), alpha
+                        ! cutoff, and the extra texture-slot paths.
+                        block
+                            type(vec3) :: ev
+                            character(len=512) :: amode
+                            ev = j_vec3_field(doc, mat, 'emissive', &
+                                vec3_create(o%pbr%emissive(1), &
+                                            o%pbr%emissive(2), &
+                                            o%pbr%emissive(3)))
+                            o%pbr%emissive = [ev%x, ev%y, ev%z]
+                            o%pbr%opacity = j_num_field(doc, mat, &
+                                'opacity', o%pbr%opacity)
+                            o%pbr%alpha_cutoff = j_num_field( &
+                                doc, mat, 'alpha_cutoff', &
+                                o%pbr%alpha_cutoff)
+                            o%pbr%alpha_cutoff = j_num_field( &
+                                doc, mat, 'cutoff', &
+                                o%pbr%alpha_cutoff)
+                            o%pbr%alpha_mode = j_int_field(doc, mat, &
+                                'alpha_mode', o%pbr%alpha_mode)
+                            amode = j_lower(trim(j_str_field( &
+                                doc, mat, 'alpha')))
+                            select case (trim(amode))
+                            case ('opaque')
+                                o%pbr%alpha_mode = 0
+                            case ('mask', 'cutout')
+                                o%pbr%alpha_mode = 1
+                            case ('blend', 'transparent')
+                                o%pbr%alpha_mode = 2
+                            end select
+                            call j_load_slot(doc, mat, &
+                                'normal_texture', 'normalmap', &
+                                scene_dir, o%normal_path, &
+                                o%tex_normal, .false.)
+                            call j_load_slot(doc, mat, 'mr_texture', &
+                                'mr', scene_dir, o%mr_path, o%tex_mr, &
+                                .false.)
+                            call j_load_slot(doc, mat, &
+                                'emissive_texture', 'emissivemap', &
+                                scene_dir, o%emissive_map_path, &
+                                o%tex_emissive, .true.)
+                            call j_load_slot(doc, mat, &
+                                'occlusion_texture', 'occlusionmap', &
+                                scene_dir, o%occl_path, o%tex_occl, &
+                                .false.)
+                        end block
                     end associate
                     sc%has_env = .true.
                 end if

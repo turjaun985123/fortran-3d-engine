@@ -34,6 +34,7 @@ module f3dc_ext_materials
                       dyn_dict_get, dyn_dict_set, dyn_dict_has, &
                       dyn_dict_len, dyn_dict_key_at, &
                       dyn_dict_value_at, dyn_list_at, dyn_list_len, &
+                      dyn_list_push, &
                       DYN_K_NULL, DYN_K_BOOL, DYN_K_INT, DYN_K_REAL, &
                       DYN_K_STR, DYN_K_LIST, DYN_K_DICT
   use f3dc_str, only: fmt_int, fmt_real, to_lower, char_list, &
@@ -43,6 +44,29 @@ module f3dc_ext_materials
 
   public :: extract_material_ext, validate_material_ext, objmat_line
   public :: apply_to_ir_object
+  public :: material_extra_lines
+  public :: MAT_SLOT_KEYS
+
+  !> v3.0 Phase 4 texture-slot prop keys, in .scene 'objtex' order
+  !! (the matching SLOT names emitted are normal/mr/emissive/
+  !! occlusion -- see slot_line_name).
+  character(len=12), parameter :: MAT_SLOT_KEYS(4) = &
+    [character(len=12) :: "normalmap", "mr", "emissivemap", &
+     "occlusionmap"]
+
+  ! _NAMED_COLORS fallback table for the emissive colour key
+  ! (identical to ir_nodes.NAMED_COLORS, as copied in
+  ! f3dc_ext_lights_env).
+  integer, parameter :: MAT_N_NAMED = 13
+  character(len=8), parameter :: MAT_NAMED_KEYS(MAT_N_NAMED) = [ &
+    "red     ", "green   ", "blue    ", "yellow  ", "magenta ", &
+    "cyan    ", "orange  ", "purple  ", "pink    ", "white   ", &
+    "black   ", "gray    ", "grey    "]
+  integer, parameter :: MAT_NAMED_RGB(3, MAT_N_NAMED) = reshape([ &
+    220, 60, 60,    60, 220, 60,    60, 100, 240,  240, 220, 50, &
+    200, 80, 220,   60, 220, 220,   240, 140, 40,  140, 80, 200, &
+    240, 150, 190,  240, 240, 240,  20, 20, 25,    140, 140, 145, &
+    140, 140, 145], [3, MAT_N_NAMED])
   public :: MAT_WAVEA_MATERIALS, MAT_NUMERIC_KEYS, MAT_DEFAULTS, &
             MAT_RANGES_LO, MAT_RANGES_HI
 
@@ -65,7 +89,7 @@ module f3dc_ext_materials
     [1.0_real64, 1.0_real64, 1.0_real64, 1000.0_real64]
 
   ! _RELEVANT: standard -> keys 1,2 ; phong -> keys 3,4.
-  ! _TEXTURE_EXTS = (".ppm",)
+  ! _TEXTURE_EXTS = (".ppm", ".png")  ! .png added v3.0 Phase 4
 
 contains
 
@@ -611,7 +635,128 @@ contains
     end do
     call dyn_dict_set(ext, "texture", &
                       clean_texture(dyn_dict_get(props, "texture")))
+    ! v3.0 Phase 4 (additive): the four extra texture slots ride
+    ! the same clean_texture path as "texture", and every new key
+    ! is present-only (no defaults filled, no null entries), so
+    ! an ext dict built from a pre-Phase-4 source is byte-for-
+    ! byte the old dict -- in the .scene AND the JSON alike.
+    do k = 1, 4
+      if (dyn_dict_has(props, trim(MAT_SLOT_KEYS(k)))) &
+        call dyn_dict_set(ext, trim(MAT_SLOT_KEYS(k)), &
+                          clean_texture(dyn_dict_get(props, &
+                                                     trim(MAT_SLOT_KEYS(k)))))
+    end do
+    v = dyn_dict_get(props, "emissive")
+    if (v%kind /= DYN_K_NULL) then
+      block
+        type(dyn) :: resolved
+        real(real64) :: rgb(3)
+        logical :: has_rgb
+        call emissive_of(v, rgb, has_rgb)
+        if (has_rgb) then
+          resolved = dyn_list()
+          do k = 1, 3
+            call dyn_list_push(resolved, dyn_real(rgb(k)))
+          end do
+          call dyn_dict_set(ext, "emissive", resolved)
+        else
+          ! Unresolvable: keep the raw value so
+          ! validate_material_ext can quote it in its message.
+          call dyn_dict_set(ext, "emissive", dyn_copy(v))
+        end if
+      end block
+    end if
+    v = dyn_dict_get(props, "opacity")
+    if (v%kind /= DYN_K_NULL) then
+      call as_number(v, conv, is_num, num)
+      call dyn_dict_set(ext, "opacity", conv)
+    end if
+    v = dyn_dict_get(props, "cutoff")
+    if (v%kind /= DYN_K_NULL) then
+      call as_number(v, conv, is_num, num)
+      call dyn_dict_set(ext, "cutoff", conv)
+    end if
+    v = dyn_dict_get(props, "alpha")
+    if (v%kind == DYN_K_STR) then
+      if (allocated(v%s)) then
+        call dyn_dict_set(ext, "alpha", &
+                          dyn_str(to_lower(strip_ws(v%s))))
+      else
+        call dyn_dict_set(ext, "alpha", dyn_str(""))
+      end if
+    else if (v%kind /= DYN_K_NULL) then
+      call dyn_dict_set(ext, "alpha", dyn_copy(v))
+    end if
   end function extract_material_ext
+
+  !> Resolve an `emissive` colour value to 0..1 floats.  Accepted
+  !! shapes (the compiler's colour conventions, as produced by the
+  !! parser's lp_colour): a 3-number list (0..255 ints, or 0..1
+  !! floats when every component is <= 1), a colour-name string
+  !! from the frozen NAMED_COLORS table, or a "#rrggbb" string.
+  !! has_rgb=.false. when the value is none of those.
+  subroutine emissive_of(value, rgb, has_rgb)
+    type(dyn), intent(in) :: value
+    real(real64), intent(out) :: rgb(3)
+    logical, intent(out) :: has_rgb
+    type(dyn) :: comp, conv
+    logical :: is_num
+    real(real64) :: num
+    integer :: k, ints(3)
+    character(:), allocatable :: t, low
+    rgb = 0.0_real64
+    has_rgb = .false.
+    if (value%kind == DYN_K_LIST) then
+      if (dyn_list_len(value) < 3) return
+      do k = 1, 3
+        comp = dyn_list_at(value, k)
+        call as_number(comp, conv, is_num, num)
+        if (.not. is_num) return
+        rgb(k) = num
+      end do
+      if (any(rgb < 0.0_real64)) return
+      if (any(rgb > 1.0_real64)) rgb = rgb / 255.0_real64
+      if (any(rgb > 1.0_real64)) return
+      has_rgb = .true.
+      return
+    end if
+    if (value%kind /= DYN_K_STR) return
+    if (allocated(value%s)) then
+      t = strip_ws(value%s)
+    else
+      t = ""
+    end if
+    low = to_lower(t)
+    do k = 1, MAT_N_NAMED
+      if (low == trim(MAT_NAMED_KEYS(k))) then
+        ints = MAT_NAMED_RGB(:, k)
+        rgb = real(ints, real64) / 255.0_real64
+        has_rgb = .true.
+        return
+      end if
+    end do
+    if (len(t) == 7 .and. t(1:1) == "#") then
+      block
+        logical :: okhex
+        integer :: j, d
+        okhex = .true.
+        do j = 2, 7
+          d = index("0123456789abcdef", low(j:j))
+          if (d == 0) okhex = .false.
+        end do
+        if (okhex) then
+          do k = 1, 3
+            ints(k) = (index("0123456789abcdef", &
+                             low(2 * k:2 * k)) - 1) * 16 &
+                      + (index("0123456789abcdef", &
+                               low(2 * k + 1:2 * k + 1)) - 1)
+          end do
+          rgb = real(ints, real64) / 255.0_real64
+          has_rgb = .true.
+        end if
+      end block
+    end if
+  end subroutine emissive_of
 
   ! ================================================================
   ! validate_material_ext
@@ -683,8 +828,8 @@ contains
     if (texture%kind /= DYN_K_NULL) then
       if (texture%kind /= DYN_K_STR) then
         call char_list_append(errors, &
-          "texture path is empty: texture must name a .ppm file " // &
-          "(only .ppm textures are supported in Wave A)")
+          "texture path is empty: texture must name a .ppm or .png file " // &
+          "(only .ppm and .png textures are supported)")
       else
         if (allocated(texture%s)) then
           tex_text = texture%s
@@ -693,22 +838,125 @@ contains
         end if
         if (len(strip_ws(tex_text)) == 0) then
           call char_list_append(errors, &
-            "texture path is empty: texture must name a .ppm file " // &
-            "(only .ppm textures are supported in Wave A)")
+            "texture path is empty: texture must name a .ppm or .png file " // &
+            "(only .ppm and .png textures are supported)")
         else
           suffix = to_lower(splitext_suffix(strip_ws(tex_text)))
-          if (suffix /= ".ppm") then
+          if (suffix /= ".ppm" .and. suffix /= ".png") then
             if (len(suffix) == 0) suffix = "(none)"
             msg = "texture " // py_repr(texture) // &
                   " has unsupported extension " // &
                   repr_str(suffix) // &
-                  ": only .ppm textures are supported in Wave A"
+                  ": only .ppm or .png textures are supported"
             call char_list_append(errors, msg)
           end if
         end if
       end if
     end if
+    ! v3.0 Phase 4: extra texture slots (same .ppm rule and message
+    ! shape as "texture" above, keyed by slot name).
+    do k = 1, 4
+      texture = dyn_dict_get(ext, trim(MAT_SLOT_KEYS(k)))
+      call validate_tex_slot(errors, trim(MAT_SLOT_KEYS(k)), texture)
+    end do
+    ! v3.0 Phase 4: emissive must have resolved to a 3-number list
+    ! in extract_material_ext; anything else kept raw is an error.
+    v = dyn_dict_get(ext, "emissive")
+    if (v%kind /= DYN_K_NULL) then
+      block
+        real(real64) :: rgb(3)
+        logical :: has_rgb
+        call emissive_of(v, rgb, has_rgb)
+        if (.not. has_rgb) then
+          msg = "emissive " // py_repr(v) // &
+                " is not a colour: emissive must be a colour " // &
+                "(a name, #rrggbb or rgb r g b)"
+          call char_list_append(errors, msg)
+        end if
+      end block
+    end if
+    ! v3.0 Phase 4: opacity / cutoff are numbers in 0..1 (same
+    ! message shape as the numeric keys above).
+    do k = 1, 2
+      if (k == 1) then
+        key = "opacity"
+      else
+        key = "cutoff"
+      end if
+      if (.not. dyn_dict_has(ext, trim(key))) cycle
+      v = dyn_dict_get(ext, trim(key))
+      if (v%kind == DYN_K_NULL) cycle
+      call as_number(v, conv, is_num, num)
+      if (.not. is_num) then
+        msg = trim(key) // " " // py_repr(v) // &
+              " is not a number: " // trim(key) // &
+              " must be in the range 0..1"
+        call char_list_append(errors, msg)
+      else if (.not. (0.0_real64 <= num .and. num <= 1.0_real64)) &
+        then
+        msg = trim(key) // " " // fmt_g(num) // &
+              " is out of range: " // trim(key) // &
+              " must be in the range 0..1"
+        call char_list_append(errors, msg)
+      end if
+    end do
+    ! v3.0 Phase 4: alpha mode word.
+    v = dyn_dict_get(ext, "alpha")
+    if (v%kind /= DYN_K_NULL) then
+      block
+        character(:), allocatable :: amode
+        amode = ""
+        if (v%kind == DYN_K_STR .and. allocated(v%s)) &
+          amode = to_lower(strip_ws(v%s))
+        if (.not. (amode == "opaque" .or. amode == "mask" .or. &
+                   amode == "blend")) then
+          msg = "alpha " // py_repr(v) // &
+                " is not a mode: alpha must be opaque, mask " // &
+                "or blend"
+          call char_list_append(errors, msg)
+        end if
+      end block
+    end if
   end subroutine validate_material_ext
+
+  !> The .ppm texture check of validate_material_ext, keyed by an
+  !! arbitrary slot name ("texture" messages above are the base
+  !! slot's own inline copy; these are the Phase 4 slots).
+  subroutine validate_tex_slot(errors, key, texture)
+    type(char_list), intent(inout) :: errors
+    character(*), intent(in) :: key
+    type(dyn), intent(in) :: texture
+    character(:), allocatable :: msg, suffix, tex_text
+    if (texture%kind == DYN_K_NULL) return
+    if (texture%kind /= DYN_K_STR) then
+      call char_list_append(errors, &
+        key // " texture path is empty: " // key // &
+        " texture must name a .ppm or .png file " // &
+        "(only .ppm and .png textures are supported)")
+      return
+    end if
+    if (allocated(texture%s)) then
+      tex_text = texture%s
+    else
+      tex_text = ""
+    end if
+    if (len(strip_ws(tex_text)) == 0) then
+      call char_list_append(errors, &
+        key // " texture path is empty: " // key // &
+        " texture must name a .ppm or .png file " // &
+        "(only .ppm and .png textures are supported)")
+      return
+    end if
+    suffix = to_lower(splitext_suffix(strip_ws(tex_text)))
+    if (suffix /= ".ppm" .and. suffix /= ".png") then
+      if (len(suffix) == 0) suffix = "(none)"
+      msg = key // " texture " // py_repr(texture) // &
+            " has unsupported extension " // &
+            repr_str(suffix) // &
+            ": only .ppm or .png textures are supported"
+      call char_list_append(errors, msg)
+    end if
+  end subroutine validate_tex_slot
 
   ! ================================================================
   ! objmat_line
@@ -819,6 +1067,104 @@ contains
   end subroutine objmat_line
 
   ! ================================================================
+  ! material_extra_lines (v3.0 Phase 4)
+  ! ================================================================
+
+  !> The .scene SLOT word for texture-slot prop key idx.
+  pure function slot_line_name(idx) result(out)
+    integer, intent(in) :: idx
+    character(len=9) :: out
+    select case (idx)
+    case (1)
+      out = "normal"
+    case (2)
+      out = "mr"
+    case (3)
+      out = "emissive"
+    case default
+      out = "occlusion"
+    end select
+  end function slot_line_name
+
+  !> material_extra_lines(name, ext) -> the v3.0 Phase 4 .scene
+  !! lines for one object, appended to `lines`:
+  !!   objtex NAME SLOT PATH        (per non-empty texture slot)
+  !!   objemissive NAME R G B       (emissive present; %g floats)
+  !!   objalpha NAME MODE CUTOFF OPACITY
+  !!     (any of alpha/opacity/cutoff present; missing pieces take
+  !!      the MaterialPBR defaults: mode 0, cutoff 0.5, opacity 1)
+  !! Nothing is appended when the source used none of the new
+  !! keys -- the antialias precedent: zero artifact drift for
+  !! pre-Phase-4 sources.
+  subroutine material_extra_lines(name, ext_in, lines)
+    character(*), intent(in) :: name
+    type(dyn), intent(in) :: ext_in
+    type(char_list), intent(inout) :: lines
+    type(dyn) :: ext, v, comp, conv
+    character(:), allocatable :: tex_text, amode
+    logical :: is_num
+    real(real64) :: num, rgb(3), cutoff, opacity
+    integer :: k, mode
+    if (ext_in%kind == DYN_K_DICT) then
+      ext = dyn_copy(ext_in)
+    else
+      return
+    end if
+    do k = 1, 4
+      v = dyn_dict_get(ext, trim(MAT_SLOT_KEYS(k)))
+      if (v%kind /= DYN_K_STR) cycle
+      if (allocated(v%s)) then
+        tex_text = strip_ws(v%s)
+      else
+        tex_text = ""
+      end if
+      if (len(tex_text) == 0) cycle
+      call char_list_append(lines, &
+        "objtex " // name // " " // trim(slot_line_name(k)) // &
+        " " // tex_text)
+    end do
+    v = dyn_dict_get(ext, "emissive")
+    if (v%kind == DYN_K_LIST .and. dyn_list_len(v) >= 3) then
+      rgb = 0.0_real64
+      do k = 1, 3
+        comp = dyn_list_at(v, k)
+        call as_number(comp, conv, is_num, num)
+        if (is_num) rgb(k) = num
+      end do
+      call char_list_append(lines, &
+        "objemissive " // name // " " // fmt_g(rgb(1)) // " " // &
+        fmt_g(rgb(2)) // " " // fmt_g(rgb(3)))
+    end if
+    if (dyn_dict_has(ext, "alpha") .or. &
+        dyn_dict_has(ext, "opacity") .or. &
+        dyn_dict_has(ext, "cutoff")) then
+      mode = 0
+      v = dyn_dict_get(ext, "alpha")
+      if (v%kind == DYN_K_STR .and. allocated(v%s)) then
+        amode = to_lower(strip_ws(v%s))
+        if (amode == "mask") mode = 1
+        if (amode == "blend") mode = 2
+      end if
+      cutoff = 0.5_real64
+      v = dyn_dict_get(ext, "cutoff")
+      if (v%kind /= DYN_K_NULL) then
+        call as_number(v, conv, is_num, num)
+        if (is_num) cutoff = num
+      end if
+      opacity = 1.0_real64
+      v = dyn_dict_get(ext, "opacity")
+      if (v%kind /= DYN_K_NULL) then
+        call as_number(v, conv, is_num, num)
+        if (is_num) opacity = num
+      end if
+      call char_list_append(lines, &
+        "objalpha " // name // " " // &
+        trim(fmt_int(int(mode, int64))) // " " // fmt_g(cutoff) // &
+        " " // fmt_g(opacity))
+    end if
+  end subroutine material_extra_lines
+
+  ! ================================================================
   ! apply_to_ir_object
   ! ================================================================
 
@@ -872,6 +1218,22 @@ contains
       if (v%kind /= DYN_K_NULL) &
         call dyn_dict_set(props, "texture", v)
     end if
+    ! v3.0 Phase 4: the same top-level fallbacks for the new keys.
+    block
+      character(len=12) :: p4keys(8)
+      integer :: pk
+      p4keys = [character(len=12) :: "normalmap", "mr", &
+                "emissivemap", "occlusionmap", "emissive", &
+                "opacity", "alpha", "cutoff"]
+      do pk = 1, 8
+        v = dyn_dict_get(props, trim(p4keys(pk)))
+        if (v%kind == DYN_K_NULL) then
+          v = dyn_dict_get(obj, trim(p4keys(pk)))
+          if (v%kind /= DYN_K_NULL) &
+            call dyn_dict_set(props, trim(p4keys(pk)), v)
+        end if
+      end do
+    end block
     call material_of(props, material_text, has_mat)
     if (.not. has_mat) material_text = ""
     v = dyn_dict_get(props, "texture")
@@ -882,6 +1244,21 @@ contains
         v = dyn_dict_get(props, trim(MAT_NUMERIC_KEYS(k)))
         if (v%kind /= DYN_K_NULL) relevant = .true.
       end do
+    end if
+    if (.not. relevant) then
+      ! v3.0 Phase 4: any new key alone also makes the extension
+      ! relevant (e.g. a lambert object with only a normal map).
+      block
+        character(len=12) :: p4keys(8)
+        integer :: pk
+        p4keys = [character(len=12) :: "normalmap", "mr", &
+                  "emissivemap", "occlusionmap", "emissive", &
+                  "opacity", "alpha", "cutoff"]
+        do pk = 1, 8
+          v = dyn_dict_get(props, trim(p4keys(pk)))
+          if (v%kind /= DYN_K_NULL) relevant = .true.
+        end do
+      end block
     end if
     if (.not. relevant) return
     call dyn_dict_set(extensions, "material", &

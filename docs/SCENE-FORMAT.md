@@ -26,6 +26,35 @@ Line-oriented, positional, unversioned beyond its header line
 image (`sha256 28b6a81d…`) must not change, and the v1 reader stays
 untouched as the legacy path. New work goes to the JSON path.
 
+**v3.0 Phase 4 additive lines** (the only exception to the freeze:
+optional, emitted only when the `.f3d` source uses the new material
+features, and ignored by the legacy renderer — every field they set
+defaults to its legacy-equivalent value, so the golden cannot
+move):
+
+| Line | Meaning |
+|---|---|
+| `objtex NAME SLOT PATH` | Extra PBR texture slot for a previously defined object; `SLOT` ∈ `normal`, `mr` (metallic-roughness), `emissive`, `occlusion`. The path is resolved like the `objmat` texture path (cwd, then the scene file's directory) and loaded by a post-pass after the read loop: the emissive map loads as sRGB, the other three as linear data, and every loaded slot gets a mip chain (`texture_build_mips`). |
+| `objalpha NAME MODE CUTOFF OPACITY` | `MaterialPBR` alpha state: `MODE` integer 0 = opaque, 1 = mask, 2 = blend; `CUTOFF` and `OPACITY` reals (defaults 0.5 / 1). |
+| `objemissive NAME R G B` | `MaterialPBR%emissive`: three reals in 0..1, written with the `objmat` line's `%g` float style. |
+
+Unknown slots, unknown object names and short lines follow the
+reader's existing unknown-line behaviour (warn + skip, never a
+crash).
+
+The `.f3d` DSL surface that produces them (object-line props,
+alongside the existing `texture` / `metalness` / … props):
+`normalmap "path"`, `mr "path"`, `emissivemap "path"`,
+`occlusionmap "path"` (→ `objtex`), `emissive <colour>` (a colour
+name, `#rrggbb`, or `rgb r g b`; → `objemissive` as 0..1 floats),
+`opacity <number>`, `cutoff <number>` and
+`alpha opaque|mask|blend` (→ one combined `objalpha` line when any
+of the three is present). Validation: slot paths must name `.ppm`
+files (E501, as for `texture`), `opacity`/`cutoff` must be numbers
+in 0..1 and `emissive` must resolve to a colour (E301), a bad
+`alpha` word is a parse error (E103), and repeating any prop in
+one statement is the usual duplicate-prop error (E110).
+
 ## The JSON format (v3 path)
 
 - UTF-8 JSON object, pretty-printed by the current emitter.
@@ -161,6 +190,27 @@ directory) and loaded with `texture_load_ppm`. Presence of the
 sub-object sets `has_env`, as an `objmat` line does. Objects without
 it keep the `pbr_from_material` defaults from the shared material
 setup.
+
+**v3.0 Phase 4 keys in `extensions.material`** (all optional;
+absent keys keep the legacy-equivalent defaults — emissive
+`[0,0,0]`, opacity 1, alpha mode 0, cutoff 0.5, no slot textures).
+The emitter writes them only when the `.f3d` source uses the new
+material keys, so pre-Phase-4 sources produce byte-identical JSON:
+
+| Key | Type | Mapping |
+|---|---|---|
+| `emissive` | `[r,g,b]` numbers 0..1 | `MaterialPBR%emissive` (the v1 `objemissive` line's data) |
+| `opacity` | number | `MaterialPBR%opacity` |
+| `alpha` | `"opaque"` / `"mask"` / `"blend"` | `MaterialPBR%alpha_mode` 0 / 1 / 2 |
+| `alpha_mode` | int 0/1/2 | `MaterialPBR%alpha_mode` (read when present; the string `alpha` form wins when both appear) |
+| `cutoff` (alias `alpha_cutoff`) | number | `MaterialPBR%alpha_cutoff` |
+| `normalmap` (alias `normal_texture`) | path string | `SceneObject%normal_path` → `tex_normal`, loaded linear (sRGB off) + mips |
+| `mr` (alias `mr_texture`) | path string | `SceneObject%mr_path` → `tex_mr`, loaded linear + mips |
+| `emissivemap` (alias `emissive_texture`) | path string | `SceneObject%emissive_map_path` → `tex_emissive`, loaded sRGB + mips |
+| `occlusionmap` (alias `occlusion_texture`) | path string | `SceneObject%occl_path` → `tex_occl`, loaded linear + mips |
+
+Slot paths resolve exactly like `texture` (cwd, then the scene
+file's directory); a bad file warns and leaves the slot unloaded.
 
 **`extensions.baked_rotation_deg` / `extensions.raw_props`** —
 ignored: `baked_rotation_deg` duplicates `rotate`; `raw_props` is the

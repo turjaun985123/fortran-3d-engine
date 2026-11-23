@@ -43,6 +43,17 @@ module material_pbr_3d
         real(dp) :: roughness = 1.0_dp
         real(dp) :: specular = 0.5_dp
         real(dp) :: shininess = 32.0_dp
+        ! v3.0 Phase 4 (additive; defaults are legacy-equivalent, so
+        ! scenes that never set them render exactly as before):
+        ! emissive colour in 0..1 linear-ish floats, added to the
+        ! shaded result by the v3 fragment stage; opacity scales the
+        ! fragment alpha (1 = fully opaque); alpha_mode selects the
+        ! alpha treatment (0 opaque, 1 mask/cutout, 2 blend);
+        ! alpha_cutoff is the mask threshold for mode 1.
+        real(dp) :: emissive(3) = [0.0_dp, 0.0_dp, 0.0_dp]
+        real(dp) :: opacity = 1.0_dp
+        integer :: alpha_mode = 0
+        real(dp) :: alpha_cutoff = 0.5_dp
     end type MaterialPBR
 
 contains
@@ -85,6 +96,10 @@ contains
         if (present(metalness)) p%metalness = clamp01(metalness)
         if (present(roughness)) p%roughness = clamp01(roughness)
         if (trim(mat%name) == 'standard') p%mode = MAT_STANDARD
+        p%emissive = [0.0_dp, 0.0_dp, 0.0_dp]
+        p%opacity = 1.0_dp
+        p%alpha_mode = 0
+        p%alpha_cutoff = 0.5_dp
     end function pbr_from_material
 
     pure function pbr_standard(rgb, metalness, roughness) result(p)
@@ -100,6 +115,10 @@ contains
         if (present(roughness)) p%roughness = clamp01(roughness)
         p%specular = 0.5_dp
         p%shininess = 32.0_dp
+        p%emissive = [0.0_dp, 0.0_dp, 0.0_dp]
+        p%opacity = 1.0_dp
+        p%alpha_mode = 0
+        p%alpha_cutoff = 0.5_dp
     end function pbr_standard
 
     pure function pbr_default() result(p)
@@ -111,6 +130,10 @@ contains
         p%roughness = 1.0_dp
         p%specular = 0.5_dp
         p%shininess = 32.0_dp
+        p%emissive = [0.0_dp, 0.0_dp, 0.0_dp]
+        p%opacity = 1.0_dp
+        p%alpha_mode = 0
+        p%alpha_cutoff = 0.5_dp
     end function pbr_default
 
     pure function fresnel_schlick(cos_theta, f0) result(f)

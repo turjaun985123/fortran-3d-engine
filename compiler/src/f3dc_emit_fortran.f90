@@ -62,7 +62,8 @@ module f3dc_emit_fortran
                       int_list, int_list_append, int_list_at, &
                       fmt_int, fmt_real, to_lower, str_replace
   use f3dc_ext_shader, only: shader_scene_lines, shader_binding_line
-  use f3dc_ext_materials, only: mat_objmat => objmat_line
+  use f3dc_ext_materials, only: mat_objmat => objmat_line, &
+                                mat_extra => material_extra_lines
   use f3dc_ext_geometry, only: eg_scene_extra => scene_extra_values
   use f3dc_ext_sprites_text, only: sprite_line, text_line
   use f3dc_ext_particles, only: particles_line
@@ -1822,6 +1823,11 @@ contains
                                   dyn_str("lambert")))), &
               extd, line, ok)
             if (ok) call char_list_append(lines, line)
+            ! v3.0 Phase 4: objtex / objemissive / objalpha lines
+            ! (appended only when the source used the new keys).
+            call mat_extra( &
+              py_str(gvd(obj, "name", dyn_str("object"))), &
+              extd, lines)
           end block
         end do
       end if

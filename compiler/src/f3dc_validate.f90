@@ -1373,6 +1373,42 @@ contains
        end if
       end if
     end if
+    ! v3.0 Phase 4: the four extra texture-slot paths resolve
+    ! exactly like "texture" above (relative paths are made
+    ! source-relative when the file exists there).
+    block
+      character(len=12) :: slot_keys(4)
+      integer :: sk
+      slot_keys = [character(len=12) :: "normalmap", "mr", &
+                   "emissivemap", "occlusionmap"]
+      do sk = 1, 4
+        tex = dyn_dict_get(raw, trim(slot_keys(sk)))
+        if (tex%kind == DYN_K_STR .and. allocated(tex%s)) then
+          t = tex%s
+          if (len(t) > 0) then
+           if (t(1:1) /= "/") then
+            a = 1; b = len(t)
+            do while (a <= b)
+              if (t(a:a) /= '"' .and. t(a:a) /= "'") exit
+              a = a + 1
+            end do
+            do while (b >= a)
+              if (t(b:b) /= '"' .and. t(b:b) /= "'") exit
+              b = b - 1
+            end do
+            if (a > b) then
+              cand = ""
+            else
+              cand = join_path(vs%base_dir, t(a:b))
+            end if
+            if (len(cand) > 0 .and. path_is_file(cand)) &
+              call dyn_dict_set(raw, trim(slot_keys(sk)), &
+                                dyn_str(cand))
+           end if
+          end if
+        end if
+      end do
+    end block
     exts = dyn_dict_get(ir_obj, "extensions")
     if (exts%kind /= DYN_K_DICT) exts = dyn_dict()
     call dyn_dict_set(exts, "raw_props", raw)
@@ -1742,6 +1778,12 @@ contains
     logical :: has_geom_payload
     integer :: k
     character(16) :: mat_keys(4)
+    ! v3.0 Phase 4 material keys (dispatch gate only, mirroring
+    ! mat_keys): any of these present also routes the object
+    ! through dispatch_ext_materials.
+    character(16) :: p4_keys(8) = [character(16) :: "normalmap", &
+      "mr", "emissivemap", "occlusionmap", "emissive", "opacity", &
+      "alpha", "cutoff"]
 
     props = props_of(node)
     if (has_forced) then
@@ -2063,7 +2105,9 @@ contains
                 "specular", "shininess"]
     if (dyn_dict_has(props, "texture") .or. &
         material == "standard" .or. &
-        any([(dyn_dict_has(props, trim(mat_keys(k))), k = 1, 4)])) then
+        any([(dyn_dict_has(props, trim(mat_keys(k))), k = 1, 4)]) &
+        .or. any([(dyn_dict_has(props, trim(p4_keys(k))), &
+                   k = 1, 8)])) then
       ! DISPATCH(ext_materials): apply_to_ir_object attaches
       ! extensions["material"]; validate_material_ext reports
       ! E501 (texture) / E301 messages.

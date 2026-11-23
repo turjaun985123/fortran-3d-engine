@@ -23,6 +23,35 @@ program test_material_pbr
     call assert_int_eq(3, MAT_STANDARD, 'MAT_STANDARD == 3')
     call assert_false(p%use_tri_color, 'pbr_standard use_tri_color false')
 
+    ! ---- v3.0 Phase 4 additive fields: legacy-equivalent defaults ----
+    call assert_real_close(0.0_dp, def%emissive(1), 1.0e-12_dp, 'defaults emissive R 0')
+    call assert_real_close(0.0_dp, def%emissive(2), 1.0e-12_dp, 'defaults emissive G 0')
+    call assert_real_close(0.0_dp, def%emissive(3), 1.0e-12_dp, 'defaults emissive B 0')
+    call assert_real_close(1.0_dp, def%opacity, 1.0e-12_dp, 'defaults opacity 1')
+    call assert_int_eq(0, def%alpha_mode, 'defaults alpha_mode 0 (opaque)')
+    call assert_real_close(0.5_dp, def%alpha_cutoff, 1.0e-12_dp, 'defaults alpha_cutoff 0.5')
+    p = pbr_standard([0.0_dp, 1.0_dp, 0.0_dp], 0.0_dp, 1.0_dp)
+    call assert_real_close(1.0_dp, p%opacity, 1.0e-12_dp, 'pbr_standard opacity default 1')
+    call assert_int_eq(0, p%alpha_mode, 'pbr_standard alpha_mode default 0')
+    mat = material_lambert([1.0_dp, 1.0_dp, 1.0_dp], .true.)
+    p = pbr_from_material(mat, 0.0_dp, 1.0_dp)
+    call assert_real_close(0.0_dp, p%emissive(1), 1.0e-12_dp, 'from_material emissive default 0')
+    call assert_real_close(0.5_dp, p%alpha_cutoff, 1.0e-12_dp, 'from_material alpha_cutoff default')
+
+    ! ---- v3.0 Phase 4: assignment round-trip of the new fields ----
+    p = pbr_default()
+    p%emissive = [0.25_dp, 0.5_dp, 1.0_dp]
+    p%opacity = 0.4_dp
+    p%alpha_mode = 2
+    p%alpha_cutoff = 0.3_dp
+    def = p
+    call assert_real_close(0.25_dp, def%emissive(1), 1.0e-12_dp, 'round-trip emissive R')
+    call assert_real_close(0.5_dp, def%emissive(2), 1.0e-12_dp, 'round-trip emissive G')
+    call assert_real_close(1.0_dp, def%emissive(3), 1.0e-12_dp, 'round-trip emissive B')
+    call assert_real_close(0.4_dp, def%opacity, 1.0e-12_dp, 'round-trip opacity')
+    call assert_int_eq(2, def%alpha_mode, 'round-trip alpha_mode blend')
+    call assert_real_close(0.3_dp, def%alpha_cutoff, 1.0e-12_dp, 'round-trip alpha_cutoff')
+
     ! ---- base_f0 ----
     p = pbr_standard([1.0_dp, 0.0_dp, 0.0_dp], 0.0_dp, 0.5_dp)
     f0 = base_f0(p, [1.0_dp, 0.0_dp, 0.0_dp])

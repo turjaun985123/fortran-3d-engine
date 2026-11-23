@@ -17,6 +17,13 @@
 !   tri R G B x1 y1 z1 x2 y2 z2 x3 y3 z3
 !   loadobj NAME MATERIAL R G B px py pz rx ry rz sx sy sz PATH
 !   anim KIND TARGET AXIS SPEED DURATION FPS EASE LOOP
+!   objtex NAME SLOT PATH        (v3.0 Phase 4, optional; SLOT in
+!          normal | mr | emissive | occlusion -- an extra PBR
+!          texture slot for a previously defined object)
+!   objalpha NAME MODE CUTOFF OPACITY   (v3.0 Phase 4, optional;
+!          MODE 0 opaque / 1 mask / 2 blend, CUTOFF + OPACITY reals)
+!   objemissive NAME R G B       (v3.0 Phase 4, optional; reals
+!          0..1, same float style as the objmat line)
 ! Colour -1 -1 -1 is the per-face palette sentinel (use_tri material).
 ! Missing size/radius/height arrive as -1, missing segments as 0; the
 ! per-primitive defaults below mirror the emitter's _build_call
@@ -82,6 +89,20 @@ module scene_3d
         type(MaterialPBR) :: pbr
         type(TextureImage) :: tex
         character(len=512) :: texture_path = ''
+        ! v3.0 Phase 4: extra PBR texture slots (normal / metallic-
+        ! roughness / emissive / occlusion maps) + their source
+        ! paths, set by the optional 'objtex' .scene lines and
+        ! loaded by the post-pass at the end of scene_load.  Empty
+        ! paths / unloaded textures are the legacy-equivalent
+        ! default: the legacy renderer never reads them.
+        type(TextureImage) :: tex_normal
+        type(TextureImage) :: tex_mr
+        type(TextureImage) :: tex_emissive
+        type(TextureImage) :: tex_occl
+        character(len=512) :: normal_path = ''
+        character(len=512) :: mr_path = ''
+        character(len=512) :: emissive_map_path = ''
+        character(len=512) :: occl_path = ''
         ! P1: optional trailing 'shading smooth|flat' on the object
         ! line. '' = builder default (curved builders are smooth,
         ! flat builders are flat); see scene_build_object_mesh.
@@ -594,6 +615,10 @@ contains
             do i = 1, sc%n_objects
                 call free_mesh(sc%objects(i)%mesh)
                 call texture_free(sc%objects(i)%tex)
+                call texture_free(sc%objects(i)%tex_normal)
+                call texture_free(sc%objects(i)%tex_mr)
+                call texture_free(sc%objects(i)%tex_emissive)
+                call texture_free(sc%objects(i)%tex_occl)
                 if (allocated(sc%objects(i)%pts)) &
                     deallocate(sc%objects(i)%pts)
             end do
@@ -651,6 +676,30 @@ contains
             end do
         end if
     end subroutine set_object_material
+
+    ! v3.0 Phase 4: load one extra PBR texture slot from its stored
+    ! path (no-op for an empty path or an already-loaded slot).
+    ! srgb_flag records the map's colour space on the texture:
+    ! colour/emissive maps .true., data maps (normal / metallic-
+    ! roughness / occlusion) .false.  The flag is set BEFORE
+    ! texture_build_mips, which decodes by tex%srgb.  Loading goes
+    ! through texture_load (PNG/PPM dispatch, Phase 4).
+    subroutine load_pbr_slot(path, tex, srgb_flag)
+        character(len=*), intent(in) :: path
+        type(TextureImage), intent(inout) :: tex
+        logical, intent(in) :: srgb_flag
+        logical :: ok
+        if (len_trim(path) == 0) return
+        if (tex%loaded) return
+        call texture_load(trim(path), tex, ok)
+        if (.not. ok) then
+            print *, 'scene: warning: cannot load texture ', &
+                trim(path)
+            return
+        end if
+        tex%srgb = srgb_flag
+        call texture_build_mips(tex)
+    end subroutine load_pbr_slot
 
     subroutine scene_build_object_mesh(obj)
         type(SceneObject), intent(inout) :: obj
@@ -1157,12 +1206,86 @@ contains
                     if (trim(tokens(8)) /= '-') then
                         o%texture_path = resolve_scene_path( &
                             scene_dir, trim(tokens(8)))
-                        call texture_load_ppm(trim(o%texture_path), &
-                                              o%tex, tex_ok)
+                        ! v3.0 Phase 4: magic-sniffing dispatch
+                        ! (PPM loads exactly as texture_load_ppm
+                        ! did; PNG base textures now load too).
+                        call texture_load(trim(o%texture_path), &
+                                          o%tex, tex_ok)
                         if (.not. tex_ok) print *, &
                             'scene: warning: cannot load texture ', &
                             trim(o%texture_path)
                     end if
+                end associate
+                sc%has_env = .true.
+            case ('objtex')
+                ! objtex NAME SLOT PATH   (v3.0 Phase 4; SLOT in
+                ! normal | mr | emissive | occlusion).  Only the
+                ! resolved path is stored here; the texture itself
+                ! is loaded by the post-pass after the read loop
+                ! (see below), exactly like %texture_path feeds
+                ! %tex.  Unknown slots / objects warn, never crash
+                ! (the unknown-line behaviour of this reader).
+                if (ntok < 4) then
+                    call warn_line(lineno, line)
+                    cycle
+                end if
+                oi = scene_find_object(sc, trim(tokens(2)))
+                if (oi == 0) then
+                    call warn_line(lineno, line)
+                    cycle
+                end if
+                associate (o => sc%objects(oi))
+                    select case (trim(tokens(3)))
+                    case ('normal')
+                        o%normal_path = resolve_scene_path( &
+                            scene_dir, trim(tokens(4)))
+                    case ('mr')
+                        o%mr_path = resolve_scene_path( &
+                            scene_dir, trim(tokens(4)))
+                    case ('emissive')
+                        o%emissive_map_path = resolve_scene_path( &
+                            scene_dir, trim(tokens(4)))
+                    case ('occlusion')
+                        o%occl_path = resolve_scene_path( &
+                            scene_dir, trim(tokens(4)))
+                    case default
+                        call warn_line(lineno, line)
+                    end select
+                end associate
+            case ('objalpha')
+                ! objalpha NAME MODE CUTOFF OPACITY  (v3.0 Phase 4;
+                ! MODE integer 0/1/2, CUTOFF and OPACITY reals).
+                if (ntok < 5) then
+                    call warn_line(lineno, line)
+                    cycle
+                end if
+                oi = scene_find_object(sc, trim(tokens(2)))
+                if (oi == 0) then
+                    call warn_line(lineno, line)
+                    cycle
+                end if
+                associate (o => sc%objects(oi))
+                    o%pbr%alpha_mode = tok_int(tokens, 3)
+                    o%pbr%alpha_cutoff = tok_real(tokens, 4)
+                    o%pbr%opacity = tok_real(tokens, 5)
+                end associate
+                sc%has_env = .true.
+            case ('objemissive')
+                ! objemissive NAME R G B  (v3.0 Phase 4; reals
+                ! 0..1, the objmat float style).
+                if (ntok < 5) then
+                    call warn_line(lineno, line)
+                    cycle
+                end if
+                oi = scene_find_object(sc, trim(tokens(2)))
+                if (oi == 0) then
+                    call warn_line(lineno, line)
+                    cycle
+                end if
+                associate (o => sc%objects(oi))
+                    o%pbr%emissive = [tok_real(tokens, 3), &
+                                      tok_real(tokens, 4), &
+                                      tok_real(tokens, 5)]
                 end associate
                 sc%has_env = .true.
             case ('frames')
@@ -1710,6 +1833,27 @@ contains
             do i = 1, sc%n_objects
                 if (trim(sc%objects(i)%prim) == 'tris') &
                     call set_object_material(sc%objects(i))
+            end do
+        end if
+
+        ! v3.0 Phase 4: texture-slot loading post-pass.  The
+        ! 'objtex' lines only stored resolved paths (mirroring how
+        ! %texture_path feeds %tex); load them now that every
+        ! object exists.  The emissive map is a colour map (sRGB);
+        ! normal / metallic-roughness / occlusion maps are linear
+        ! data (no sRGB decode).
+        if (allocated(sc%objects)) then
+            do i = 1, sc%n_objects
+                associate (o => sc%objects(i))
+                    if (o%tex%loaded) call texture_build_mips(o%tex)
+                    call load_pbr_slot(o%normal_path, o%tex_normal, &
+                                       .false.)
+                    call load_pbr_slot(o%mr_path, o%tex_mr, .false.)
+                    call load_pbr_slot(o%emissive_map_path, &
+                                       o%tex_emissive, .true.)
+                    call load_pbr_slot(o%occl_path, o%tex_occl, &
+                                       .false.)
+                end associate
             end do
         end if
     contains
