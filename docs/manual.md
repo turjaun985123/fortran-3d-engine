@@ -341,9 +341,13 @@ f3dc <file.f3d>            # bare file = run; with no file, a single
 
 Inputs to `check`/`build`/`run`/`fmt` may be `.f3d`, legacy `.json`, or
 `.obj` files. `--json` (on `check`) prints diagnostics as JSON instead
-of the default text form. (The Python compiler's `NO_COLOR` and
-`F3DC_DEBUG` environment variables are not read by the native binary;
-see `compiler/REPLACEMENT.md`.)
+of the default text form. (The native binary honours the `NO_COLOR`
+and `F3DC_DEBUG` environment variables: diagnostics are coloured
+when stderr is a TTY, unless `NO_COLOR` is set — present with any
+value, including empty — and `F3DC_DEBUG=1` adds internal diagnostic
+detail — one `debug: ` line per diagnostic with its code, severity,
+span and message — after the normal text output; see
+`compiler/REPLACEMENT.md`.)
 
 | Command | Usage | Does |
 |---|---|---|

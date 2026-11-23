@@ -64,7 +64,8 @@ program f3dc
   use f3dc_errors, only: error_bag_t, make_span, make_diagnostic, &
        make_diagnostic_span, error_bag_add, error_bag_set_source, &
        error_bag_len, error_bag_has_errors, error_bag_fail_code, &
-       error_bag_format_text, error_bag_format_json
+       error_bag_format_text, error_bag_format_json, &
+       error_bag_use_color, error_bag_debug_text
   use f3dc_parser, only: f3dc_parse
   use f3dc_validate, only: f3dc_validate
   use f3dc_ext_geometry, only: eg_estimate => estimate_triangles
@@ -628,12 +629,17 @@ contains
   subroutine print_diagnostics(bag, as_json)
     type(error_bag_t), intent(in) :: bag
     logical, intent(in) :: as_json
-    character(len=:), allocatable :: text
+    character(len=:), allocatable :: text, dbg
     if (as_json) then
        call out_line(error_bag_format_json(bag))
     else
-       text = error_bag_format_text(bag, .false.)
+       ! v2.0 P4: colour when stderr is a TTY unless NO_COLOR is
+       ! present (error_bag_use_color); F3DC_DEBUG adds the internal
+       ! debug dump after the normal text ("" when unset).
+       text = error_bag_format_text(bag, error_bag_use_color())
        if (len(text) > 0) call err_line(text)
+       dbg = error_bag_debug_text(bag)
+       if (len(dbg) > 0) call err_line(dbg)
     end if
   end subroutine print_diagnostics
 

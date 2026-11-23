@@ -142,6 +142,24 @@ step that builds `bin/f3dc` via `make f3dc` when missing):
   corrected accordingly. The `E9000` message text still mentions
   `F3DC_DEBUG` — that string is byte-parity with the oracle's message
   and was left as-is.
+- **Closure (v2.0 P4, 2026-11-23): divergence CLOSED.** The native
+  binary now wires both variables: `error_bag_use_color()` in
+  `f3dc_errors.f90` enables colour only when stderr is a TTY
+  (`f3dc_isatty_stderr()` in `preview_http.c`, bound via
+  `iso_c_binding`) and `NO_COLOR` is not present (any value,
+  including empty, suppresses colour), and `print_diagnostics`
+  passes it to `error_bag_format_text` for the text form (JSON
+  unchanged). `F3DC_DEBUG`, when present, adds a print-time internal
+  dump (`error_bag_debug_text`: one `debug: ` line per diagnostic
+  with its code, severity, span file/line/column and message) after
+  the normal text output — the native equivalent of the oracle's
+  traceback mode, there being no live E9000 raise site / exception
+  mechanism in Fortran. When neither variable applies, output is
+  unchanged: piped (non-TTY) default output is byte-identical to
+  the pre-P4 binary, verified against a pristine HEAD build, under
+  a pseudo-TTY colour appears and `NO_COLOR=1` / `NO_COLOR=`
+  suppress it, and the full test suite passes with zero expectation
+  changes.
 
 ## Verification (first-hand, post-deletion tree)
 

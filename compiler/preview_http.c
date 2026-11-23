@@ -60,6 +60,11 @@
  *   void preview_http_sleep_ms(int ms)
  *       nanosleep() -- the watcher's debounce delay.
  *
+ *   int f3dc_isatty_stderr(void)
+ *       isatty(2) -- 1 when stderr is a terminal, else 0.  Used by
+ *       f3dc_errors' error_bag_use_color() (v2.0 P4) to decide
+ *       whether diagnostics get ANSI colour.
+ *
  *   int preview_http_self_exe(char *buf, int cap)
  *       readlink("/proc/self/exe") into buf (not NUL-terminated);
  *       returns the byte count or -1.  The Fortran side derives
@@ -314,6 +319,10 @@ void preview_http_sleep_ms(int ms) {
     ts.tv_sec = ms / 1000;
     ts.tv_nsec = (long)(ms % 1000) * 1000000L;
     nanosleep(&ts, NULL);
+}
+
+int f3dc_isatty_stderr(void) {
+    return isatty(2);
 }
 
 int preview_http_self_exe(char *buf, int cap) {

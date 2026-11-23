@@ -10,6 +10,7 @@
 ! are handled.
 module f3dc_errors
   use, intrinsic :: iso_fortran_env, only: int64, real64
+  use, intrinsic :: iso_c_binding, only: c_int
   use f3dc_str, only: char_list, char_list_len, char_list_at, to_lower, &
                       fmt_int
   implicit none
@@ -23,6 +24,17 @@ module f3dc_errors
   public :: error_bag_error_count, error_bag_warning_count
   public :: error_bag_has_errors, error_bag_fail_code
   public :: error_bag_format_text, error_bag_format_json
+  public :: error_bag_use_color, error_bag_debug_text
+
+  ! C helper in compiler/preview_http.c (always linked into f3dc):
+  ! isatty(2) for stderr, following the f3dc_preview.f90 pattern.
+  interface
+    function f3dc_isatty_stderr() bind(C, name="f3dc_isatty_stderr") &
+        result(rc)
+      import :: c_int
+      integer(c_int) :: rc
+    end function f3dc_isatty_stderr
+  end interface
   public :: expand_tabs, json_escape
   public :: damerau_levenshtein, did_you_mean
 
@@ -275,6 +287,85 @@ contains
       out = ""
     end if
   end function str_of
+
+  !> True when environment variable NAME is PRESENT, whatever its
+  !! value (including empty).  get_environment_variable reports
+  !! status 0 for a present variable (length 0 when empty) and a
+  !! non-zero status when it does not exist -- this is the presence
+  !! test the NO_COLOR convention requires.
+  logical function env_present(name)
+    character(len=*), intent(in) :: name
+    integer :: st, ln
+    call get_environment_variable(name, length=ln, status=st)
+    env_present = (st == 0)
+  end function env_present
+
+  !> Colour decision for the text diagnostic form (v2.0 P4, closing
+  !! the REPLACEMENT.md divergence): colours ON only when stderr is
+  !! a TTY and NO_COLOR is not present -- the deleted Python
+  !! compiler's rule.  Piped output therefore stays byte-identical
+  !! to the pre-P4 binary.
+  logical function error_bag_use_color()
+    if (env_present("NO_COLOR")) then
+      error_bag_use_color = .false.
+      return
+    end if
+    if (f3dc_isatty_stderr() == 0_c_int) then
+      error_bag_use_color = .false.
+      return
+    end if
+    error_bag_use_color = .true.
+  end function error_bag_use_color
+
+  !> One `debug: ` line for ONE diagnostic, built in its own
+  !! subroutine for the stack reason given at diag_block_text.
+  subroutine diag_debug_line(diag, line)
+    type(diagnostic_t), intent(in) :: diag
+    character(len=:), allocatable, intent(out) :: line
+    line = "debug: code=" // str_of(diag%code) // &
+           " severity=" // str_of(diag%severity) // &
+           " file=" // str_of(diag%span%source) // &
+           " line=" // trim(fmt_int(int(diag%span%line, int64))) // &
+           " col=" // trim(fmt_int(int(diag%span%col, int64))) // &
+           " message=" // str_of(diag%message)
+  end subroutine diag_debug_line
+
+  !> Internal diagnostic dump for F3DC_DEBUG (v2.0 P4).  Returns ""
+  !! when F3DC_DEBUG is not present, so callers emit nothing extra
+  !! and default output stays byte-identical.  When present, one
+  !! `debug: ` line per diagnostic carrying its internal fields.
+  !! NOTE: there is no live E9000 raise site in the native compiler
+  !! -- Fortran has no exceptions to catch -- so this print-time
+  !! internal dump is the native equivalent of the Python oracle's
+  !! F3DC_DEBUG traceback mode.
+  function error_bag_debug_text(bag) result(out)
+    type(error_bag_t), intent(in) :: bag
+    character(len=:), allocatable :: out
+    integer :: k, total, pos, lb
+    type(str_box_t), allocatable :: lines(:)
+    out = ""
+    if (.not. env_present("F3DC_DEBUG")) return
+    if (bag%n == 0) return
+    allocate (lines(bag%n))
+    total = bag%n - 1  ! single-"\n" separators, as format_text
+    do k = 1, bag%n
+      call diag_debug_line(bag%diags(k), lines(k)%s)
+      total = total + len(lines(k)%s)
+    end do
+    allocate (character(len=total) :: out)
+    pos = 1
+    do k = 1, bag%n
+      if (k > 1) then
+        out(pos:pos) = achar(10)
+        pos = pos + 1
+      end if
+      lb = len(lines(k)%s)
+      if (lb > 0) then
+        out(pos:pos + lb - 1) = lines(k)%s
+        pos = pos + lb
+      end if
+    end do
+  end function error_bag_debug_text
 
   !> Python str.expandtabs(8): a tab advances to the next multiple
   !! of 8 columns (columns counted in characters).
