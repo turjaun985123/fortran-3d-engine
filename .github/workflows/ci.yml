@@ -1,7 +1,10 @@
-# Forge3D CI -- pragmatic single-job gate (see docs/plan/P19-ci-spec.md).
-# One job, no matrix, no secrets, no publishing: build, test, render-golden,
-# error-golden, determinism, JS size, and a no-Python guard for the compiler
-# path (f3dc is now a native Fortran+clang binary built from compiler/).
+# Forge3D CI -- build, test, pinned render gates, error golden,
+# determinism, JS size, and a no-Python guard.  Toolchain per ADR-2
+# (v3.0): gfortran + the system C compiler are the standard; flang is
+# an optional non-blocking job.  Render gates per ADR-1: the legacy
+# no-arg render and the compiled-scene render are BOTH pinned by
+# sha256 (B1 fix: CI used to render only the legacy demo and report
+# its hash informationally).
 name: CI
 
 on:
@@ -24,24 +27,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install gfortran
+      - name: Install gfortran + C compiler
         run: |
           sudo apt-get update
-          sudo apt-get install -y gfortran
+          sudo apt-get install -y gfortran gcc
           gfortran --version
+          cc --version | head -n 1
           make --version | head -n 1
-
-      # Native compiler toolchain: f3dc is built from compiler/ with
-      # flang-new-18 (package flang-18) and clang-18.
-      - name: Install native compiler toolchain (flang-18, clang-18)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y flang-18 clang-18
-          flang-new-18 --version
-          clang-18 --version
-
-      # No Python anywhere: the compiler is native and the whole test
-      # harness is shell + Fortran + Node (see compiler/REPLACEMENT.md).
 
       # G1: the engine builds clean from the shipped Makefile.
       - name: G1 - Build engine (make)
@@ -50,48 +42,47 @@ jobs:
           make
           test -x bin/engine3d
 
-      # Native compiler: build f3dc from compiler/ (Fortran+clang) and
-      # install it to bin/f3dc via the root Makefile.
+      # Native compiler: build f3dc from compiler/ (Fortran + C,
+      # gfortran + cc per ADR-2) and install it to bin/f3dc.
       - name: Build native compiler (make f3dc)
         run: |
           make f3dc
           test -x bin/f3dc
 
-      # G2: compiler + Fortran test suites (missing layers SKIP inside the
-      # runner; a real failure exits non-zero and fails this step).
+      # G2: compiler + Fortran test suites (missing layers SKIP inside
+      # the runner; a real failure exits non-zero and fails this step).
       - name: G2 - Run tests
         run: ./tests/run_tests.sh
 
-      # G3 (portable tier): compile the example scene, then render a still by
-      # running the freshly built engine with no args in a temp dir (it writes
-      # output_render.ppm there). The verdict is portable, NOT a pinned hash:
-      # the image must be non-flat, have the expected background, and contain
-      # enough distinct colours. Pinning a sha256 is a human blessing step
-      # (P18) done in its own reviewed PR -- CI never blesses a golden itself.
-      # The rendered hash is reported in the step summary for humans to pin.
-      - name: G3 - Golden render (portable - non-flat, bg, distinct colours)
+      # G3a (ADR-1 legacy anchor, PINNED): the no-arg legacy demo
+      # render must stay byte-identical forever.  This is the frozen
+      # golden; any change here means the legacy path moved.
+      - name: G3a - Legacy render anchor (pinned sha256)
+        run: |
+          work="$(mktemp -d)"
+          (cd "$work" && "$GITHUB_WORKSPACE/bin/engine3d")
+          hash="$(sha256sum "$work/output_render.ppm" | awk '{print $1}')"
+          echo "legacy render sha256: $hash"
+          test "$hash" = "28b6a81dd052a740f3a395ea41b3e0dd37e02eeff585a56fa90e05ac7697cec1"
+
+      # G3b (B1 fix, PINNED): the COMPILED-SCENE path is pixel-gated:
+      # build examples/hello-cube.f3d and render its .scene with the
+      # engine; frame 1 must match the pinned hash recorded at v3.0
+      # Phase 0.  (CI previously never rendered a compiled scene.)
+      - name: G3b - Compiled-scene render (pinned sha256)
         run: |
           bin/f3dc build examples/hello-cube.f3d
           test -f build/hello-cube.scene
           work="$(mktemp -d)"
-          (cd "$work" && "$GITHUB_WORKSPACE/bin/engine3d")
-          test -s "$work/output_render.ppm"
-          gfortran -O2 -o "$RUNNER_TEMP/check_image" tests/golden/check_image.f90
-          set -o pipefail
-          "$RUNNER_TEMP/check_image" "$work/output_render.ppm" \
-            --expect-nonflat --expect-bg 25 25 35 --min-distinct 4 --hash \
-            | tee "$RUNNER_TEMP/golden.txt"
-          hash="$(grep -oiE '[0-9a-f]{64}' "$RUNNER_TEMP/golden.txt" | head -n 1 || true)"
-          {
-            echo "## Golden render (G3, portable tier)"
-            echo ""
-            echo "- image: \`output_render.ppm\` from \`./bin/engine3d\` (no args, temp dir)"
-            echo "- checks: non-flat, background \`25 25 35\`, >= 4 distinct colours"
-            echo "- sha256 (informational, NOT pinned): \`${hash:-not reported by checker}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+          cp build/hello-cube.scene "$work/"
+          (cd "$work" && "$GITHUB_WORKSPACE/bin/engine3d" hello-cube.scene)
+          hash="$(sha256sum "$work/output_render.ppm" | awk '{print $1}')"
+          echo "compiled-scene render sha256: $hash"
+          test "$hash" = "090fa22a7faa670ef98dc16858006d6f0babb243a26e0f77dce471564942d19d"
 
-      # Determinism: the same .f3d compiled twice must emit identical .scene
-      # bytes -- a drifting compiler breaks goldens and user trust alike.
+      # Determinism: the same .f3d compiled twice must emit identical
+      # .scene bytes -- a drifting compiler breaks goldens and user
+      # trust alike.
       - name: Determinism - hello-cube builds byte-identically twice
         run: |
           bin/f3dc build examples/hello-cube.f3d -o "$RUNNER_TEMP/det-a"
@@ -102,9 +93,9 @@ jobs:
           echo "build B: $b"
           test "$a" = "$b"
 
-      # G4: a bad colour is a friendly, coded error -- exit 1 and E202 in the
-      # output ('gold' is not a named colour; the E202 expectations are
-      # baked into tests/native/corpus.json).
+      # G4: a bad colour is a friendly, coded error -- exit 1 and E202
+      # in the output ('gold' is not a named colour; the E202
+      # expectations are baked into tests/native/corpus.json).
       - name: G4 - Error golden (unknown colour -> exit 1, E202)
         run: |
           bad="$(mktemp -d)/bad.f3d"
@@ -120,9 +111,10 @@ jobs:
             *) echo "expected E202 in f3dc check output" >&2; exit 1 ;;
           esac
 
-      # JS runtime budget (P06): the minified runtime ships at <= 15 KiB.
-      # Measured on a fresh terser build of runtime/f3d.js, never on
-      # viewer.html (a demo shell, not the runtime).
+      # JS runtime budget (P06): the minified runtime ships at
+      # <= 15 KiB.  Measured on a fresh terser build of
+      # runtime/f3d.js, never on viewer.html (a demo shell, not the
+      # runtime).
       - name: JS size - minified runtime/f3d.js <= 15360 bytes
         run: |
           npx --yes terser runtime/f3d.js --compress --mangle \
@@ -136,8 +128,18 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           test "$size" -le 15360
 
+      # Concat lint (C4 ratchet): the number of `x = x // ...`
+      # self-concatenation sites in compiler/src may only go DOWN
+      # from the v3.0 Phase 0 baseline (390).  Phase 6 replaces the
+      # pattern with a string builder; until then, no new sites.
+      - name: Concat lint - self-concat sites in compiler/src <= 390
+        run: |
+          n="$(grep -rEn '^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*) = \1 //' compiler/src/*.f90 | wc -l)"
+          echo "self-concat sites: $n (baseline cap 390)"
+          test "$n" -le 390
+
       # Zero Python in the entire repository: the compiler is native
-      # Fortran+clang (compiler/ -> bin/f3dc) and the test harness is
+      # Fortran + C (compiler/ -> bin/f3dc) and the test harness is
       # shell + Fortran + Node.  Any tracked .py file fails the build.
       - name: No Python anywhere in the repo
         run: |
@@ -152,3 +154,60 @@ jobs:
             exit 1
           fi
           echo "no-Python guard: OK (git ls-files '*.py' is empty)"
+
+  # Debug gate: the engine also builds with -fcheck=all (make debug)
+  # and the full suite passes against that build.
+  debug:
+    name: debug (-fcheck=all)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install gfortran + C compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gfortran gcc
+      - name: Build engine with runtime checks (make debug)
+        run: |
+          make debug
+          test -x bin/engine3d
+      - name: Build native compiler (make f3dc)
+        run: make f3dc
+      - name: Run tests against the debug engine
+        run: ./tests/run_tests.sh
+
+  # Sanitizer gate: the preview HTTP helper (X1/X2, v3.0 Phase 0) is
+  # exercised over real loopback sockets under ASan + UBSan.
+  sanitize:
+    name: sanitize (preview_http ASan/UBSan)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build + run preview_http harness under ASan/UBSan
+        run: |
+          gcc -std=c11 -Wall -Wextra -g -O1 \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -pthread -o "$RUNNER_TEMP/preview_http_test" \
+            tests/native/preview_http_test.c
+          "$RUNNER_TEMP/preview_http_test"
+
+  # Optional toolchain job (ADR-2): the compiler sources must also
+  # keep building under flang-new-18.  Non-blocking by design --
+  # gfortran is the standard toolchain.
+  flang:
+    name: flang (optional, non-blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install flang-18 + clang-18
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flang-18 clang-18 gfortran
+      - name: Build compiler with flang + smoke test
+        run: |
+          make -C compiler clean
+          make -C compiler FC=flang-new-18 CC=clang-18
+          make -C compiler test-smoke FC=flang-new-18 CC=clang-18

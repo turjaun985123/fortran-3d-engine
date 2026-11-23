@@ -265,3 +265,28 @@ primitives.
 - 2026-11-23: Plan adopted (incl. ADR-1). ADRs written. Phase 0
   launched: ADR-2 sweep, preview security fixes, engine quick wins
   in flight.
+- 2026-11-23: Phase 0 workstreams complete and integrated. ADR-2
+  sweep: compiler builds under gfortran-13 (name collision, double-
+  allocate, ~203 non-short-circuit guards audited, ~90 dyn_assign
+  conversions — gfortran aliases the recursive dyn type's components
+  on intrinsic assignment, a live heap-corruption class flang's deep
+  copy had masked); artifacts byte-identical to the flang binary on
+  13/13 scenes, corpus 896/896 under -fcheck=all and ASan. X1/X2
+  fixed in preview_http.c with a 12/12 ASan socket harness. Engine
+  quick wins: M1 look-at guard (+35-assertion test), G4 init, S2
+  capacity-doubling appends (~200x on a 3000-object load, output
+  byte-identical), S3 documented. Quick win 8 (int->nint) DEFERRED
+  to the v3 pipeline: it would change legacy pixels (ADR-1).
+  Makefiles now generate module dependencies (tools/fortran_deps.sh)
+  and build in parallel; CI gained pinned legacy + compiled-scene
+  render gates (B1), debug and sanitizer jobs, an optional flang
+  job, and the C4 concat ratchet (baseline 390). `f3dc bench` added;
+  baselines in docs/bench/BASELINES.md. B4 hygiene done (README
+  doctor row, DESIGN.md status, stale .py references in live code
+  comments); doctor itself no longer probes python3/convert (now
+  gfortran/make/cc).
+- 2026-11-23: NEW Phase 9 observation (found via f3dc bench): the
+  engine does not detect output write failures. Rendering an
+  animated scene onto a full filesystem exits 0 with frames
+  silently truncated/missing and the buffered stdout summary lost.
+  Phase 9 should add write-status checks + a non-zero exit.
