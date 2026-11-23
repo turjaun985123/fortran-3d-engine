@@ -1579,16 +1579,44 @@ contains
     type(dyn), intent(in) :: ir
     character(len=:), allocatable, intent(out) :: text
     type(char_list) :: lines
-    type(dyn) :: camera, lights, light, objects, obj, anims, anim
-    type(dyn) :: comp(3), tcomp(3), scomp(3), colord, exts, extd
-    character(len=:), allocatable :: kind, intensity_s, name, prim
-    character(len=:), allocatable :: material, transform, line
-    character(len=:), allocatable :: path_s, base
-    integer(int64) :: bg(3), lc(3)
+    type(dyn) :: exts
+
+    call scene_header_lines(ir, lines)
+    call scene_camera_line(ir, lines)
+    call scene_light_lines(ir, lines)
+    call char_list_append(lines, &
+      "frames " // fmt_int(frame_count(ir)))
+    call char_list_append(lines, "output " // output_path(ir))
+    call scene_object_lines(ir, lines)
+    call scene_anim_lines(ir, lines)
+
+    ! Wave A: per-object material lines + scene env lines (EXT).
+    exts = gvd(ir, "extensions", dyn_dict())
+    call scene_ext_wavea_lines(ir, lines, exts)
+
+    ! Wave B: sprite / text / particles / keyframe lines (EXT).
+    call scene_ext_waveb_lines(lines, exts)
+
+    ! Wave C: ortho camera (EXT), post chain (EXT), instances (inline).
+    call scene_ext_wavec_lines(lines, exts)
+
+    ! Wave E: shader defs + bindings (EXT), morph/bone/skin (EXT).
+    call scene_ext_wavee_lines(lines, exts)
+
+    text = join_lines(lines)
+  end subroutine emit_scene_text
+
+  ! ----------------------------------------------------------------
+  ! emit_scene_text feature blocks (Phase 6 C2 split; each appends
+  ! its lines to the shared list, in the original order).
+  ! ----------------------------------------------------------------
+
+  !> Scene header: magic, stamp, size and bg lines.
+  subroutine scene_header_lines(ir, lines)
+    type(dyn), intent(in) :: ir
+    type(char_list), intent(inout) :: lines
+    integer(int64) :: bg(3)
     logical :: ok
-    integer :: i, j
-    type(tri_list_t) :: tris
-    type(str_builder) :: sb
 
     call char_list_append(lines, "forge3d-scene 1")
     call stamp_lines(ir, "#", lines)
@@ -1609,6 +1637,16 @@ contains
     if (.not. ok) bg = [25_int64, 25_int64, 35_int64]
     call char_list_append(lines, "bg " // fmt_int(bg(1)) // " " // &
       fmt_int(bg(2)) // " " // fmt_int(bg(3)))
+  end subroutine scene_header_lines
+
+  !> The single camera line.
+  subroutine scene_camera_line(ir, lines)
+    type(dyn), intent(in) :: ir
+    type(char_list), intent(inout) :: lines
+    type(dyn) :: camera
+    type(dyn) :: comp(3)
+    character(len=:), allocatable :: line
+    type(str_builder) :: sb
 
     camera = gv(ir, "camera")
     call vec3_key(camera, "pos", "position", &
@@ -1627,6 +1665,18 @@ contains
       fmt_num(gvd(camera, "far", dyn_real(100.0_real64))))
     line = sb_text(sb)
     call char_list_append(lines, line)
+  end subroutine scene_camera_line
+
+  !> One line per light (point/spot delegate to the EXT hook).
+  subroutine scene_light_lines(ir, lines)
+    type(dyn), intent(in) :: ir
+    type(char_list), intent(inout) :: lines
+    type(dyn) :: lights, light
+    type(dyn) :: comp(3)
+    character(len=:), allocatable :: kind, intensity_s, line
+    integer(int64) :: lc(3)
+    logical :: ok
+    integer :: i
 
     lights = gvd(ir, "lights", dyn_list())
     if (lights%kind == DYN_K_LIST) then
@@ -1666,143 +1716,187 @@ contains
         end if
       end do
     end if
+  end subroutine scene_light_lines
 
-    call char_list_append(lines, &
-      "frames " // fmt_int(frame_count(ir)))
-    call char_list_append(lines, "output " // output_path(ir))
+  !> The object loop: one .scene entry per object.
+  subroutine scene_object_lines(ir, lines)
+    type(dyn), intent(in) :: ir
+    type(char_list), intent(inout) :: lines
+    type(dyn) :: objects, obj
+    integer :: i
 
     objects = gvd(ir, "objects", dyn_list())
     if (objects%kind == DYN_K_LIST) then
       do i = 1, objects%n_items
         obj = dyn_list_at(objects, i)
-        name = py_str(gvd(obj, "name", dyn_str("object")))
-        block
-          type(dyn) :: pv
-          pv = gv2(obj, "prim", "primitive")
-          if (pv%kind == DYN_K_NULL) then
-            prim = "cube"
-          else
-            prim = to_lower(py_str(pv))
-          end if
-        end block
-        material = to_lower(py_str(gvd(obj, "material", &
-                                       dyn_str("lambert"))))
-        colord = gv2(obj, "color", "colour")
-        call vec3_key(obj, "pos", "position", &
-                      [0.0_real64, 0.0_real64, 0.0_real64], comp)
-        call vec3_key(obj, "rotate", "rotation", &
-                      [0.0_real64, 0.0_real64, 0.0_real64], tcomp)
-        call vec3_key(obj, "scale", "", &
-                      [1.0_real64, 1.0_real64, 1.0_real64], scomp)
-        transform = fmt_vec(comp) // " " // fmt_vec(tcomp) // " " // &
-                    fmt_vec(scomp)
-        if (prim == "tris") then
-          call triangles_of(obj, tris)
-          if (.not. (vec3_eq(comp, [0.0_real64, 0.0_real64, &
-                                    0.0_real64]) .and. &
-                     vec3_eq(tcomp, [0.0_real64, 0.0_real64, &
-                                     0.0_real64]) .and. &
-                     vec3_eq(scomp, [1.0_real64, 1.0_real64, &
-                                     1.0_real64]))) then
-            call char_list_append(lines, "tris " // name // " " // &
-              fmt_int(int(tris%n, int64)) // " " // transform)
-          else
-            call char_list_append(lines, "tris " // name // " " // &
-              fmt_int(int(tris%n, int64)))
-          end if
-          do j = 1, tris%n
-            call sb_init(sb)
-            call sb_add(sb, "tri " // fmt_int(tris%cols(1, j)) // &
-              " " // fmt_int(tris%cols(2, j)) // " " // &
-              fmt_int(tris%cols(3, j)))
-            block
-              type(dyn) :: pc(3)
-              integer :: a, b
-              do a = 1, 3
-                do b = 1, 3
-                  pc(b) = dyn_copy(tris%pts((j - 1) * 9 + &
-                                             (a - 1) * 3 + b))
-                end do
-                call sb_add(sb, " " // fmt_vec(pc))
-              end do
-            end block
-            line = sb_text(sb)
-            call char_list_append(lines, line)
-          end do
-        else if (prim == "load") then
-          block
-            type(dyn) :: pv, bv
-            pv = gv3(obj, "source_file", "path", "file")
-            if (.not. py_truthy(pv)) then
-              path_s = "model.obj"
-            else
-              path_s = py_str(pv)
-            end if
-            ! Wave A housekeeping: resolve relative OBJ paths
-            ! against the .f3d file's directory (ir base_dir).
-            bv = gv(ir, "base_dir")
-            if (bv%kind /= DYN_K_NULL) then
-              base = py_str(bv)
-              if (len(base) > 0 .and. .not. path_isabs(path_s)) then
-                block
-                  character(len=:), allocatable :: cand
-                  cand = path_join(base, path_s)
-                  if (file_exists(cand)) path_s = path_abspath(cand)
-                end block
-              end if
-            end if
-          end block
-          call char_list_append(lines, "loadobj " // name // " " // &
-            material // " " // color_text(colord) // " " // &
-            transform // " " // path_s)
-        else
-          block
-            type(dyn) :: sizev, radv, hv, segv
-            type(char_list) :: extra
-            character(len=:), allocatable :: segs
-            sizev = scalar_of(gv(obj, "size"))
-            if (sizev%kind == DYN_K_NULL) &
-              sizev = scalar_of(gv(obj, "size3"))
-            radv = gv(obj, "radius")
-            hv = gv(obj, "height")
-            segv = gv(obj, "segments")
-            if (segv%kind == DYN_K_NULL) then
-              segs = "0"
-            else
-              segs = fmt_int(int_or(segv, 0_int64))
-            end if
-            call sb_init(sb)
-            call sb_add(sb, "object " // prim // " " // name // " " // &
-              material // " " // color_text(colord) // " " // &
-              transform // " " // num_or(sizev, "-1") // " " // &
-              num_or(radv, "-1") // " " // num_or(hv, "-1") // " " // &
-              segs)
-            call scene_extra_values(obj, prim, extra)
-            if (char_list_len(extra) > 0) then
-              do j = 1, char_list_len(extra)
-                call sb_add(sb, " " // char_list_at(extra, j))
-              end do
-            end if
-            ! P1: explicit shading token goes last on the line.
-            block
-              type(dyn) :: shv
-              shv = gv(obj, "shading")
-              if (shv%kind == DYN_K_STR) &
-                call sb_add(sb, " shading " // to_lower(py_str(shv)))
-            end block
-            ! P3: explicit mirror token goes after shading.
-            block
-              type(dyn) :: mrv
-              mrv = gv(obj, "mirror")
-              if (mrv%kind == DYN_K_STR) &
-                call sb_add(sb, " mirror " // to_lower(py_str(mrv)))
-            end block
-            line = sb_text(sb)
-            call char_list_append(lines, line)
-          end block
-        end if
+        call scene_object_line(ir, obj, lines)
       end do
     end if
+  end subroutine scene_object_lines
+
+  !> One object: tris / load / generic primitive line(s).
+  subroutine scene_object_line(ir, obj, lines)
+    type(dyn), intent(in) :: ir, obj
+    type(char_list), intent(inout) :: lines
+    type(dyn) :: comp(3), tcomp(3), scomp(3), colord
+    character(len=:), allocatable :: name, prim
+    character(len=:), allocatable :: material, transform, line
+    character(len=:), allocatable :: path_s, base
+    integer :: j
+    type(str_builder) :: sb
+
+    name = py_str(gvd(obj, "name", dyn_str("object")))
+    block
+      type(dyn) :: pv
+      pv = gv2(obj, "prim", "primitive")
+      if (pv%kind == DYN_K_NULL) then
+        prim = "cube"
+      else
+        prim = to_lower(py_str(pv))
+      end if
+    end block
+    material = to_lower(py_str(gvd(obj, "material", &
+                                   dyn_str("lambert"))))
+    colord = gv2(obj, "color", "colour")
+    call vec3_key(obj, "pos", "position", &
+                  [0.0_real64, 0.0_real64, 0.0_real64], comp)
+    call vec3_key(obj, "rotate", "rotation", &
+                  [0.0_real64, 0.0_real64, 0.0_real64], tcomp)
+    call vec3_key(obj, "scale", "", &
+                  [1.0_real64, 1.0_real64, 1.0_real64], scomp)
+    transform = fmt_vec(comp) // " " // fmt_vec(tcomp) // " " // &
+                fmt_vec(scomp)
+    if (prim == "tris") then
+      call scene_tris_lines(obj, name, transform, &
+        comp, tcomp, scomp, lines)
+    else if (prim == "load") then
+      block
+        type(dyn) :: pv, bv
+        pv = gv3(obj, "source_file", "path", "file")
+        if (.not. py_truthy(pv)) then
+          path_s = "model.obj"
+        else
+          path_s = py_str(pv)
+        end if
+        ! Wave A housekeeping: resolve relative OBJ paths
+        ! against the .f3d file's directory (ir base_dir).
+        bv = gv(ir, "base_dir")
+        if (bv%kind /= DYN_K_NULL) then
+          base = py_str(bv)
+          if (len(base) > 0 .and. .not. path_isabs(path_s)) then
+            block
+              character(len=:), allocatable :: cand
+              cand = path_join(base, path_s)
+              if (file_exists(cand)) path_s = path_abspath(cand)
+            end block
+          end if
+        end if
+      end block
+      call char_list_append(lines, "loadobj " // name // " " // &
+        material // " " // color_text(colord) // " " // &
+        transform // " " // path_s)
+    else
+      block
+        type(dyn) :: sizev, radv, hv, segv
+        type(char_list) :: extra
+        character(len=:), allocatable :: segs
+        sizev = scalar_of(gv(obj, "size"))
+        if (sizev%kind == DYN_K_NULL) &
+          sizev = scalar_of(gv(obj, "size3"))
+        radv = gv(obj, "radius")
+        hv = gv(obj, "height")
+        segv = gv(obj, "segments")
+        if (segv%kind == DYN_K_NULL) then
+          segs = "0"
+        else
+          segs = fmt_int(int_or(segv, 0_int64))
+        end if
+        call sb_init(sb)
+        call sb_add(sb, "object " // prim // " " // name // " " // &
+          material // " " // color_text(colord) // " " // &
+          transform // " " // num_or(sizev, "-1") // " " // &
+          num_or(radv, "-1") // " " // num_or(hv, "-1") // " " // &
+          segs)
+        call scene_extra_values(obj, prim, extra)
+        if (char_list_len(extra) > 0) then
+          do j = 1, char_list_len(extra)
+            call sb_add(sb, " " // char_list_at(extra, j))
+          end do
+        end if
+        ! P1: explicit shading token goes last on the line.
+        block
+          type(dyn) :: shv
+          shv = gv(obj, "shading")
+          if (shv%kind == DYN_K_STR) &
+            call sb_add(sb, " shading " // to_lower(py_str(shv)))
+        end block
+        ! P3: explicit mirror token goes after shading.
+        block
+          type(dyn) :: mrv
+          mrv = gv(obj, "mirror")
+          if (mrv%kind == DYN_K_STR) &
+            call sb_add(sb, " mirror " // to_lower(py_str(mrv)))
+        end block
+        line = sb_text(sb)
+        call char_list_append(lines, line)
+      end block
+    end if
+  end subroutine scene_object_line
+
+  !> The tris branch of scene_object_line: header + one tri line
+  !! per raw triangle.
+  subroutine scene_tris_lines(obj, name, transform, comp, tcomp, &
+                              scomp, lines)
+    type(dyn), intent(in) :: obj
+    character(len=*), intent(in) :: name, transform
+    type(dyn), intent(in) :: comp(3), tcomp(3), scomp(3)
+    type(char_list), intent(inout) :: lines
+    character(len=:), allocatable :: line
+    integer :: j
+    type(tri_list_t) :: tris
+    type(str_builder) :: sb
+
+    call triangles_of(obj, tris)
+    if (.not. (vec3_eq(comp, [0.0_real64, 0.0_real64, &
+                              0.0_real64]) .and. &
+               vec3_eq(tcomp, [0.0_real64, 0.0_real64, &
+                               0.0_real64]) .and. &
+               vec3_eq(scomp, [1.0_real64, 1.0_real64, &
+                               1.0_real64]))) then
+      call char_list_append(lines, "tris " // name // " " // &
+        fmt_int(int(tris%n, int64)) // " " // transform)
+    else
+      call char_list_append(lines, "tris " // name // " " // &
+        fmt_int(int(tris%n, int64)))
+    end if
+    do j = 1, tris%n
+      call sb_init(sb)
+      call sb_add(sb, "tri " // fmt_int(tris%cols(1, j)) // &
+        " " // fmt_int(tris%cols(2, j)) // " " // &
+        fmt_int(tris%cols(3, j)))
+      block
+        type(dyn) :: pc(3)
+        integer :: a, b
+        do a = 1, 3
+          do b = 1, 3
+            pc(b) = dyn_copy(tris%pts((j - 1) * 9 + &
+                                       (a - 1) * 3 + b))
+          end do
+          call sb_add(sb, " " // fmt_vec(pc))
+        end do
+      end block
+      line = sb_text(sb)
+      call char_list_append(lines, line)
+    end do
+  end subroutine scene_tris_lines
+
+  !> One anim line per animation.
+  subroutine scene_anim_lines(ir, lines)
+    type(dyn), intent(in) :: ir
+    type(char_list), intent(inout) :: lines
+    type(dyn) :: anims, anim
+    character(len=:), allocatable :: line
+    integer :: i
 
     anims = gv2(ir, "animations", "anims")
     if (anims%kind == DYN_K_LIST) then
@@ -1825,9 +1919,18 @@ contains
         call char_list_append(lines, line)
       end do
     end if
+  end subroutine scene_anim_lines
 
-    ! Wave A: per-object material lines + scene env lines (EXT).
-    exts = gvd(ir, "extensions", dyn_dict())
+  !> Wave A extensions: per-object material lines + env lines.
+  subroutine scene_ext_wavea_lines(ir, lines, exts)
+    type(dyn), intent(in) :: ir, exts
+    type(char_list), intent(inout) :: lines
+    type(dyn) :: objects, obj, extd
+    character(len=:), allocatable :: line
+    logical :: ok
+    integer :: i
+
+    objects = gvd(ir, "objects", dyn_list())
     if (exts%kind == DYN_K_DICT) then
       if (objects%kind == DYN_K_LIST) then
         do i = 1, objects%n_items
@@ -1858,8 +1961,14 @@ contains
         if (py_truthy(env)) call hook_env_lines(env, lines)
       end block
     end if
+  end subroutine scene_ext_wavea_lines
 
-    ! Wave B: sprite / text / particles / keyframe lines (EXT).
+  !> Wave B extensions: sprite / text / particles / keyframe lines.
+  subroutine scene_ext_waveb_lines(lines, exts)
+    type(dyn), intent(in) :: exts
+    type(char_list), intent(inout) :: lines
+    character(len=:), allocatable :: line
+
     if (exts%kind == DYN_K_DICT) then
       block
         type(dyn) :: wb, lst, entry
@@ -1910,8 +2019,14 @@ contains
         end if
       end block
     end if
+  end subroutine scene_ext_waveb_lines
 
-    ! Wave C: ortho camera (EXT), post chain (EXT), instances (inline).
+  !> Wave C extensions: ortho camera, post chain, instances.
+  subroutine scene_ext_wavec_lines(lines, exts)
+    type(dyn), intent(in) :: exts
+    type(char_list), intent(inout) :: lines
+    character(len=:), allocatable :: line
+
     if (exts%kind == DYN_K_DICT) then
       block
         type(dyn) :: wc, camext, lst, entry, sc
@@ -1960,8 +2075,13 @@ contains
         end if
       end block
     end if
+  end subroutine scene_ext_wavec_lines
 
-    ! Wave E: shader defs + bindings (EXT), morph/bone/skin (EXT).
+  !> Wave E extensions: shader defs + bindings, morph/bone/skin.
+  subroutine scene_ext_wavee_lines(lines, exts)
+    type(dyn), intent(in) :: exts
+    type(char_list), intent(inout) :: lines
+
     if (exts%kind == DYN_K_DICT) then
       block
         type(dyn) :: we
@@ -1976,9 +2096,7 @@ contains
         end if
       end block
     end if
-
-    text = join_lines(lines)
-  end subroutine emit_scene_text
+  end subroutine scene_ext_wavee_lines
 
   !> Alias for emit_scene_text (Python emit_scene).
   subroutine emit_scene(ir, text)
@@ -2228,13 +2346,12 @@ contains
     character(len=*), intent(in) :: prim
     character(len=:), allocatable, intent(out) :: call_text
     logical, intent(out) :: found
-    type(dyn) :: sizev, size3v, radv, hv, segv, geom, tv, pts
+    type(dyn) :: sizev, size3v, radv, hv, segv, geom, tv
     type(dyn) :: s3(3)
     logical :: has_size3, has_seg, has_geom, okb
-    integer(int64) :: seg, ring_seg, tube_seg
+    integer(int64) :: seg
     character(len=:), allocatable :: capped
     real(real64) :: major
-    type(dyn) :: flat
 
     call_text = ""
     found = .true.
@@ -2315,54 +2432,109 @@ contains
         f_of(or_real(sizev, 2.0_real64)) // ", " // &
         f_of(or_real(hv, 2.0_real64)) // ")"
     case ("torus")
-      block
-        type(dyn) :: majv, tubev, tsv
-        real(real64) :: majx
-        logical :: okf
-        majv = or_real(radv, 1.5_real64)
-        call py_float(majv, majx, okf)
-        if (.not. okf) majx = 0.0_real64
-        tubev = extension_of(obj, &
-          ["tube        ", "tube_radius ", "minor_radius"])
-        if (tubev%kind == DYN_K_NULL) &
-          tubev = dyn_real(majx / 3.0_real64)
-        ring_seg = seg_or(has_seg, seg, 24_int64)
-        tsv = extension_of(obj, ["tube_segments", "rings        "])
-        if (tsv%kind /= DYN_K_NULL) then
-          tube_seg = int_or(tsv, 0_int64)
-        else
-          tube_seg = max(3_int64, ring_seg / 2_int64)
-        end if
-        call_text = "call create_torus(msh, " // f_of(majv) // ", " // &
-          f_of(tubev) // ", " // fmt_int(ring_seg) // ", " // &
-          fmt_int(tube_seg) // ")"
-      end block
+      call build_torus_call(obj, radv, has_seg, seg, call_text)
     case ("circle")
       call_text = "call create_circle(msh, " // &
         f_of(or_real(radv, 1.0_real64)) // ", " // &
         fmt_int(seg_or(has_seg, seg, 32_int64)) // ")"
     case ("ring")
-      block
-        type(dyn) :: innerv
-        innerv = dyn_null()
-        if (has_geom) innerv = gv(geom, "inner")
-        if (innerv%kind == DYN_K_NULL) then
-          if (sizev%kind /= DYN_K_NULL) then
-            innerv = dyn_copy(sizev)
-          else
-            innerv = dyn_real(0.5_real64)
-          end if
-        end if
-        call_text = "call create_ring(msh, " // &
-          f_of(or_real(radv, 1.0_real64)) // ", " // f_of(innerv) // &
-          ", " // fmt_int(seg_or(has_seg, seg, 32_int64)) // ")"
-      end block
+      call build_ring_call(sizev, geom, has_geom, radv, &
+        has_seg, seg, call_text)
     case ("capsule")
       call_text = "call create_capsule(msh, " // &
         f_of(or_real(radv, 0.5_real64)) // ", " // &
         f_of(or_real(hv, 2.0_real64)) // ", " // &
         fmt_int(seg_or(has_seg, seg, 16_int64)) // ")"
-    case ("tube")
+    case ("tube", "lathe", "extrude")
+      call build_path_call(obj, prim, geom, has_geom, radv, hv, &
+        has_seg, seg, call_text)
+    case ("tetrahedron", "octahedron", "icosahedron", "dodecahedron")
+      call_text = "call create_" // prim // "(msh, " // &
+        f_of(or_real(radv, 1.0_real64)) // ")"
+    case ("torusknot")
+      call build_torusknot_call(sizev, geom, has_geom, &
+        radv, has_seg, seg, call_text)
+    case default
+      found = .false.
+      call_text = ""
+    end select
+    if (.false.) print *, okb  ! silence unused dummy warning pattern
+  end subroutine build_call
+
+  ! ----------------------------------------------------------------
+  ! build_call per-primitive groups (Phase 6 C2 split).
+  ! ----------------------------------------------------------------
+
+  !> torus: tube defaults to major/3; tube segments from the
+  !! tube_segments/rings extension keys, else ring_seg/2.
+  subroutine build_torus_call(obj, radv, has_seg, seg, call_text)
+    type(dyn), intent(in) :: obj, radv
+    logical, intent(in) :: has_seg
+    integer(int64), intent(in) :: seg
+    character(len=:), allocatable, intent(out) :: call_text
+    integer(int64) :: ring_seg, tube_seg
+
+    block
+      type(dyn) :: majv, tubev, tsv
+      real(real64) :: majx
+      logical :: okf
+      majv = or_real(radv, 1.5_real64)
+      call py_float(majv, majx, okf)
+      if (.not. okf) majx = 0.0_real64
+      tubev = extension_of(obj, &
+        ["tube        ", "tube_radius ", "minor_radius"])
+      if (tubev%kind == DYN_K_NULL) &
+        tubev = dyn_real(majx / 3.0_real64)
+      ring_seg = seg_or(has_seg, seg, 24_int64)
+      tsv = extension_of(obj, ["tube_segments", "rings        "])
+      if (tsv%kind /= DYN_K_NULL) then
+        tube_seg = int_or(tsv, 0_int64)
+      else
+        tube_seg = max(3_int64, ring_seg / 2_int64)
+      end if
+      call_text = "call create_torus(msh, " // f_of(majv) // ", " // &
+        f_of(tubev) // ", " // fmt_int(ring_seg) // ", " // &
+        fmt_int(tube_seg) // ")"
+    end block
+  end subroutine build_torus_call
+
+  !> ring: inner radius from geometry, else size, else 0.5.
+  subroutine build_ring_call(sizev, geom, has_geom, radv, &
+                             has_seg, seg, call_text)
+    type(dyn), intent(in) :: sizev, geom, radv
+    logical, intent(in) :: has_geom, has_seg
+    integer(int64), intent(in) :: seg
+    character(len=:), allocatable, intent(out) :: call_text
+
+    block
+      type(dyn) :: innerv
+      innerv = dyn_null()
+      if (has_geom) innerv = gv(geom, "inner")
+      if (innerv%kind == DYN_K_NULL) then
+        if (sizev%kind /= DYN_K_NULL) then
+          innerv = dyn_copy(sizev)
+        else
+          innerv = dyn_real(0.5_real64)
+        end if
+      end if
+      call_text = "call create_ring(msh, " // &
+        f_of(or_real(radv, 1.0_real64)) // ", " // f_of(innerv) // &
+        ", " // fmt_int(seg_or(has_seg, seg, 32_int64)) // ")"
+    end block
+  end subroutine build_ring_call
+
+  !> tube / lathe / extrude: point-list primitives; the point
+  !! list comes from geometry, else the extension keys.
+  subroutine build_path_call(obj, prim, geom, has_geom, radv, &
+                             hv, has_seg, seg, call_text)
+    type(dyn), intent(in) :: obj, geom, radv, hv
+    character(len=*), intent(in) :: prim
+    logical, intent(in) :: has_geom, has_seg
+    integer(int64), intent(in) :: seg
+    character(len=:), allocatable, intent(out) :: call_text
+    type(dyn) :: pts, flat
+
+    if (prim == "tube") then
       pts = dyn_null()
       if (has_geom) pts = gv(geom, "path")
       if (.not. py_truthy(pts)) &
@@ -2374,7 +2546,7 @@ contains
         fmt_int(seg_or(has_seg, seg, 12_int64)) // ", " // &
         f_array(flat) // ", " // &
         fmt_int(int(pts%n_items, int64)) // ")"
-    case ("lathe")
+    else if (prim == "lathe") then
       pts = dyn_null()
       if (has_geom) pts = gv(geom, "points")
       if (.not. py_truthy(pts)) &
@@ -2385,7 +2557,7 @@ contains
         fmt_int(seg_or(has_seg, seg, 24_int64)) // ", " // &
         f_array(flat) // ", " // &
         fmt_int(int(pts%n_items, int64)) // ")"
-    case ("extrude")
+    else
       block
         type(dyn) :: depthv
         pts = dyn_null()
@@ -2402,44 +2574,47 @@ contains
           ", " // f_array(flat) // ", " // &
           fmt_int(int(pts%n_items, int64)) // ")"
       end block
-    case ("tetrahedron", "octahedron", "icosahedron", "dodecahedron")
-      call_text = "call create_" // prim // "(msh, " // &
-        f_of(or_real(radv, 1.0_real64)) // ")"
-    case ("torusknot")
-      block
-        type(dyn) :: majv, tubev, tsv
-        real(real64) :: majx
-        logical :: okf
-        majv = or_real(radv, 1.0_real64)
-        call py_float(majv, majx, okf)
-        if (.not. okf) majx = 0.0_real64
-        tubev = dyn_null()
-        if (has_geom) tubev = gv(geom, "tube")
-        if (tubev%kind == DYN_K_NULL) then
-          if (sizev%kind /= DYN_K_NULL) then
-            tubev = dyn_copy(sizev)
-          else
-            tubev = dyn_real(majx * 0.3_real64)
-          end if
-        end if
-        ring_seg = seg_or(has_seg, seg, 48_int64)
-        tsv = dyn_null()
-        if (has_geom) tsv = gv(geom, "tube_segments")
-        if (tsv%kind /= DYN_K_NULL) then
-          tube_seg = int_or(tsv, 0_int64)
+    end if
+  end subroutine build_path_call
+
+  !> torusknot: tube from geometry, else size, else major*0.3.
+  subroutine build_torusknot_call(sizev, geom, has_geom, &
+                                  radv, has_seg, seg, call_text)
+    type(dyn), intent(in) :: sizev, geom, radv
+    logical, intent(in) :: has_geom, has_seg
+    integer(int64), intent(in) :: seg
+    character(len=:), allocatable, intent(out) :: call_text
+    integer(int64) :: ring_seg, tube_seg
+
+    block
+      type(dyn) :: majv, tubev, tsv
+      real(real64) :: majx
+      logical :: okf
+      majv = or_real(radv, 1.0_real64)
+      call py_float(majv, majx, okf)
+      if (.not. okf) majx = 0.0_real64
+      tubev = dyn_null()
+      if (has_geom) tubev = gv(geom, "tube")
+      if (tubev%kind == DYN_K_NULL) then
+        if (sizev%kind /= DYN_K_NULL) then
+          tubev = dyn_copy(sizev)
         else
-          tube_seg = max(6_int64, ring_seg / 4_int64)
+          tubev = dyn_real(majx * 0.3_real64)
         end if
-        call_text = "call create_torusknot(msh, " // f_of(majv) // &
-          ", " // f_of(tubev) // ", " // fmt_int(ring_seg) // ", " // &
-          fmt_int(tube_seg) // ")"
-      end block
-    case default
-      found = .false.
-      call_text = ""
-    end select
-    if (.false.) print *, okb  ! silence unused dummy warning pattern
-  end subroutine build_call
+      end if
+      ring_seg = seg_or(has_seg, seg, 48_int64)
+      tsv = dyn_null()
+      if (has_geom) tsv = gv(geom, "tube_segments")
+      if (tsv%kind /= DYN_K_NULL) then
+        tube_seg = int_or(tsv, 0_int64)
+      else
+        tube_seg = max(6_int64, ring_seg / 4_int64)
+      end if
+      call_text = "call create_torusknot(msh, " // f_of(majv) // &
+        ", " // f_of(tubev) // ", " // fmt_int(ring_seg) // ", " // &
+        fmt_int(tube_seg) // ")"
+    end block
+  end subroutine build_torusknot_call
 
   ! ------------------------------------------------------------------
   ! Line wrapping (emit_fortran._wrap_fortran_line, limit 120)
@@ -2638,15 +2813,11 @@ contains
     type(dyn), intent(in) :: ir
     character(len=:), allocatable, intent(out) :: text
     type(char_list) :: out, wrapped
-    type(dyn) :: camera, objects, obj, lights, light
-    type(dyn) :: comp(3), tcomp(3), scomp(3), ld(3)
-    character(len=:), allocatable :: name, pname, prim, line, build
-    character(len=:), allocatable :: modname
+    type(dyn) :: objects, obj
+    character(len=:), allocatable :: pname
     integer(int64) :: width, height, bg(3)
-    logical :: ok, found
-    integer :: i, j, nmod
-    character(len=16) :: mods(8)
-    type(tri_list_t) :: tris
+    logical :: ok
+    integer :: i
     real(real64) :: aspect
 
     pname = program_name(ir)
@@ -2658,33 +2829,50 @@ contains
       call color_ints(bgv, bg, ok)
       if (.not. ok) bg = [25_int64, 25_int64, 35_int64]
     end block
-    camera = gv(ir, "camera")
     if (height /= 0_int64) then
       aspect = real(width, real64) / real(height, real64)
     else
       aspect = 1.0_real64
     end if
 
-    ! light_dir: first non-ambient light's direction.
-    ld(1) = dyn_real(-0.5_real64)
-    ld(2) = dyn_real(-1.0_real64)
-    ld(3) = dyn_real(-0.7_real64)
-    lights = gvd(ir, "lights", dyn_list())
-    if (lights%kind == DYN_K_LIST) then
-      do i = 1, lights%n_items
-        light = dyn_list_at(lights, i)
-        if (to_lower(py_str(gvd(light, "kind", &
-                                dyn_str("directional")))) /= &
-            "ambient") then
-          block
-            type(dyn) :: dv
-            dv = gv2(light, "direction", "dir")
-            call vec3_of(dv, ld(1), ld(2), ld(3), ld)
-          end block
-          exit
-        end if
+    call prog_header_lines(ir, out, pname, width, height, bg, &
+      aspect)
+
+    objects = gvd(ir, "objects", dyn_list())
+    if (objects%kind == DYN_K_LIST) then
+      do i = 1, objects%n_items
+        obj = dyn_list_at(objects, i)
+        call prog_object_lines(obj, out)
       end do
     end if
+
+    call char_list_append(out, &
+      "    call framebuffer_save_ppm(fb, " // &
+      f_str(output_path(ir)) // ")")
+    call char_list_append(out, "end program " // pname)
+
+    do i = 1, char_list_len(out)
+      call wrap_fortran_line(char_list_at(out, i), 120, wrapped)
+    end do
+    text = join_lines(wrapped)
+  end subroutine emit_fortran_program
+
+  ! ----------------------------------------------------------------
+  ! emit_fortran_program feature blocks (Phase 6 C2 split).
+  ! ----------------------------------------------------------------
+
+  !> Program header: stamp, program/use lines, declarations,
+  !! framebuffer + camera setup, light_dir line.
+  subroutine prog_header_lines(ir, out, pname, width, height, &
+                               bg, aspect)
+    type(dyn), intent(in) :: ir
+    type(char_list), intent(inout) :: out
+    character(len=*), intent(in) :: pname
+    integer(int64), intent(in) :: width, height, bg(3)
+    real(real64), intent(in) :: aspect
+    type(dyn) :: camera
+    type(dyn) :: comp(3), tcomp(3), ld(3)
+    character(len=:), allocatable :: line
 
     call stamp_lines(ir, "!", out)
     call char_list_append(out, &
@@ -2698,6 +2886,56 @@ contains
     call char_list_append(out, "    use camera_3d")
     call char_list_append(out, "    use material_3d")
     call char_list_append(out, "    use renderer_3d")
+    call prog_geo_use_lines(ir, out)
+    camera = gv(ir, "camera")
+    call char_list_append(out, "    implicit none")
+    call char_list_append(out, "")
+    call char_list_append(out, "    type(Mesh) :: msh")
+    call char_list_append(out, "    type(Camera) :: cam")
+    call char_list_append(out, "    type(FrameBuffer) :: fb")
+    call char_list_append(out, "    type(mat4) :: model")
+    call char_list_append(out, "    type(Material) :: mat")
+    call char_list_append(out, "    type(vec3) :: light_dir")
+    call char_list_append(out, "")
+    call char_list_append(out, "    call framebuffer_init(fb, " // &
+      fmt_int(width) // ", " // fmt_int(height) // ")")
+    call char_list_append(out, "    call framebuffer_clear(fb, " // &
+      fmt_int(bg(1)) // ", " // fmt_int(bg(2)) // ", " // &
+      fmt_int(bg(3)) // ")")
+    call vec3_key(camera, "pos", "position", &
+                  [3.0_real64, 2.5_real64, 4.0_real64], comp)
+    call vec3_key(camera, "target", "", &
+                  [0.0_real64, 0.0_real64, 0.0_real64], tcomp)
+    line = "    call camera_init(cam, " // f_vec(comp) // ", " // &
+      f_vec(tcomp) // ", " // &
+      f_of(gvd(camera, "fov", dyn_real(60.0_real64))) // ", " // &
+      f_real(aspect) // ", " // &
+      f_of(gvd(camera, "near", dyn_real(0.1_real64))) // ", " // &
+      f_of(gvd(camera, "far", dyn_real(100.0_real64))) // ")"
+    call char_list_append(out, line)
+    call vec3_key(camera, "up", "", &
+                  [0.0_real64, 1.0_real64, 0.0_real64], comp)
+    if (.not. vec3_eq(comp, [0.0_real64, 1.0_real64, 0.0_real64])) &
+      then
+      call char_list_append(out, "    cam%up = " // f_vec(comp))
+      call char_list_append(out, "    call camera_update_matrices(cam)")
+    end if
+    call prog_light_dir(ir, ld)
+    call char_list_append(out, "    light_dir = " // f_vec(ld))
+    call char_list_append(out, "")
+  end subroutine prog_header_lines
+
+  !> Wave D geo modules actually used, first-use order: one
+  !! "use" line per module, appended after the base use lines.
+  subroutine prog_geo_use_lines(ir, out)
+    type(dyn), intent(in) :: ir
+    type(char_list), intent(inout) :: out
+    type(dyn) :: objects, obj
+    character(len=:), allocatable :: modname
+    logical :: found
+    integer :: i, j, nmod
+    character(len=16) :: mods(8)
+
     ! Wave D geo modules actually used, first-use order.
     nmod = 0
     mods = ""
@@ -2748,164 +2986,155 @@ contains
     do i = 1, nmod
       call char_list_append(out, "    use " // trim(mods(i)))
     end do
-    call char_list_append(out, "    implicit none")
-    call char_list_append(out, "")
-    call char_list_append(out, "    type(Mesh) :: msh")
-    call char_list_append(out, "    type(Camera) :: cam")
-    call char_list_append(out, "    type(FrameBuffer) :: fb")
-    call char_list_append(out, "    type(mat4) :: model")
-    call char_list_append(out, "    type(Material) :: mat")
-    call char_list_append(out, "    type(vec3) :: light_dir")
-    call char_list_append(out, "")
-    call char_list_append(out, "    call framebuffer_init(fb, " // &
-      fmt_int(width) // ", " // fmt_int(height) // ")")
-    call char_list_append(out, "    call framebuffer_clear(fb, " // &
-      fmt_int(bg(1)) // ", " // fmt_int(bg(2)) // ", " // &
-      fmt_int(bg(3)) // ")")
-    call vec3_key(camera, "pos", "position", &
-                  [3.0_real64, 2.5_real64, 4.0_real64], comp)
-    call vec3_key(camera, "target", "", &
-                  [0.0_real64, 0.0_real64, 0.0_real64], tcomp)
-    line = "    call camera_init(cam, " // f_vec(comp) // ", " // &
-      f_vec(tcomp) // ", " // &
-      f_of(gvd(camera, "fov", dyn_real(60.0_real64))) // ", " // &
-      f_real(aspect) // ", " // &
-      f_of(gvd(camera, "near", dyn_real(0.1_real64))) // ", " // &
-      f_of(gvd(camera, "far", dyn_real(100.0_real64))) // ")"
-    call char_list_append(out, line)
-    call vec3_key(camera, "up", "", &
-                  [0.0_real64, 1.0_real64, 0.0_real64], comp)
-    if (.not. vec3_eq(comp, [0.0_real64, 1.0_real64, 0.0_real64])) &
-      then
-      call char_list_append(out, "    cam%up = " // f_vec(comp))
-      call char_list_append(out, "    call camera_update_matrices(cam)")
-    end if
-    call char_list_append(out, "    light_dir = " // f_vec(ld))
-    call char_list_append(out, "")
+  end subroutine prog_geo_use_lines
 
-    if (objects%kind == DYN_K_LIST) then
-      do i = 1, objects%n_items
-        obj = dyn_list_at(objects, i)
-        name = py_str(gvd(obj, "name", dyn_str("object")))
-        block
-          type(dyn) :: pv
-          pv = gv2(obj, "prim", "primitive")
-          if (pv%kind == DYN_K_NULL) then
-            prim = "cube"
-          else
-            prim = to_lower(py_str(pv))
-          end if
-        end block
-        call vec3_key(obj, "pos", "position", &
-                      [0.0_real64, 0.0_real64, 0.0_real64], comp)
-        call vec3_key(obj, "rotate", "rotation", &
-                      [0.0_real64, 0.0_real64, 0.0_real64], tcomp)
-        call vec3_key(obj, "scale", "", &
-                      [1.0_real64, 1.0_real64, 1.0_real64], scomp)
-        call char_list_append(out, "    ! object " // name // &
-                              " (" // prim // ")")
-        if (prim == "load") then
+  subroutine prog_light_dir(ir, ld)
+    type(dyn), intent(in) :: ir
+    type(dyn), intent(out) :: ld(3)
+    type(dyn) :: lights, light
+    integer :: i
+
+    ! light_dir: first non-ambient light's direction.
+    ld(1) = dyn_real(-0.5_real64)
+    ld(2) = dyn_real(-1.0_real64)
+    ld(3) = dyn_real(-0.7_real64)
+    lights = gvd(ir, "lights", dyn_list())
+    if (lights%kind == DYN_K_LIST) then
+      do i = 1, lights%n_items
+        light = dyn_list_at(lights, i)
+        if (to_lower(py_str(gvd(light, "kind", &
+                                dyn_str("directional")))) /= &
+            "ambient") then
           block
-            type(dyn) :: pv2
-            character(len=:), allocatable :: src
-            pv2 = gv2(obj, "source_file", "path")
-            if (.not. py_truthy(pv2)) then
-              src = "model.obj"
-            else
-              src = py_str(pv2)
-            end if
-            call char_list_append(out, &
-              "    ! loadobj " // src // &
-              " is loaded by the .scene path " // &
-              "(scene.f90 / obj_loader); skipped here")
+            type(dyn) :: dv
+            dv = gv2(light, "direction", "dir")
+            call vec3_of(dv, ld(1), ld(2), ld(3), ld)
           end block
-          call char_list_append(out, "")
-          cycle
+          exit
         end if
-        if (prim == "tris") then
-          call triangles_of(obj, tris)
-          call char_list_append(out, &
-            "    if (allocated(msh%triangles)) " // &
-            "deallocate(msh%triangles)")
-          call char_list_append(out, "    msh%num_triangles = " // &
-            fmt_int(int(tris%n, int64)))
-          call char_list_append(out, "    allocate(msh%triangles(" // &
-            fmt_int(int(tris%n, int64)) // "))")
-          do j = 1, tris%n
-            block
-              type(dyn) :: pc(3)
-              character(len=:), allocatable :: verts_s
-              type(str_builder) :: sbv
-              integer :: a, b
-              call sb_init(sbv)
-              do a = 1, 3
-                do b = 1, 3
-                  pc(b) = dyn_copy(tris%pts((j - 1) * 9 + &
-                                            (a - 1) * 3 + b))
-                end do
-                if (a > 1) call sb_add(sbv, ", ")
-                call sb_add(sbv, f_vec(pc))
-              end do
-              verts_s = sb_text(sbv)
-              call char_list_append(out, &
-                "    msh%triangles(" // fmt_int(int(j, int64)) // &
-                ")%v = [" // verts_s // "]")
-              call char_list_append(out, &
-                "    msh%triangles(" // fmt_int(int(j, int64)) // &
-                ")%color = [" // fmt_int(tris%cols(1, j)) // ", " // &
-                fmt_int(tris%cols(2, j)) // ", " // &
-                fmt_int(tris%cols(3, j)) // "]")
-              call char_list_append(out, &
-                "    msh%triangles(" // fmt_int(int(j, int64)) // &
-                ")%normal = compute_triangle_normal(" // &
-                "msh%triangles(" // fmt_int(int(j, int64)) // &
-                ")%v(1), msh%triangles(" // fmt_int(int(j, int64)) // &
-                ")%v(2), msh%triangles(" // fmt_int(int(j, int64)) // &
-                ")%v(3))")
-            end block
-          end do
-        else
-          call build_call(obj, prim, build, found)
-          if (.not. found) then
-            call char_list_append(out, &
-              "    ! unknown primitive '" // prim // &
-              "': cube fallback")
-            block
-              type(dyn) :: sv
-              sv = scalar_of(gv(obj, "size"))
-              if (.not. py_truthy(sv)) sv = dyn_real(2.0_real64)
-              build = "call create_cube(msh, " // f_of(sv) // ")"
-            end block
-          end if
-          call char_list_append(out, "    " // build)
-        end if
-        if (material_needs_palette_comment(obj)) then
-          call char_list_append(out, &
-            "    ! palette colour cannot show through " // &
-            "basic/phong (use_tri_color=.false.): white used")
-        end if
-        call char_list_append(out, &
-          "    mat = " // material_call(obj))
-        call char_list_append(out, &
-          "    model = mat4_compose_trs(" // f_vec(comp) // ", " // &
-          f_vec(tcomp) // ", " // f_vec(scomp) // ")")
-        call char_list_append(out, &
-          "    call framebuffer_render_mesh_mat(fb, msh, model, " // &
-          "cam, light_dir, mat)")
-        call char_list_append(out, "")
       end do
     end if
+  end subroutine prog_light_dir
 
+  !> One object in the generated program: build call (or the
+  !! tris/load special forms), material, model, render lines.
+  subroutine prog_object_lines(obj, out)
+    type(dyn), intent(in) :: obj
+    type(char_list), intent(inout) :: out
+    type(dyn) :: comp(3), tcomp(3), scomp(3)
+    character(len=:), allocatable :: name, prim, build
+    logical :: found
+    integer :: j
+    type(tri_list_t) :: tris
+
+    name = py_str(gvd(obj, "name", dyn_str("object")))
+    block
+      type(dyn) :: pv
+      pv = gv2(obj, "prim", "primitive")
+      if (pv%kind == DYN_K_NULL) then
+        prim = "cube"
+      else
+        prim = to_lower(py_str(pv))
+      end if
+    end block
+    call vec3_key(obj, "pos", "position", &
+                  [0.0_real64, 0.0_real64, 0.0_real64], comp)
+    call vec3_key(obj, "rotate", "rotation", &
+                  [0.0_real64, 0.0_real64, 0.0_real64], tcomp)
+    call vec3_key(obj, "scale", "", &
+                  [1.0_real64, 1.0_real64, 1.0_real64], scomp)
+    call char_list_append(out, "    ! object " // name // &
+                          " (" // prim // ")")
+    if (prim == "load") then
+      block
+        type(dyn) :: pv2
+        character(len=:), allocatable :: src
+        pv2 = gv2(obj, "source_file", "path")
+        if (.not. py_truthy(pv2)) then
+          src = "model.obj"
+        else
+          src = py_str(pv2)
+        end if
+        call char_list_append(out, &
+          "    ! loadobj " // src // &
+          " is loaded by the .scene path " // &
+          "(scene.f90 / obj_loader); skipped here")
+      end block
+      call char_list_append(out, "")
+      return
+    end if
+    if (prim == "tris") then
+      call triangles_of(obj, tris)
+      call char_list_append(out, &
+        "    if (allocated(msh%triangles)) " // &
+        "deallocate(msh%triangles)")
+      call char_list_append(out, "    msh%num_triangles = " // &
+        fmt_int(int(tris%n, int64)))
+      call char_list_append(out, "    allocate(msh%triangles(" // &
+        fmt_int(int(tris%n, int64)) // "))")
+      do j = 1, tris%n
+        block
+          type(dyn) :: pc(3)
+          character(len=:), allocatable :: verts_s
+          type(str_builder) :: sbv
+          integer :: a, b
+          call sb_init(sbv)
+          do a = 1, 3
+            do b = 1, 3
+              pc(b) = dyn_copy(tris%pts((j - 1) * 9 + &
+                                        (a - 1) * 3 + b))
+            end do
+            if (a > 1) call sb_add(sbv, ", ")
+            call sb_add(sbv, f_vec(pc))
+          end do
+          verts_s = sb_text(sbv)
+          call char_list_append(out, &
+            "    msh%triangles(" // fmt_int(int(j, int64)) // &
+            ")%v = [" // verts_s // "]")
+          call char_list_append(out, &
+            "    msh%triangles(" // fmt_int(int(j, int64)) // &
+            ")%color = [" // fmt_int(tris%cols(1, j)) // ", " // &
+            fmt_int(tris%cols(2, j)) // ", " // &
+            fmt_int(tris%cols(3, j)) // "]")
+          call char_list_append(out, &
+            "    msh%triangles(" // fmt_int(int(j, int64)) // &
+            ")%normal = compute_triangle_normal(" // &
+            "msh%triangles(" // fmt_int(int(j, int64)) // &
+            ")%v(1), msh%triangles(" // fmt_int(int(j, int64)) // &
+            ")%v(2), msh%triangles(" // fmt_int(int(j, int64)) // &
+            ")%v(3))")
+        end block
+      end do
+    else
+      call build_call(obj, prim, build, found)
+      if (.not. found) then
+        call char_list_append(out, &
+          "    ! unknown primitive '" // prim // &
+          "': cube fallback")
+        block
+          type(dyn) :: sv
+          sv = scalar_of(gv(obj, "size"))
+          if (.not. py_truthy(sv)) sv = dyn_real(2.0_real64)
+          build = "call create_cube(msh, " // f_of(sv) // ")"
+        end block
+      end if
+      call char_list_append(out, "    " // build)
+    end if
+    if (material_needs_palette_comment(obj)) then
+      call char_list_append(out, &
+        "    ! palette colour cannot show through " // &
+        "basic/phong (use_tri_color=.false.): white used")
+    end if
     call char_list_append(out, &
-      "    call framebuffer_save_ppm(fb, " // &
-      f_str(output_path(ir)) // ")")
-    call char_list_append(out, "end program " // pname)
-
-    do i = 1, char_list_len(out)
-      call wrap_fortran_line(char_list_at(out, i), 120, wrapped)
-    end do
-    text = join_lines(wrapped)
-  end subroutine emit_fortran_program
+      "    mat = " // material_call(obj))
+    call char_list_append(out, &
+      "    model = mat4_compose_trs(" // f_vec(comp) // ", " // &
+      f_vec(tcomp) // ", " // f_vec(scomp) // ")")
+    call char_list_append(out, &
+      "    call framebuffer_render_mesh_mat(fb, msh, model, " // &
+      "cam, light_dir, mat)")
+    call char_list_append(out, "")
+  end subroutine prog_object_lines
 
   !> Alias for emit_fortran_program (Python emit_fortran).
   subroutine emit_fortran(ir, text)
