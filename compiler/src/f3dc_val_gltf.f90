@@ -17,6 +17,9 @@ module f3dc_val_gltf
   use f3dc_str, only: to_lower, fmt_int, fmt_real, &
        char_list, char_list_len, char_list_at, char_list_clear
   use f3dc_ext_gltf, only: load_gltf
+  use f3dc_ir, only: ir_object, ir_object_to_dict, &
+       ir_object_typed_default, ir_scalar_from_dyn, &
+       ir_vec3_from_dyn
   implicit none
   private
   public :: dispatch_ext_gltf
@@ -31,6 +34,7 @@ contains
     character(*), intent(in) :: lpath, full
     type(dyn) :: props, v, gdata, countv, ir_obj, exts
     type(dyn) :: gscale_raw
+    type(ir_object) :: tobj
     character(:), allocatable :: gname, gmaterial, errmsg
     logical :: ok, has_gscale_vec, has_gscale_num
     real(real64) :: gpos(3), grot(3), gscale3(3), gscale_vec(3)
@@ -86,26 +90,37 @@ contains
     call dyn_dict_set(vs%names, gname, node)
     countv = dyn_dict_get(gdata, "count")
     vs%total_tris = vs%total_tris + countv%i
-    ir_obj = dyn_dict()
-    call dyn_dict_set(ir_obj, "name", dyn_str(gname))
-    call dyn_dict_set(ir_obj, "prim", dyn_str("tris"))
-    call dyn_dict_set(ir_obj, "color", dyn_null())
-    call dyn_dict_set(ir_obj, "pos", vec3_dyn(gpos))
-    call dyn_dict_set(ir_obj, "rotate", vec3_dyn(grot))
-    call dyn_dict_set(ir_obj, "scale", vec3_dyn(gscale3))
-    call dyn_dict_set(ir_obj, "size", dyn_null())
-    call dyn_dict_set(ir_obj, "size3", dyn_null())
-    call dyn_dict_set(ir_obj, "radius", dyn_null())
-    call dyn_dict_set(ir_obj, "height", dyn_null())
-    call dyn_dict_set(ir_obj, "segments", dyn_null())
-    call dyn_dict_set(ir_obj, "detail", dyn_str("med"))
-    call dyn_dict_set(ir_obj, "capped", dyn_bool(.true.))
-    call dyn_dict_set(ir_obj, "material", dyn_str(gmaterial))
-    call dyn_dict_set(ir_obj, "triangles", &
+    ! Typed construction (C1): fill an ir_object field by field
+    ! and convert once; the dict pushed below is exactly the one
+    ! the old dyn_dict_set chain built (same keys, order and leaf
+    ! kinds: pos / rotate / scale stay dyn_real triples via
+    ! vec3_dyn, the null fields stay dyn_null via raw scalars /
+    ! vec3s, source_file stays a dyn_str scalar).
+    tobj = ir_object_typed_default(gname, "tris")
+    tobj%name%s = gname
+    tobj%name%present = .true.
+    tobj%prim%s = "tris"
+    tobj%prim%present = .true.
+    tobj%color = ir_vec3_from_dyn(dyn_null())
+    tobj%pos = ir_vec3_from_dyn(vec3_dyn(gpos))
+    tobj%rotate = ir_vec3_from_dyn(vec3_dyn(grot))
+    tobj%scale = ir_vec3_from_dyn(vec3_dyn(gscale3))
+    tobj%size = ir_scalar_from_dyn(dyn_null())
+    tobj%size3 = ir_vec3_from_dyn(dyn_null())
+    tobj%radius = ir_scalar_from_dyn(dyn_null())
+    tobj%height = ir_scalar_from_dyn(dyn_null())
+    tobj%segments = ir_scalar_from_dyn(dyn_null())
+    tobj%detail%s = "med"
+    tobj%detail%present = .true.
+    tobj%capped = .true.
+    tobj%material%s = gmaterial
+    tobj%material%present = .true.
+    call dyn_assign(tobj%triangles, &
          dyn_dict_get(gdata, "triangles"))
-    call dyn_dict_set(ir_obj, "source_file", dyn_str(lpath))
+    tobj%source_file = ir_scalar_from_dyn(dyn_str(lpath))
     exts = dyn_dict()
-    call dyn_dict_set(ir_obj, "extensions", exts)
+    call dyn_assign(tobj%ext, exts)
+    ir_obj = ir_object_to_dict(tobj)
     call dyn_list_push(vs%ir_objects, ir_obj)
     vs%last_obj_name = gname
     vs%has_last_obj = .true.
