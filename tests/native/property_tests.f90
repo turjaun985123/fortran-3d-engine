@@ -573,14 +573,21 @@ contains
   ! -------------------------------------------------------------
   ! SECTION sweep: all examples + all parsing corpus sources,
   ! with the xfail ratchet described in the file header.
-  ! Baselines vs the shipped bin/f3dc (2026-11-23):
+  ! Baselines vs the shipped bin/f3dc (2026-11-23, pre-fmt-fix):
   !   examples: 15 files, 1 full pass, 14 xfail (all class 1)
   !   corpus:   91 parsing sources, 39 full pass, 52 xfail
   !             (42 class 1, 0 class 2, 10 class 3)
+  ! Tightened 2026-11-23 after the fmt round-trip fix (Phase 6):
+  !   examples: 11 full pass, 4 xfail (all class 3, structural:
+  !             the originals reference assets by relative path or
+  !             are multi-scene, so classify() cannot see a clean
+  !             isolated build; all 4 verified fmt-idempotent with
+  !             byte-identical artifacts in a real examples tree)
+  !   corpus:   91 parsing sources, 91 full pass, 0 xfail
   ! -------------------------------------------------------------
   subroutine section_sweep()
-    integer, parameter :: EX_PASS_MIN = 1, EX_XFAIL_MAX = 14
-    integer, parameter :: CO_PASS_MIN = 39, CO_XFAIL_MAX = 52
+    integer, parameter :: EX_PASS_MIN = 11, EX_XFAIL_MAX = 4
+    integer, parameter :: CO_PASS_MIN = 91, CO_XFAIL_MAX = 0
     integer :: fails, rc, i, cc, cls
     integer :: ex_n, ex_pass, ex_x(3), co_n, co_pass, co_x(3)
     integer :: root, cases_node, node, src_node

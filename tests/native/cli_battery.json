@@ -301,16 +301,16 @@
    "expect": {
     "exit": 0,
     "stdout_sha256": "a9c633d427d9d9030e88df699c6991c179268b96776ffa5d1613784783e6b6e0",
-    "stderr_sha256": "c0885bd8762bc5f0ee8da075e97741eb4832f9627dd474175fb063610d2d38cd",
+    "stderr_sha256": "aa4711ba3e776d452423134a49ba81dc7bdabc19679d9d7e851135aac4e91e31",
     "stdout_len": 45,
-    "stderr_len": 568,
+    "stderr_len": 557,
     "codes": [
      "W101",
      "W101",
      "W101"
     ],
     "stdout_text": "OK: valid.f3d (1 objects, 12 triangles est.)\n",
-    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\ndesugared program:\n  scene size 640x480 bg #191923\n  camera at 3 2.5 4 look 0 0 0 up 0 1 0 fov 60 near 0.1 far 100\n  light directional -0.5 -1 -0.7 intensity 1\n  cube cube1 red at 0 0 0 rotate 20 35 0\n  spin cube1 axis y speed 90 duration 5 fps 30 ease linear loop forever\n  render\n"
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\ndesugared program:\n  scene size 640x480 bg #191923\n  camera look 0 0 0 up 0 1 0 fov 60 near 0.1 far 100\n  light directional -0.5 -1 -0.7 intensity 1\n  cube cube1 red at 0 0 0 rotate 20 35 0\n  spin cube1 axis y speed 90 duration 5 fps 30 ease linear loop forever\n  render\n"
    }
   },
   {
@@ -498,12 +498,12 @@
    "build_artifacts": false,
    "expect": {
     "exit": 0,
-    "stdout_sha256": "c6619d47a49b70bafbdf3092e66f61ded38b6633f26962e56c99b6e4c5e8e72c",
+    "stdout_sha256": "faff2de6b681db60e12bff60ac687990a54c2d932d47fc46b15a7a8b32da1b6e",
     "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "stdout_len": 674,
+    "stdout_len": 633,
     "stderr_len": 0,
     "codes": [],
-    "stdout_text": "scene geometries size 800x600 bg black background black\ncamera look 0 0 0 fov 60\nlight directional -0.5 -1 -0.7 intensity 1.2\ncircle red at -8 2 0 radius 1\nring orange at -5 2 -1 inner 0.5 outer 1\ncapsule yellow at -2 2 0 radius 0.5 height 2\ntube green at 1 1.5 -1 radius 0.2 path (0, 0, 0) (1, 1, 0) (2, 0, 0)\nlathe cyan at 5.5 1.5 0 points (0, 0) (0.6, 0.2) (0.6, 1) (0, 1.2)\nextrude blue at 8 1.5 -1 shape (0, 0) (1, 0) (1, 1) (0, 1) depth 0.5\nicosahedron purple at -8 -2 -1 radius 1\noctahedron pink at -5 -2 0 radius 1\ntetrahedron magenta at -2 -2 -1 radius 1\ndodecahedron white at 1 -2 0 radius 1\ntorusknot gray at 6 -2 -1 radius 1\ncontrols orbit\nrender geometries.ppm\n",
+    "stdout_text": "scene geometries size 800x600 bg black\ncamera at 0 0 18 look 0 0 0 fov 60\nlight directional -0.5 -1 -0.7 intensity 1.2\ncircle red at -8 2 0 radius 1\nring orange at -5 2 -1 inner 0.5 outer 1\ncapsule yellow at -2 2 0 radius 0.5 height 2\ntube green at 1 1.5 -1 radius 0.2 path 0,0,0 1,1,0 2,0,0\nlathe cyan at 5.5 1.5 0 points 0,0 0.6,0.2 0.6,1 0,1.2\nextrude blue at 8 1.5 -1 shape 0,0 1,0 1,1 0,1 depth 0.5\nicosahedron purple at -8 -2 -1 radius 1\noctahedron pink at -5 -2 0 radius 1\ntetrahedron magenta at -2 -2 -1 radius 1\ndodecahedron white at 1 -2 0 radius 1\ntorusknot gray at 6 -2 -1 radius 1\ncontrols orbit\nrender \"geometries.ppm\"\n",
     "stderr_text": ""
    }
   },

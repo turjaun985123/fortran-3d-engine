@@ -621,26 +621,10 @@ contains
     end if
   end function ext_class_name
 
-  ! String form of a colour-ish value: str passes through, a list
-  ! renders Python-list style "[r, g, b]" (str() of a tuple in
-  ! cli.py's colour slot is an edge case; approximation).
-  function fmt_colour(v) result(out)
-    type(dyn), intent(in) :: v
-    character(len=:), allocatable :: out
-    integer :: i
-    if (v%kind == DYN_K_STR) then
-       out = v%s
-    else if (v%kind == DYN_K_LIST) then
-       out = "["
-       do i = 1, dyn_list_len(v)
-          if (i > 1) out = out//", "
-          out = out//fmt_num(dyn_list_at(v, i))
-       end do
-       out = out//"]"
-    else
-       out = fmt_num(v)
-    end if
-  end function fmt_colour
+  ! (The old fmt_colour helper rendered a colour list in Python
+  ! "[r, g, b]" style, which the .f3d lexer rejects; its callers
+  ! now use fmt_colour_val / fmt_obj_colour in the fmt section,
+  ! which emit the grammar's spaced 'rgb r g b' form.)
 
   ! ------------------------------------------------------------------
   ! Diagnostics (cli.py _print_diagnostics / _fail_code)
@@ -1004,10 +988,134 @@ contains
   !   Scene "bg"+"width" and no "kind"; Controls "autorotate";
   !   Camera "fov"+"pos"+"target".
   ! ------------------------------------------------------------------
-  subroutine format_props(props, parts, excl1, excl2)
+  ! Quote a string value for .f3d output (the lexer has no escape
+  ! sequences: a value containing '"' cannot be represented and is
+  ! passed through unchanged).
+  function quote_str(v) result(out)
+    character(len=*), intent(in) :: v
+    character(len=:), allocatable :: out
+    if (index(v, '"') > 0) then
+       out = v
+    else
+       out = '"'//v//'"'
+    end if
+  end function quote_str
+
+  ! True for a bare-identifier spelling [A-Za-z_][A-Za-z0-9_-]*.
+  logical function is_ident(s)
+    character(len=*), intent(in) :: s
+    integer :: i, c
+    is_ident = .false.
+    if (len(s) == 0) return
+    c = iachar(s(1:1))
+    if (.not. ((c >= iachar('A') .and. c <= iachar('Z')) .or. &
+               (c >= iachar('a') .and. c <= iachar('z')) .or. &
+               c == iachar('_'))) return
+    do i = 2, len(s)
+       c = iachar(s(i:i))
+       if (.not. ((c >= iachar('A') .and. c <= iachar('Z')) .or. &
+                  (c >= iachar('a') .and. c <= iachar('z')) .or. &
+                  (c >= iachar('0') .and. c <= iachar('9')) .or. &
+                  c == iachar('_') .or. c == iachar('-'))) return
+    end do
+    is_ident = .true.
+  end function is_ident
+
+  ! Colour value in surface syntax: a name / #hex string passes
+  ! through; an [r,g,b] list prints in the grammar's spaced rgb
+  ! form ('rgb 60 220 120'), which lp_colour accepts.
+  function fmt_colour_val(v) result(out)
+    type(dyn), intent(in) :: v
+    character(len=:), allocatable :: out
+    if (v%kind == DYN_K_STR) then
+       out = v%s
+    else if (v%kind == DYN_K_LIST) then
+       out = "rgb "//fmt_vec(v)
+    else
+       out = fmt_num(v)
+    end if
+  end function fmt_colour_val
+
+  ! Object colour head: colour_raw is canonical except for its
+  ! 'rgb(r,g,b)' spelling, which the lexer rejects; print the
+  ! spaced rgb form from the colour list instead.
+  function fmt_obj_colour(stmt) result(out)
+    type(dyn), intent(in) :: stmt
+    character(len=:), allocatable :: out
+    type(dyn) :: raw, col
+    out = ""
+    raw = dget(stmt, "color_raw")
+    if (raw%kind /= DYN_K_STR) return
+    if (len(raw%s) == 0) return
+    if (len(raw%s) >= 4) then
+       if (raw%s(1:4) == "rgb(") then
+          col = dget(stmt, "color")
+          if (col%kind == DYN_K_LIST) then
+             out = "rgb "//fmt_vec(col)
+             return
+          end if
+       end if
+    end if
+    out = raw%s
+  end function fmt_obj_colour
+
+  ! List-of-points in surface syntax: each point comma-joined,
+  ! points space-separated ('0,0,0 1,1,0'), as lp_numbers_ahead
+  ! grouping in object_props accepts for path/points/shape.
+  recursive function fmt_points(v) result(out)
+    type(dyn), intent(in) :: v
+    character(len=:), allocatable :: out
+    integer :: i, j
+    type(dyn) :: el, sub
+    out = ""
+    if (v%kind /= DYN_K_LIST) then
+       out = fmt_num(v)
+       return
+    end if
+    do i = 1, dyn_list_len(v)
+       el = dyn_list_at(v, i)
+       if (i > 1) out = out//" "
+       if (el%kind == DYN_K_LIST) then
+          do j = 1, dyn_list_len(el)
+             sub = dyn_list_at(el, j)
+             if (j > 1) out = out//","
+             out = out//fmt_num(sub)
+          end do
+       else
+          out = out//fmt_num(el)
+       end if
+    end do
+  end function fmt_points
+
+  ! Numeric list equality (int/real tolerant), for the light
+  ! position-vs-from dedup.
+  logical function vec_eq(a, b)
+    type(dyn), intent(in) :: a, b
+    integer :: i
+    type(dyn) :: x, y
+    vec_eq = .false.
+    if (a%kind /= DYN_K_LIST .or. b%kind /= DYN_K_LIST) return
+    if (dyn_list_len(a) /= dyn_list_len(b)) return
+    do i = 1, dyn_list_len(a)
+       x = dyn_list_at(a, i)
+       y = dyn_list_at(b, i)
+       if (x%kind == DYN_K_INT .and. y%kind == DYN_K_INT) then
+          if (x%i /= y%i) return
+       else if ((x%kind == DYN_K_INT .or. x%kind == DYN_K_REAL) &
+          .and. (y%kind == DYN_K_INT .or. y%kind == DYN_K_REAL)) then
+          if (fmt_num(x) /= fmt_num(y)) return
+       else
+          return
+       end if
+    end do
+    vec_eq = .true.
+  end function vec_eq
+
+  subroutine format_props(props, parts, excl1, excl2, excl3, excl4)
     type(dyn), intent(in) :: props
     character(len=:), allocatable, intent(out) :: parts
-    character(len=*), intent(in), optional :: excl1, excl2
+    character(len=*), intent(in), optional :: excl1, excl2, &
+         excl3, excl4
     character(len=64) :: eff_keys(256)
     type(dyn) :: eff_vals(256)
     integer :: n_eff, i, k
@@ -1027,6 +1135,12 @@ contains
        end if
        if (present(excl2)) then
           if (key == excl2) cycle
+       end if
+       if (present(excl3)) then
+          if (key == excl3) cycle
+       end if
+       if (present(excl4)) then
+          if (key == excl4) cycle
        end if
        ! Alias map of cli.py: pos/position -> at, rot -> rotate,
        ! colour/color -> dropped.
@@ -1077,6 +1191,24 @@ contains
     if (value%kind == DYN_K_BOOL) then
        if (.not. value%b) return
        piece = key
+    else if ((key == "fog" .or. key == "tonemap" .or. &
+              key == "shadow" .or. key == "antialias") .and. &
+             value%kind == DYN_K_STR) then
+       ! Scene environment clauses are stored as full clause text
+       ! ('fog linear near 30 far 80'); print verbatim, not keyed.
+       piece = value%s
+    else if ((key == "texture" .or. key == "normalmap" .or. &
+              key == "mr" .or. key == "emissivemap" .or. &
+              key == "occlusionmap") .and. &
+             value%kind == DYN_K_STR) then
+       ! Texture paths need quoting: a bare path's '/' / '.' are
+       ! lexer errors.
+       piece = key//" "//quote_str(value%s)
+    else if ((key == "path" .or. key == "points" .or. &
+              key == "shape") .and. value%kind == DYN_K_LIST) then
+       piece = key//" "//fmt_points(value)
+    else if (key == "emissive") then
+       piece = key//" "//fmt_colour_val(value)
     else if (value%kind == DYN_K_LIST) then
        piece = key//" "//fmt_vec(value)
     else
@@ -1098,11 +1230,8 @@ contains
        ! ObjectStmt
        parts = dstr(stmt, "prim", "cube")
        if (dnonnull(stmt, "name")) parts = parts//" "//dstr(stmt, "name", "")
-       v = dget2(stmt, "color_raw", "color")
-       if (v%kind /= DYN_K_NULL) then
-          if (.not. (v%kind == DYN_K_STR .and. len(v%s) == 0)) &
-             parts = parts//" "//fmt_colour(v)
-       end if
+       body_line = fmt_obj_colour(stmt)
+       if (len(body_line) > 0) parts = parts//" "//body_line
        call format_props(props, body_line)
        if (len(body_line) > 0) parts = parts//" "//body_line
        out = parts
@@ -1115,27 +1244,34 @@ contains
        call format_props(props, body_line)
        if (len(body_line) > 0) parts = parts//" "//body_line
        out = parts
-       v = dget(stmt, "body")
+       ! The parser stores the block's statements under "children"
+       ! ("body" is the dataclass default, always empty); the old
+       ! printer read "body" and silently dropped every child.
+       v = dget(stmt, "children")
+       if (dyn_list_len(v) == 0) v = dget(stmt, "body")
        do i = 1, dyn_list_len(v)
           call format_stmt(dyn_list_at(v, i), body_line)
           out = out//achar(10)//"  "//body_line
        end do
        out = out//achar(10)//"end"
     else if (dhas(stmt, "obj") .and. dhas(stmt, "mode")) then
-       ! RepeatStmt: Python uses a (dataclass default 0) and b
-       ! (None), so the head is "<mode> 0" / "grid 0" in practice.
+       ! RepeatStmt: the parser stores the real counts under
+       ! "count" (repeat/ring) and "rows"/"cols" (grid); the old
+       ! printer read the dataclass defaults a=0 / b=None and so
+       ! printed 'repeat 0' / 'grid 0', losing the counts.
        block
          character(len=:), allocatable :: mode, head
          type(dyn) :: a, b, obj
          mode = dstr(stmt, "mode", "repeat")
-         a = dget(stmt, "a")
-         if (a%kind == DYN_K_NULL) a = dyn_int(0_int64)
-         b = dget(stmt, "b")
-         if (mode == "grid" .and. b%kind /= DYN_K_NULL .and. &
-             .not. (b%kind == DYN_K_INT .and. b%i == 0) .and. &
-             .not. (b%kind == DYN_K_BOOL .and. .not. b%b)) then
+         if (mode == "grid") then
+            a = dget(stmt, "rows")
+            b = dget(stmt, "cols")
+            if (a%kind == DYN_K_NULL) a = dyn_int(0_int64)
+            if (b%kind == DYN_K_NULL) b = a
             head = "grid "//fmt_num(a)//"x"//fmt_num(b)
          else
+            a = dget(stmt, "count")
+            if (a%kind == DYN_K_NULL) a = dyn_int(0_int64)
             head = mode//" "//fmt_num(a)
          end if
          obj = dget(stmt, "obj")
@@ -1154,12 +1290,48 @@ contains
        if (len(body_line) > 0) parts = parts//" "//body_line
        out = parts
     else if (dhas(stmt, "direction") .and. dhas(stmt, "kind")) then
-       ! LightStmt
+       ! LightStmt: kind, direction (bare vec3, as the parser
+       ! accepts), colour, then the fields the old printer dropped:
+       ! position ('at'), target ('look'), and the Wave A extras
+       ! (angle/penumbra/distance/decay, held in props).  A 'from'
+       ! light prints 'from' (direction/position derive from it);
+       ! 'at' is skipped when it merely restates 'from'.
        parts = "light "//dstr(stmt, "kind", "directional")
-       v = dget2(stmt, "direction", "dir")
-       if (v%kind /= DYN_K_NULL) parts = parts//" "//fmt_vec(v)
-       v = dget2(stmt, "color", "color_raw")
-       if (v%kind /= DYN_K_NULL) parts = parts//" "//fmt_colour(v)
+       v = dget(stmt, "from_")
+       if (v%kind /= DYN_K_NULL) then
+          parts = parts//" from "//fmt_vec(v)
+       else
+          v = dget2(stmt, "direction", "dir")
+          if (v%kind /= DYN_K_NULL) parts = parts//" "//fmt_vec(v)
+       end if
+       v = dget(stmt, "color")
+       if (v%kind /= DYN_K_NULL) &
+          parts = parts//" "//fmt_colour_val(v)
+       v = dget(stmt, "position")
+       if (v%kind /= DYN_K_NULL) then
+          w = dget(stmt, "from_")
+          if (w%kind == DYN_K_NULL) then
+             parts = parts//" at "//fmt_vec(v)
+          else if (.not. vec_eq(v, w)) then
+             parts = parts//" at "//fmt_vec(v)
+          end if
+       end if
+       v = dget(stmt, "target")
+       if (v%kind /= DYN_K_NULL) &
+          parts = parts//" look "//fmt_vec(v)
+       props = dget(stmt, "props")
+       v = dget(props, "angle")
+       if (v%kind /= DYN_K_NULL) &
+          parts = parts//" angle "//fmt_num(v)
+       v = dget(props, "penumbra")
+       if (v%kind /= DYN_K_NULL) &
+          parts = parts//" penumbra "//fmt_num(v)
+       v = dget(props, "distance")
+       if (v%kind /= DYN_K_NULL) &
+          parts = parts//" distance "//fmt_num(v)
+       v = dget(props, "decay")
+       if (v%kind /= DYN_K_NULL) &
+          parts = parts//" decay "//fmt_num(v)
        if (dnonnull(stmt, "intensity")) &
           parts = parts//" intensity "//fmt_num(dget(stmt, "intensity"))
        out = parts
@@ -1170,11 +1342,20 @@ contains
        else
           parts = "render"
        end if
-       if (dnonnull(stmt, "path")) parts = parts//" "//dstr(stmt, "path", "")
+       if (dnonnull(stmt, "path")) &
+          parts = parts//" "//quote_str(dstr(stmt, "path", ""))
        v = dget(stmt, "width")
        w = dget(stmt, "height")
        if (v%kind /= DYN_K_NULL .and. w%kind /= DYN_K_NULL) &
           parts = parts//" size "//fmt_num(v)//"x"//fmt_num(w)
+       v = dget(stmt, "still")
+       if (v%kind == DYN_K_BOOL .and. v%b) parts = parts//" still"
+       if (dnonnull(stmt, "duration")) &
+          parts = parts//" duration "//fmt_num(dget(stmt, "duration"))
+       if (dnonnull(stmt, "fps")) &
+          parts = parts//" fps "//fmt_num(dget(stmt, "fps"))
+       if (dnonnull(stmt, "frames")) &
+          parts = parts//" frames "//fmt_num(dget(stmt, "frames"))
        out = parts
     else if (dhas(stmt, "import_path")) then
        ! ImportStmt (v2.0 P3, native-only): printed in source form,
@@ -1193,30 +1374,53 @@ contains
        out = parts
     else if (dhas(stmt, "bg") .and. dhas(stmt, "width") .and. &
              .not. dhas(stmt, "kind")) then
-       ! SceneStmt
+       ! SceneStmt: 'background' lives in props under its long
+       ! name (and colour/color aliases), so excluding only "bg"
+       ! printed it twice ('bg black background black', E110 on
+       ! re-parse).  Print bg once, from the node's bg value (any
+       ! colour form), and exclude every alias from the props.
        parts = "scene"
-       if (dnonnull(stmt, "name")) parts = parts//" "//dstr(stmt, "name", "")
+       if (dnonnull(stmt, "name")) then
+          body_line = dstr(stmt, "name", "")
+          if (is_ident(body_line)) then
+             parts = parts//" "//body_line
+          else
+             parts = parts//" "//quote_str(body_line)
+          end if
+       end if
        v = dget(stmt, "width")
        w = dget(stmt, "height")
        if (v%kind /= DYN_K_NULL .and. w%kind /= DYN_K_NULL) &
           parts = parts//" size "//fmt_num(v)//"x"//fmt_num(w)
-       if (dnonnull(stmt, "bg")) parts = parts//" bg "//dstr(stmt, "bg", "")
-       call format_props(props, body_line, "size", "bg")
+       v = dget(stmt, "bg")
+       if (v%kind /= DYN_K_NULL) &
+          parts = parts//" bg "//fmt_colour_val(v)
+       call format_props(props, body_line, "size", "background", &
+                         "colour", "color")
        if (len(body_line) > 0) parts = parts//" "//body_line
        out = parts
     else if (dhas(stmt, "autorotate")) then
-       ! ControlsStmt ("kind" holds the dataclass default "orbit")
-       parts = "controls "//dstr(stmt, "kind", "orbit")
+       ! ControlsStmt: "kind" holds the dataclass default
+       ! ("orbit"); the parsed mode is under "mode" -- printing
+       ! "kind" turned 'controls none' into 'controls orbit'.
+       parts = "controls "//dstr(stmt, "mode", &
+                                 dstr(stmt, "kind", "orbit"))
        call format_props(props, body_line)
        if (len(body_line) > 0) parts = parts//" "//body_line
        out = parts
     else if (dhas(stmt, "fov") .and. dhas(stmt, "pos") .and. &
              dhas(stmt, "target")) then
-       ! CameraStmt: Python reads "pos" (always None from the
-       ! parser, set on desugar's injected default), "target",
-       ! "up", then fov/near/far.
+       ! CameraStmt: the parser stores the position under "at"
+       ! ("pos" is always null on a parsed node), so the old
+       ! printer dropped every camera position; 'ortho' and the
+       ! ortho 'size' live only in props and were dropped too.
        parts = "camera"
-       v = dget(stmt, "pos")
+       v = dget(props, "ortho")
+       if (v%kind == DYN_K_BOOL .and. v%b) parts = parts//" ortho"
+       v = dget(props, "size")
+       if (v%kind /= DYN_K_NULL) &
+          parts = parts//" size "//fmt_num(v)
+       v = dget(stmt, "at")
        if (v%kind /= DYN_K_NULL) parts = parts//" at "//fmt_vec(v)
        v = dget(stmt, "target")
        if (v%kind /= DYN_K_NULL) parts = parts//" look "//fmt_vec(v)
@@ -1226,10 +1430,103 @@ contains
        if (dnonnull(stmt, "near")) parts = parts//" near "//fmt_num(dget(stmt, "near"))
        if (dnonnull(stmt, "far")) parts = parts//" far "//fmt_num(dget(stmt, "far"))
        out = parts
+    else if (dhas(stmt, "amount")) then
+       ! FilterStmt: 'filter <name> [amount]'
+       parts = "filter "//dstr(stmt, "name", "")
+       v = dget(stmt, "amount")
+       if (v%kind /= DYN_K_NULL) parts = parts//" "//fmt_num(v)
+       out = parts
+    else if (dhas(stmt, "expr")) then
+       ! ShaderStmt: 'shader <name> expr "<expr>"'
+       parts = "shader "//dstr(stmt, "name", "")//" expr "// &
+               quote_str(dstr(stmt, "expr", ""))
+       out = parts
+    else if (dhas(stmt, "factor")) then
+       ! MorphStmt: 'morph <target> <kind> <factor>'
+       parts = "morph "//dstr(stmt, "target", "")//" "// &
+               dstr(stmt, "kind", "")//" "// &
+               fmt_num(dget(stmt, "factor"))
+       out = parts
+    else if (dhas(stmt, "bone")) then
+       ! SkinStmt: 'skin <target> <bone>'
+       parts = "skin "//dstr(stmt, "target", "")//" "// &
+               dstr(stmt, "bone", "")
+       out = parts
+    else if (dhas(stmt, "source")) then
+       ! InstanceStmt: 'instance <name> of <source> [props]'
+       parts = "instance "//dstr(stmt, "name", "")//" of "// &
+               dstr(stmt, "source", "")
+       call format_props(props, body_line, "source")
+       if (len(body_line) > 0) parts = parts//" "//body_line
+       out = parts
+    else if (dhas(stmt, "content")) then
+       ! TextStmt: 'text [name] "<content>" [colour] [props]'
+       parts = "text"
+       if (dnonnull(stmt, "name")) &
+          parts = parts//" "//dstr(stmt, "name", "")
+       parts = parts//" "//quote_str(dstr(stmt, "content", ""))
+       v = dget(stmt, "colour")
+       if (v%kind /= DYN_K_NULL) &
+          parts = parts//" "//fmt_colour_val(v)
+       call format_props(props, body_line, "content")
+       if (len(body_line) > 0) parts = parts//" "//body_line
+       out = parts
+    else if (dhas(stmt, "time")) then
+       ! KeyStmt: 'key <target> at <t> [pos ..] [rot ..]
+       ! [scale ..] [ease ..]' (props keys pos/rot, not at/rotate)
+       parts = "key "//dstr(stmt, "target", "")//" at "// &
+               fmt_num(dget(stmt, "time"))
+       v = dget(stmt, "pos")
+       if (v%kind /= DYN_K_NULL) parts = parts//" pos "//fmt_vec(v)
+       v = dget(stmt, "rot")
+       if (v%kind /= DYN_K_NULL) parts = parts//" rot "//fmt_vec(v)
+       v = dget(stmt, "scale")
+       if (v%kind /= DYN_K_NULL) &
+          parts = parts//" scale "//fmt_num(v)
+       if (dnonnull(stmt, "ease")) &
+          parts = parts//" ease "//dstr(stmt, "ease", "")
+       out = parts
+    else if (dhas(stmt, "duration") .and. dhas(stmt, "loop")) then
+       ! KeysStmt: 'keys <target> [duration N] [loop X] [fps N]'
+       parts = "keys "//dstr(stmt, "target", "")
+       if (dnonnull(stmt, "duration")) &
+          parts = parts//" duration "// &
+                  fmt_num(dget(stmt, "duration"))
+       if (dnonnull(stmt, "loop")) &
+          parts = parts//" loop "//dstr(stmt, "loop", "")
+       if (dnonnull(stmt, "fps")) &
+          parts = parts//" fps "//fmt_num(dget(stmt, "fps"))
+       out = parts
+    else if (dhas(stmt, "colour")) then
+       ! SpriteStmt / ParticlesStmt (particles carry a count
+       ! prop): '<kw> [name] [colour] [props]'; the old fallback
+       ! dropped both the name and the colour.
+       if (dhas(props, "count")) then
+          parts = "particles"
+       else
+          parts = "sprite"
+       end if
+       if (dnonnull(stmt, "name")) &
+          parts = parts//" "//dstr(stmt, "name", "")
+       v = dget(stmt, "colour")
+       if (v%kind /= DYN_K_NULL) &
+          parts = parts//" "//fmt_colour_val(v)
+       call format_props(props, body_line)
+       if (len(body_line) > 0) parts = parts//" "//body_line
+       out = parts
+    else if (dhas(props, "name") .and. dhas(stmt, "name")) then
+       ! BoneStmt: 'bone <name> [props]' (props carry a duplicate
+       ! "name" key, excluded here)
+       parts = "bone "//dstr(stmt, "name", "")
+       call format_props(props, body_line, "name")
+       if (len(body_line) > 0) parts = parts//" "//body_line
+       out = parts
     else
-       ! Unknown / extension statement kind: Python prints the
-       ! class name + formatted props; the class name is recovered
-       ! from the parser's key signatures (ext_class_name).
+       ! Unknown statement kind: Python prints the class name +
+       ! formatted props; the class name is recovered from the
+       ! parser's key signatures (ext_class_name).  Every kind the
+       ! parser produces has a real printer above; this remains
+       ! only for foreign (compat/obj) nodes.
        parts = ext_class_name(stmt)
        call format_props(props, body_line)
        if (len(body_line) > 0) then
