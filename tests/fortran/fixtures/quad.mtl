@@ -1,0 +1,12 @@
+# Materials for quad.obj (test_loaders fixture).
+newmtl red
+Ka 0.1 0.0 0.0
+Kd 1.0 0.0 0.0
+Ks 0.5 0.5 0.5
+map_Kd red.png
+
+newmtl blue
+Ka 0.0 0.0 0.1
+Kd 0.0 0.0 1.0
+Ks 0.25 0.25 0.25
+map_Kd blue.png
