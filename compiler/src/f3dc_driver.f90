@@ -43,6 +43,12 @@
 module f3dc_driver
   use, intrinsic :: iso_fortran_env, only: int64
   use, intrinsic :: iso_c_binding, only: c_int, c_char, c_null_char
+  use f3dc_str, only: str_builder, sb_init, sb_add, sb_text, sb_len
+  ! v3.0 Phase 6 (Seat X): the compiler already has a pure-Fortran
+  ! SHA-256 (f3dc_emit_common, FIPS 180-4, used for the emitter
+  ! header stamps); the incremental-build manifest reuses it rather
+  ! than growing a second, weaker hash in the driver.
+  use f3dc_emit_common, only: sha256_hex
   implicit none
   private
 
@@ -50,6 +56,8 @@ module f3dc_driver
   public :: driver_ensure_engine, driver_run_engine
   public :: driver_run_capture, driver_quote, driver_cwd
   public :: driver_file_exists, driver_is_dir, driver_abs_path
+  public :: driver_file_sha256
+  public :: driver_manifest_check, driver_manifest_write
 
   ! _TAIL_CHARS / _TAIL_LINES in driver.py.
   integer, parameter :: TAIL_CHARS = 2000
@@ -109,6 +117,7 @@ contains
     character(len=*), intent(in) :: path
     character(len=:), allocatable :: out, full
     character(len=256) :: parts(512)
+    type(str_builder) :: sb
     integer :: n, i, top
     logical :: absolute
     absolute = .false.
@@ -149,12 +158,13 @@ contains
           parts(top) = parts(i)
        end if
     end do
-    out = ""
-    if (absolute) out = "/"
+    call sb_init(sb)
+    if (absolute) call sb_add(sb, "/")
     do i = 1, top
-       if (i > 1) out = out//"/"
-       out = out//trim(parts(i))
+       if (i > 1) call sb_add(sb, "/")
+       call sb_add(sb, trim(parts(i)))
     end do
+    out = sb_text(sb)
     if (len(out) == 0) out = "/"
   end function driver_abs_path
 
@@ -178,16 +188,19 @@ contains
   function driver_quote(s) result(out)
     character(len=*), intent(in) :: s
     character(len=:), allocatable :: out
+    type(str_builder) :: sb
     integer :: i
-    out = "'"
+    call sb_init(sb)
+    call sb_add(sb, "'")
     do i = 1, len(s)
        if (s(i:i) == "'") then
-          out = out//"'\''"
+          call sb_add(sb, "'\''")
        else
-          out = out//s(i:i)
+          call sb_add(sb, s(i:i))
        end if
     end do
-    out = out//"'"
+    call sb_add(sb, "'")
+    out = sb_text(sb)
   end function driver_quote
 
   ! ------------------------------------------------------------------
@@ -238,18 +251,29 @@ contains
     character(len=:), allocatable, intent(out) :: out_text, err_text
     logical, intent(out) :: timed_out
     character(len=:), allocatable :: base, full, tpath
+    type(str_builder) :: sb
     logical :: have_timeout
     integer :: pid
     pid = c_getpid()
     base = "/tmp/f3dc_driver_"//trim(int_str(int(pid, int64)))
     call driver_find_tool("timeout", tpath, have_timeout)
-    full = ""
-    if (len_trim(cwd) > 0) full = "cd "//driver_quote(cwd)//" && "
-    if (have_timeout .and. timeout > 0) then
-       full = full//"timeout -k 5 "//trim(int_str(int(timeout, int64)))//" "
+    call sb_init(sb)
+    if (len_trim(cwd) > 0) then
+       call sb_add(sb, "cd ")
+       call sb_add(sb, driver_quote(cwd))
+       call sb_add(sb, " && ")
     end if
-    full = full//cmd//" >"//driver_quote(base//".out")// &
-           " 2>"//driver_quote(base//".err")
+    if (have_timeout .and. timeout > 0) then
+       call sb_add(sb, "timeout -k 5 ")
+       call sb_add(sb, trim(int_str(int(timeout, int64))))
+       call sb_add(sb, " ")
+    end if
+    call sb_add(sb, cmd)
+    call sb_add(sb, " >")
+    call sb_add(sb, driver_quote(base//".out"))
+    call sb_add(sb, " 2>")
+    call sb_add(sb, driver_quote(base//".err"))
+    full = sb_text(sb)
     call execute_command_line(full, exitstat=rc)
     timed_out = (have_timeout .and. timeout > 0 .and. rc == 124)
     out_text = read_all(base//".out")
@@ -341,13 +365,15 @@ contains
   function output_tail(out_text, err_text) result(tail)
     character(len=*), intent(in) :: out_text, err_text
     character(len=:), allocatable :: tail, combined
+    type(str_builder) :: sb
     integer :: i, nlines, keep_from, pos
-    combined = ""
-    if (len(out_text) > 0) combined = out_text
+    call sb_init(sb)
+    if (len(out_text) > 0) call sb_add(sb, out_text)
     if (len(err_text) > 0) then
-       if (len(combined) > 0) combined = combined//achar(10)
-       combined = combined//err_text
+       if (sb_len(sb) > 0) call sb_add(sb, achar(10))
+       call sb_add(sb, err_text)
     end if
+    combined = sb_text(sb)
     ! strip() -- leading/trailing whitespace (space, tab, CR, LF).
     combined = strip_ws(combined)
     if (len(combined) == 0) then
@@ -412,6 +438,7 @@ contains
     logical, intent(out) :: failed
     character(len=*), intent(in), optional :: root
     character(len=:), allocatable :: root_path, tool, out_t, err_t, tail
+    type(str_builder) :: sb_msg
     integer :: rc
     logical :: found, timed_out
     failed = .false.
@@ -458,8 +485,15 @@ contains
        msg = "building the Forge3D engine with 'make' timed out. "// &
              "help: run 'make' by hand in '"//root_path//"' to see "// &
              "what is happening."
-       if (len(tail) > 0) msg = msg//achar(10)//"last build output:"// &
-                                achar(10)//tail
+       if (len(tail) > 0) then
+          call sb_init(sb_msg)
+          call sb_add(sb_msg, msg)
+          call sb_add(sb_msg, achar(10))
+          call sb_add(sb_msg, "last build output:")
+          call sb_add(sb_msg, achar(10))
+          call sb_add(sb_msg, tail)
+          msg = sb_text(sb_msg)
+       end if
        failed = .true.
        return
     end if
@@ -469,8 +503,15 @@ contains
              "with code "//trim(int_str(int(rc, int64)))//" in '"// &
              root_path//"'. help: run 'make' by hand there and fix "// &
              "the errors shown, then try again."
-       if (len(tail) > 0) msg = msg//achar(10)//"last build output:"// &
-                                achar(10)//tail
+       if (len(tail) > 0) then
+          call sb_init(sb_msg)
+          call sb_add(sb_msg, msg)
+          call sb_add(sb_msg, achar(10))
+          call sb_add(sb_msg, "last build output:")
+          call sb_add(sb_msg, achar(10))
+          call sb_add(sb_msg, tail)
+          msg = sb_text(sb_msg)
+       end if
        failed = .true.
        return
     end if
@@ -480,8 +521,15 @@ contains
              "expected file '"//engine//"', even though 'make' "// &
              "reported success. help: run 'make' by hand in '"// &
              root_path//"' and check that it creates bin/engine3d."
-       if (len(tail) > 0) msg = msg//achar(10)//"last build output:"// &
-                                achar(10)//tail
+       if (len(tail) > 0) then
+          call sb_init(sb_msg)
+          call sb_add(sb_msg, msg)
+          call sb_add(sb_msg, achar(10))
+          call sb_add(sb_msg, "last build output:")
+          call sb_add(sb_msg, achar(10))
+          call sb_add(sb_msg, tail)
+          msg = sb_text(sb_msg)
+       end if
        failed = .true.
        return
     end if
@@ -545,5 +593,214 @@ contains
        end if
     end if
   end subroutine driver_run_engine
+
+  ! ------------------------------------------------------------------
+  ! Incremental build manifest (v3.0 Phase 6, Seat X)
+  !
+  ! A build records, next to its outputs, a small line-based text
+  ! manifest (written by the CLI into the output directory as
+  ! .f3dc-manifest-<stem>):
+  !
+  !   f3dc-manifest 1
+  !   stem <stem>
+  !   out <output file name>            (one per expected output)
+  !   dep <sha256hex> <size> <abs path> (one per dependency)
+  !   dep MISSING 0 <abs path>          (dependency absent at build)
+  !
+  ! Dependencies are every file whose content can change the build
+  ! artifacts: the source file, imported part files, loaded OBJ /
+  ! glTF files (+ a glTF's external buffer/image URIs), texture
+  ! slot files, the HTML runtime/template inputs, and the f3dc
+  ! binary itself.  driver_manifest_check recomputes every entry:
+  ! the manifest matches only when the header/stem are intact,
+  ! the recorded output set equals the expected one, every output
+  ! still exists, and every dependency is byte-identical (same
+  ! size + SHA-256) or still missing.  Anything else -- absent or
+  ! corrupt manifest, changed/missing/extra dependency, missing
+  ! output -- is a miss and the caller performs a full build.
+  ! ------------------------------------------------------------------
+
+  !> SHA-256 hex digest of a file's bytes; OK=.false. when the
+  !! file does not exist or cannot be read.  NOTE: this cannot
+  !! use read_all above -- that helper opens without ACTION=,
+  !! gfortran then opens read-write, and the kernel refuses a
+  !! read-write open of a RUNNING executable (ETXTBSY), which
+  !! would silently hash "" for the f3dc binary itself (one of
+  !! the manifest's dependencies).  Open read-only here.
+  subroutine driver_file_sha256(path, hex, ok)
+    character(len=*), intent(in) :: path
+    character(len=:), allocatable, intent(out) :: hex
+    logical, intent(out) :: ok
+    character(len=:), allocatable :: data
+    integer :: unit, ios, sz
+    logical :: there
+    ok = .false.
+    hex = ""
+    inquire (file=path, exist=there, size=sz)
+    if (.not. there) return
+    open (newunit=unit, file=path, access="stream", &
+          form="unformatted", status="old", action="read", &
+          iostat=ios)
+    if (ios /= 0) return
+    allocate (character(len=max(sz, 0)) :: data)
+    if (sz > 0) read (unit, iostat=ios) data
+    close (unit)
+    if (ios /= 0) return
+    call sha256_hex(data, hex)
+    ok = .true.
+  end subroutine driver_file_sha256
+
+  subroutine driver_file_size(path, sz, ok)
+    character(len=*), intent(in) :: path
+    integer, intent(out) :: sz
+    logical, intent(out) :: ok
+    logical :: there
+    inquire (file=path, exist=there, size=sz)
+    ok = there
+    if (.not. there) sz = -1
+  end subroutine driver_file_size
+
+  !> Write MANIFEST_PATH for STEM with the given output names and
+  !! dependency paths (duplicates dropped).  Best effort: a failed
+  !! write simply means the next build cannot skip.
+  subroutine driver_manifest_write(manifest_path, stem, out_names, &
+                                   dep_paths, n_deps)
+    character(len=*), intent(in) :: manifest_path, stem
+    character(len=*), intent(in) :: out_names(:), dep_paths(:)
+    integer, intent(in) :: n_deps
+    character(len=:), allocatable :: text, hex, p
+    type(str_builder) :: sb
+    integer :: i, j, unit, ios, sz
+    logical :: ok, dup
+    call sb_init(sb)
+    call sb_add(sb, "f3dc-manifest 1")
+    call sb_add(sb, achar(10))
+    call sb_add(sb, "stem ")
+    call sb_add(sb, stem)
+    call sb_add(sb, achar(10))
+    do i = 1, size(out_names)
+       call sb_add(sb, "out ")
+       call sb_add(sb, trim(out_names(i)))
+       call sb_add(sb, achar(10))
+    end do
+    do i = 1, n_deps
+       p = trim(dep_paths(i))
+       if (len_trim(p) == 0) cycle
+       dup = .false.
+       do j = 1, i - 1
+          if (trim(dep_paths(j)) == p) dup = .true.
+       end do
+       if (dup) cycle
+       call driver_file_size(p, sz, ok)
+       if (ok) then
+          call driver_file_sha256(p, hex, ok)
+       end if
+       if (ok) then
+          call sb_add(sb, "dep ")
+          call sb_add(sb, hex)
+          call sb_add(sb, " ")
+          call sb_add(sb, trim(int_str(int(sz, int64))))
+          call sb_add(sb, " ")
+          call sb_add(sb, p)
+          call sb_add(sb, achar(10))
+       else
+          call sb_add(sb, "dep MISSING 0 ")
+          call sb_add(sb, p)
+          call sb_add(sb, achar(10))
+       end if
+    end do
+    text = sb_text(sb)
+    open (newunit=unit, file=manifest_path, access="stream", &
+          form="unformatted", status="replace", iostat=ios)
+    if (ios /= 0) return
+    if (len(text) > 0) write (unit, iostat=ios) text
+    close (unit)
+  end subroutine driver_manifest_write
+
+  !> MATCH=.true. only when the stored manifest is a genuine match
+  !! for STEM and the expected outputs (see the section header).
+  subroutine driver_manifest_check(manifest_path, stem, out_dir, &
+                                   exp_outs, match)
+    character(len=*), intent(in) :: manifest_path, stem, out_dir
+    character(len=*), intent(in) :: exp_outs(:)
+    logical, intent(out) :: match
+    character(len=:), allocatable :: text, line, hex, p, stored_hex
+    integer :: pos, nl, i, n_out_seen, n_dep_seen, f1, f2, f3, sz
+    integer :: stored_sz
+    logical :: ok, seen
+    match = .false.
+    if (.not. driver_file_exists(manifest_path)) return
+    text = read_all(manifest_path)
+    if (len(text) == 0) return
+    n_out_seen = 0
+    n_dep_seen = 0
+    pos = 1
+    block
+      logical :: first_line
+      first_line = .true.
+      do while (pos <= len(text))
+       nl = index(text(pos:), achar(10))
+       if (nl == 0) then
+          line = text(pos:)
+          pos = len(text) + 1
+       else
+          line = text(pos:pos + nl - 2)
+          pos = pos + nl
+       end if
+       if (len(line) == 0) cycle
+       if (first_line) then
+          first_line = .false.
+          if (line /= "f3dc-manifest 1") return
+          cycle
+       end if
+       if (starts_with_str(line, "stem ")) then
+          if (line(6:) /= stem) return
+       else if (starts_with_str(line, "out ")) then
+          n_out_seen = n_out_seen + 1
+          seen = .false.
+          do i = 1, size(exp_outs)
+             if (trim(exp_outs(i)) == line(5:)) seen = .true.
+          end do
+          if (.not. seen) return
+          if (.not. driver_file_exists(out_dir//"/"//line(5:))) &
+             return
+       else if (starts_with_str(line, "dep ")) then
+          n_dep_seen = n_dep_seen + 1
+          ! Fields: dep <hex|MISSING> <size> <path (may hold spaces)>
+          f1 = index(line(5:), " ")
+          if (f1 == 0) return
+          stored_hex = line(5:5 + f1 - 2)
+          f2 = 5 + f1
+          f3 = index(line(f2:), " ")
+          if (f3 == 0) return
+          read (line(f2:f2 + f3 - 2), *, iostat=sz) stored_sz
+          if (sz /= 0) return
+          p = line(f2 + f3:)
+          if (stored_hex == "MISSING") then
+             if (driver_file_exists(p)) return
+          else
+             call driver_file_size(p, sz, ok)
+             if (.not. ok) return
+             if (sz /= stored_sz) return
+             call driver_file_sha256(p, hex, ok)
+             if (.not. ok) return
+             if (hex /= stored_hex) return
+          end if
+       else
+          return  ! unknown line: corrupt manifest
+       end if
+      end do
+    end block
+    if (n_out_seen /= size(exp_outs)) return
+    if (n_dep_seen == 0) return
+    match = .true.
+  end subroutine driver_manifest_check
+
+  pure logical function starts_with_str(s, prefix)
+    character(len=*), intent(in) :: s, prefix
+    starts_with_str = .false.
+    if (len(prefix) > len(s)) return
+    starts_with_str = (s(1:len(prefix)) == prefix)
+  end function starts_with_str
 
 end module f3dc_driver

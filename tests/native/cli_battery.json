@@ -89,12 +89,12 @@
    "build_artifacts": false,
    "expect": {
     "exit": 0,
-    "stdout_sha256": "3e09964cc4a30d7fb509f01962728f1fd45a3c2585862dd77747ee7c144b8485",
+    "stdout_sha256": "5841d6163685f7f82b9c8aa3f4c42ece113f7bc92a0631404a17a24f5e659f07",
     "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "stdout_len": 307,
+    "stdout_len": 371,
     "stderr_len": 0,
     "codes": [],
-    "stdout_text": "usage: f3dc build [-h] [-o OUT] [--explain] file\n\npositional arguments:\n  file               scene file (.f3d, .json or .obj)\n\noptions:\n  -h, --help         show this help message and exit\n  -o OUT, --out OUT  output directory (default: build/)\n  --explain          also print the desugared program summary\n",
+    "stdout_text": "usage: f3dc build [-h] [-o OUT] [--explain] file\n\npositional arguments:\n  file               scene file (.f3d, .json or .obj)\n\noptions:\n  -h, --help         show this help message and exit\n  -o OUT, --out OUT  output directory (default: build/)\n  --explain          also print the desugared program summary\n  --force            rebuild even if the outputs are up to date\n",
     "stderr_text": ""
    }
   },
@@ -638,6 +638,52 @@
     "stdout_text": "f3dc 2.0.0\ngfortran: /usr/bin/gfortran\nmake: /usr/bin/make\ncc: /usr/bin/cc\nrepo root: /home/hatch/workspace/fortran-3d-engine\nengine sources: /home/hatch/workspace/fortran-3d-engine/src (present)\n",
     "stderr_text": ""
    }
-  }
+  },
+{
+ "name": "check --json error document (E104)",
+ "argv": [
+  "check",
+  "--json",
+  "err.f3d"
+ ],
+ "setup": {
+  "err.f3d": "cubee red\nrender\n"
+ },
+ "kind": "exact",
+ "build_artifacts": false,
+ "expect": {
+  "exit": 1,
+  "stdout_sha256": "2bd710d16ddf7534e31c1fecccbdcb9d5972a487d7462e7b79b25573785d8d9c",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_len": 357,
+  "stderr_len": 0,
+  "codes": [],
+  "stdout_text": "[\n  {\n    \"code\": \"E104\",\n    \"severity\": \"error\",\n    \"message\": \"unknown word 'cubee' -- did you mean 'cube'?\",\n    \"file\": \"err.f3d\",\n    \"line\": 1,\n    \"col\": 1,\n    \"span\": {\n      \"source\": \"err.f3d\",\n      \"line\": 1,\n      \"col\": 1,\n      \"length\": 1\n    },\n    \"why\": \"the compiler does not know this word\",\n    \"help\": \"did you mean 'cube'?\"\n  }\n]\n",
+  "stderr_text": ""
+ }
+},
+{
+ "name": "check --json warning-only document (W101)",
+ "argv": [
+  "check",
+  "--json",
+  "warn.f3d"
+ ],
+ "setup": {
+  "warn.f3d": "\n"
+ },
+ "kind": "exact",
+ "build_artifacts": false,
+ "expect": {
+  "exit": 0,
+  "stdout_sha256": "ec71addbb0ee7283123e0bdb65690d5f7c5a822b6067ff5846fe5231f13b6873",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_len": 1031,
+  "stderr_len": 0,
+  "codes": [],
+  "stdout_text": "[\n  {\n    \"code\": \"W101\",\n    \"severity\": \"warning\",\n    \"message\": \"empty program: injecting a default cube\",\n    \"file\": null,\n    \"line\": null,\n    \"col\": null,\n    \"span\": null,\n    \"why\": \"\",\n    \"help\": \"\"\n  },\n  {\n    \"code\": \"W101\",\n    \"severity\": \"warning\",\n    \"message\": \"no scene statement: injecting default scene 640x480 bg #191923\",\n    \"file\": null,\n    \"line\": null,\n    \"col\": null,\n    \"span\": null,\n    \"why\": \"\",\n    \"help\": \"\"\n  },\n  {\n    \"code\": \"W101\",\n    \"severity\": \"warning\",\n    \"message\": \"no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\",\n    \"file\": null,\n    \"line\": null,\n    \"col\": null,\n    \"span\": null,\n    \"why\": \"\",\n    \"help\": \"\"\n  },\n  {\n    \"code\": \"W101\",\n    \"severity\": \"warning\",\n    \"message\": \"no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\",\n    \"file\": null,\n    \"line\": null,\n    \"col\": null,\n    \"span\": null,\n    \"why\": \"\",\n    \"help\": \"\"\n  }\n]\nOK: warn.f3d (1 objects, 12 triangles est.)\n",
+  "stderr_text": ""
+ }
+}
  ]
 }

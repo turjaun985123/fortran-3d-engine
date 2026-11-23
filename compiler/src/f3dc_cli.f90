@@ -68,7 +68,8 @@ program f3dc
        error_bag_format_text, error_bag_format_json, &
        error_bag_use_color, error_bag_debug_text
   use f3dc_parser, only: f3dc_parse
-  use f3dc_validate, only: validate_program
+  use f3dc_validate, only: validate_program, &
+       f3dc_validate_import_deps
   use f3dc_ext_geometry, only: eg_estimate => estimate_triangles
   use f3dc_optimize, only: optimize
   use f3dc_desugar, only: desugar
@@ -82,7 +83,7 @@ program f3dc
   use f3dc_driver, only: driver_repo_root, driver_find_tool, &
        driver_ensure_engine, driver_run_engine, driver_run_capture, &
        driver_quote, driver_cwd, driver_file_exists, driver_is_dir, &
-       driver_abs_path
+       driver_abs_path, driver_manifest_check, driver_manifest_write
   use f3dc_preview, only: preview_serve
   implicit none
 
@@ -204,6 +205,7 @@ contains
        call out_line("  -h, --help         show this help message and exit")
        call out_line("  -o OUT, --out OUT  output directory (default: build/)")
        call out_line("  --explain          also print the desugared program summary")
+       call out_line("  --force            rebuild even if the outputs are up to date")
     case ("check")
        call out_line("usage: f3dc check [-h] [--explain] [--json] file")
        call out_line("")
@@ -1591,16 +1593,23 @@ contains
   ! build (cli.py _do_build): returns code plus (out_dir, ir, stem)
   ! ------------------------------------------------------------------
   recursive subroutine do_build(path, out_dir_in, has_out, explain, &
-                                stem_override, has_stem_override, &
+                                force, stem_override, &
+                                has_stem_override, &
                                 code, out_dir, ir, stem)
     character(len=*), intent(in) :: path, out_dir_in, stem_override
-    logical, intent(in) :: has_out, explain, has_stem_override
+    logical, intent(in) :: has_out, explain, force, &
+         has_stem_override
     integer, intent(out) :: code
     character(len=:), allocatable, intent(out) :: out_dir, stem
     type(dyn), intent(out) :: ir
     character(len=:), allocatable :: chunks(:), temps(:), sub
     integer :: n_chunks, i, sub_code
     logical :: multi
+    ! v3.0 Phase 6 (Seat X): incremental-build cache state.
+    character(len=:), allocatable :: mpath
+    character(len=4096) :: dep_paths(512)
+    integer :: n_deps
+    logical :: cache_hit, cacheable, cache_protected, manifestable
     type(error_bag_t) :: bag
     logical :: ok
     character(len=256) :: names(6)
@@ -1624,20 +1633,22 @@ contains
           sub = path_stem(path)//"-"// &
                 chunk_scene_name(trim(chunks(i)), i - 1)
           call do_build(trim(temps(i)), out_dir_in, has_out, explain, &
-                        sub, .true., sub_code, out_dir, ir, stem)
+                        force, sub, .true., sub_code, out_dir, ir, stem)
           if (sub_code /= 0 .and. code == 0) code = sub_code
        end do
        call drop_chunks(temps, n_chunks)
        return
     end if
-    call compile_pipeline(path, bag, ir, ok)
-    if (.not. ok) then
-       call print_diagnostics(bag, .false.)
-       code = error_bag_fail_code(bag)
-       ir = dyn_null()
-       return
-    end if
-    if (error_bag_len(bag) > 0) call print_diagnostics(bag, .false.)
+    ! v3.0 Phase 6 (Seat X): incremental compile.  A plain
+    ! `f3dc build` (no --force, no --explain, not a multi-scene
+    ! chunk sub-build) may skip the compile when the manifest in
+    ! the output directory proves every input byte-identical and
+    ! every output present.  `run` passes force=.true. (it needs
+    ! the IR and fresh outputs), and preview never calls do_build
+    ! at all (f3dc_preview has its own in-memory pipeline), so
+    ! neither can be served stale output by this cache.
+    manifestable = .not. explain .and. .not. has_stem_override
+    cacheable = manifestable .and. .not. force
     if (has_out) then
        out_dir = out_dir_in
     else
@@ -1654,6 +1665,38 @@ contains
     names(4) = stem//".js"
     names(5) = stem//".html"
     names(6) = stem//"_scene.f90"
+    if (cacheable) then
+       ! The E502 protected-target refusal below must not be
+       ! bypassed by a cache hit, so it is checked first here.
+       call driver_repo_root(root)
+       cache_protected = .false.
+       do k = 1, 6
+          target = driver_abs_path(out_dir//"/"//trim(names(k)))
+          if (target == root//"/scene.json" .or. &
+              target == root//"/viewer.html") &
+             cache_protected = .true.
+       end do
+       cache_hit = .false.
+       if (.not. cache_protected) then
+          mpath = out_dir//"/.f3dc-manifest-"//stem
+          call driver_manifest_check(mpath, stem, out_dir, names, &
+                                     cache_hit)
+       end if
+       if (cache_hit) then
+          ir = dyn_null()
+          call out_line("up to date: "//path//" (manifest match)")
+          code = 0
+          return
+       end if
+    end if
+    call compile_pipeline(path, bag, ir, ok)
+    if (.not. ok) then
+       call print_diagnostics(bag, .false.)
+       code = error_bag_fail_code(bag)
+       ir = dyn_null()
+       return
+    end if
+    if (error_bag_len(bag) > 0) call print_diagnostics(bag, .false.)
     call scene_text(ir, stem, c_scene)
     call json_v2_text(ir, c_json)
     call json_legacy_text(ir, c_legacy)
@@ -1691,6 +1734,18 @@ contains
           return
        end if
     end do
+    ! v3.0 Phase 6 (Seat X): record the incremental manifest for
+    ! the next build.  Best effort and silent: a failed manifest
+    ! write changes nothing about this build's outputs or exit
+    ! code, it only forfeits a future skip.  A --force build
+    ! still refreshes the manifest (it is a full build like any
+    ! other); only the skip CHECK above honours --force.
+    if (manifestable) then
+       call collect_build_deps(path, ir, dep_paths, n_deps)
+       mpath = out_dir//"/.f3dc-manifest-"//stem
+       call driver_manifest_write(mpath, stem, names, dep_paths, &
+                                  n_deps)
+    end if
     if (explain) then
        summary = explain_text()
        if (len(summary) > 0) call err_line(summary)
@@ -1700,6 +1755,171 @@ contains
     end do
     code = 0
   end subroutine do_build
+
+  ! ------------------------------------------------------------------
+  ! Incremental-build dependency collection (v3.0 Phase 6, Seat X)
+  !
+  ! The dependency set of a build -- every file whose bytes can
+  ! change the six artifacts -- mirroring what the pipeline
+  ! actually reads (the same set f3dc_preview's watcher collects,
+  ! plus the HTML inputs and the compiler binary itself):
+  !   * the source file itself;
+  !   * imported part files (f3dc_validate_import_deps: desugar's
+  !     resolved, recursive import list from this compile);
+  !   * each object's "source_file" (load-ed OBJ / glTF), plus,
+  !     for a .gltf, every non-data: "uri" in the file (external
+  !     buffers and images);
+  !   * each object's material texture slots (extensions.material:
+  !     texture + the Phase 4 normalmap / mr / emissivemap /
+  !     occlusionmap), resolved against the scene's base_dir
+  !     exactly as the preview watcher resolves them;
+  !   * <root>/runtime/f3d.js and f3d-webgl2.js and the viewer
+  !     template candidates emit_html reads for the .html output;
+  !   * the f3dc binary itself, so a compiler upgrade invalidates.
+  ! Texture CONTENTS never reach the artifacts (only the resolved
+  ! path is emitted), but the files are hashed anyway: an edited
+  ! texture must rebuild, per the Phase 6 brief.
+  ! ------------------------------------------------------------------
+  subroutine dep_add(deps, n_deps, p)
+    character(len=4096), intent(inout) :: deps(:)
+    integer, intent(inout) :: n_deps
+    character(len=*), intent(in) :: p
+    character(len=:), allocatable :: ap
+    integer :: i
+    if (len_trim(p) == 0) return
+    ap = driver_abs_path(trim(p))
+    do i = 1, n_deps
+       if (trim(deps(i)) == ap) return
+    end do
+    if (n_deps >= size(deps)) return
+    n_deps = n_deps + 1
+    deps(n_deps) = ap
+  end subroutine dep_add
+
+  ! Preview's pv_resolve, mirrored: absolute paths pass through,
+  ! an already base_dir-prefixed path is left alone, anything else
+  ! is joined onto base_dir.
+  function dep_resolve(base_dir, s) result(out)
+    character(len=*), intent(in) :: base_dir, s
+    character(len=:), allocatable :: out
+    logical :: already
+    already = .false.
+    if (len(base_dir) > 0 .and. base_dir /= ".") then
+       if (len(s) > len(base_dir) + 1) &
+          already = s(1:len(base_dir) + 1) == base_dir//"/"
+    end if
+    if (len(s) > 0) then
+       if (s(1:1) == "/") then
+          out = s
+          return
+       end if
+    end if
+    if (already) then
+       out = s
+    else if (len(base_dir) == 0) then
+       out = s
+    else if (base_dir(len(base_dir):len(base_dir)) == "/") then
+       out = base_dir//s
+    else
+       out = base_dir//"/"//s
+    end if
+  end function dep_resolve
+
+  subroutine collect_build_deps(path, ir, deps, n_deps)
+    character(len=*), intent(in) :: path
+    type(dyn), intent(in) :: ir
+    character(len=4096), intent(out) :: deps(:)
+    integer, intent(out) :: n_deps
+    character(len=:), allocatable :: base_dir, root, s, exe
+    type(dyn) :: ideps, objs, obj, exts, mat, v
+    integer :: i, k
+    character(len=12) :: slot_keys(5)
+    n_deps = 0
+    deps = ""
+    base_dir = dstr(ir, "base_dir", path_dirname(path))
+    call dep_add(deps, n_deps, driver_abs_path(path))
+    exe = arg_at(0)
+    if (len_trim(exe) > 0) call dep_add(deps, n_deps, exe)
+    call driver_repo_root(root)
+    call dep_add(deps, n_deps, root//"/runtime/f3d.js")
+    call dep_add(deps, n_deps, root//"/runtime/f3d-webgl2.js")
+    call dep_add(deps, n_deps, &
+                 root//"/tools/f3dc/viewer_template.html")
+    call dep_add(deps, n_deps, &
+                 root//"/tools/f3dc/templates/viewer_template.html")
+    call dep_add(deps, n_deps, &
+                 root//"/tools/f3dc/templates/viewer.html.tmpl")
+    call dep_add(deps, n_deps, &
+                 root//"/compiler/viewer_template.html")
+    ideps = f3dc_validate_import_deps()
+    do i = 1, dyn_list_len(ideps)
+       v = dyn_list_at(ideps, i)
+       if (v%kind == DYN_K_STR) then
+          if (len_trim(v%s) > 0) call dep_add(deps, n_deps, v%s)
+       end if
+    end do
+    slot_keys = [character(len=12) :: "texture", "normalmap", &
+                 "mr", "emissivemap", "occlusionmap"]
+    objs = dget(ir, "objects")
+    do i = 1, dyn_list_len(objs)
+       obj = dyn_list_at(objs, i)
+       if (obj%kind /= DYN_K_DICT) cycle
+       v = dget(obj, "source_file")
+       if (v%kind == DYN_K_STR) then
+          if (len_trim(v%s) > 0) then
+             s = dep_resolve(base_dir, trim(v%s))
+             call dep_add(deps, n_deps, s)
+             if (suffix_lower(s) == ".gltf") &
+                call gltf_uri_deps(s, deps, n_deps)
+          end if
+       end if
+       exts = dget(obj, "extensions")
+       if (exts%kind == DYN_K_DICT) then
+          mat = dget(exts, "material")
+          if (mat%kind == DYN_K_DICT) then
+             do k = 1, 5
+                v = dget(mat, trim(slot_keys(k)))
+                if (v%kind == DYN_K_STR) then
+                   if (len_trim(v%s) > 0) call dep_add(deps, &
+                        n_deps, dep_resolve(base_dir, trim(v%s)))
+                end if
+             end do
+          end if
+       end if
+    end do
+  end subroutine collect_build_deps
+
+  ! Every non-"data:" "uri" value in a .gltf text (external
+  ! buffers and images), resolved against the .gltf's directory.
+  subroutine gltf_uri_deps(gltf_path, deps, n_deps)
+    character(len=*), intent(in) :: gltf_path
+    character(len=4096), intent(inout) :: deps(:)
+    integer, intent(inout) :: n_deps
+    character(len=:), allocatable :: text, uri, dir
+    logical :: rok
+    integer :: pos, k, q1, q2
+    call read_file(gltf_path, text, rok)
+    if (.not. rok) return
+    dir = path_dirname(gltf_path)
+    pos = 1
+    do while (pos <= len(text))
+       k = index(text(pos:), '"uri"')
+       if (k == 0) exit
+       pos = pos + k - 1 + 5
+       q1 = index(text(pos:), '"')
+       if (q1 == 0) exit
+       pos = pos + q1
+       q2 = index(text(pos:), '"')
+       if (q2 <= 1) exit
+       uri = text(pos:pos + q2 - 2)
+       pos = pos + q2
+       if (len(uri) >= 5) then
+          if (uri(1:5) == "data:") cycle
+       end if
+       if (len_trim(uri) > 0) &
+          call dep_add(deps, n_deps, dep_resolve(dir, trim(uri)))
+    end do
+  end subroutine gltf_uri_deps
 
   ! ------------------------------------------------------------------
   ! run (cli.py _render_output_name / _do_run)
@@ -1805,8 +2025,12 @@ contains
        call drop_chunks(temps, n_chunks)
        return
     end if
-    call do_build(path, out_dir_in, has_out, .false., stem_override, &
-                  has_stem_override, code, out_dir, ir, stem)
+    ! force=.true.: `run` always compiles fresh (it consumes the
+    ! IR and the outputs), so the incremental cache never serves
+    ! it -- build semantics for run are exactly as before.
+    call do_build(path, out_dir_in, has_out, .false., .true., &
+                  stem_override, has_stem_override, code, out_dir, &
+                  ir, stem)
     if (code /= 0) return
     ! The engine runs with cwd=out_dir; hand it an absolute .scene.
     scene_path = driver_abs_path(out_dir//"/"//stem//".scene")
@@ -2299,12 +2523,14 @@ contains
   ! help on stdout and exits 0.
   ! ------------------------------------------------------------------
   subroutine parse_file_args(cmd, allow_out, allow_explain, &
-                             allow_json, file, out_dir, has_out, &
-                             explain, as_json)
+                             allow_json, allow_force, file, &
+                             out_dir, has_out, explain, as_json, &
+                             force)
     character(len=*), intent(in) :: cmd
-    logical, intent(in) :: allow_out, allow_explain, allow_json
+    logical, intent(in) :: allow_out, allow_explain, allow_json, &
+         allow_force
     character(len=:), allocatable, intent(out) :: file, out_dir
-    logical, intent(out) :: has_out, explain, as_json
+    logical, intent(out) :: has_out, explain, as_json, force
     integer :: nargs, i, n_extra
     character(len=:), allocatable :: tok, extras
     logical :: have_file
@@ -2314,6 +2540,7 @@ contains
     has_out = .false.
     explain = .false.
     as_json = .false.
+    force = .false.
     have_file = .false.
     extras = ""
     n_extra = 0
@@ -2334,6 +2561,8 @@ contains
           has_out = .true.
        else if (allow_explain .and. tok == "--explain") then
           explain = .true.
+       else if (allow_force .and. tok == "--force") then
+          force = .true.
        else if (allow_json .and. tok == "--json") then
           as_json = .true.
        else if (starts_with(tok, "-")) then
@@ -2529,7 +2758,7 @@ contains
     integer, intent(out) :: code
     integer :: nargs
     character(len=:), allocatable :: a1, file, out_dir, name, scene
-    logical :: has_out, explain, as_json, found, no_browser
+    logical :: has_out, explain, as_json, found, no_browser, force
     integer :: port, bench_runs
     logical :: bench_json
     code = 0
@@ -2555,28 +2784,32 @@ contains
        call print_help(output_unit)
        code = 0
     case ("run")
-       call parse_file_args("run", .true., .false., .false., file, &
-                            out_dir, has_out, explain, as_json)
+       call parse_file_args("run", .true., .false., .false., &
+                            .false., file, out_dir, has_out, &
+                            explain, as_json, force)
        call do_run(file, out_dir, has_out, "", .false., code)
     case ("build")
-       call parse_file_args("build", .true., .true., .false., file, &
-                            out_dir, has_out, explain, as_json)
+       call parse_file_args("build", .true., .true., .false., &
+                            .true., file, out_dir, has_out, &
+                            explain, as_json, force)
        block
          character(len=:), allocatable :: od, st
          type(dyn) :: ir
-         call do_build(file, out_dir, has_out, explain, "", .false., &
-                       code, od, ir, st)
+         call do_build(file, out_dir, has_out, explain, force, "", &
+                       .false., code, od, ir, st)
        end block
     case ("check")
-       call parse_file_args("check", .false., .true., .true., file, &
-                            out_dir, has_out, explain, as_json)
+       call parse_file_args("check", .false., .true., .true., &
+                            .false., file, out_dir, has_out, &
+                            explain, as_json, force)
        call do_check(file, as_json, explain, code)
     case ("new")
        call parse_new_args(name)
        call do_new(name, code)
     case ("fmt")
-       call parse_file_args("fmt", .false., .false., .false., file, &
-                            out_dir, has_out, explain, as_json)
+       call parse_file_args("fmt", .false., .false., .false., &
+                            .false., file, out_dir, has_out, &
+                            explain, as_json, force)
        call do_fmt(file, code)
     case ("doctor")
        call parse_doctor_args()
