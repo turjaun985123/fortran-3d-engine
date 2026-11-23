@@ -28,13 +28,17 @@ module f3dc_emit_json
   use f3dc_dyn
   use f3dc_str, only: fmt_real, str_builder, sb_init, sb_add, sb_text
   use f3dc_emit_common, only: json_dumps, palette_face
-  use f3dc_ir, only: ir_to_dict
+  use f3dc_ir, only: ir_scene, ir_object, ir_scene_from_dict, &
+                     ir_scene_to_dict, ir_object_to_dict
   use f3dc_errors, only: error_bag_t, error_bag_add, make_diagnostic
   implicit none
   private
 
   public :: FORMAT_NAME, FORMAT_VERSION
   public :: emit_json_v2, emit_json, emit_json_legacy
+  ! C1: typed entry points (the dyn ones below are wrappers that
+  ! convert once via ir_scene_from_dict and delegate).
+  public :: emit_json_v2_typed, emit_json_typed, emit_json_legacy_typed
 
   character(len=*), parameter :: FORMAT_NAME = "forge3d-scene"
   integer, parameter :: FORMAT_VERSION = 2
@@ -52,17 +56,33 @@ contains
   ! v2 -- native IR dump
   ! ------------------------------------------------------------------
 
-  !> emit_json.emit_json_v2: stamped, deterministic v2 JSON.
-  subroutine emit_json_v2(ir, text)
-    type(dyn), intent(in) :: ir
+  !> emit_json.emit_json_v2 (typed, C1): stamped, deterministic
+  !! v2 JSON from a typed ir_scene.
+  subroutine emit_json_v2_typed(scene, text)
+    type(ir_scene), intent(in) :: scene
     character(len=:), allocatable, intent(out) :: text
     type(dyn) :: data
-    data = ir_to_dict(ir)
+    data = ir_scene_to_dict(scene)
     call dyn_dict_set(data, "format", dyn_str(FORMAT_NAME))
     call dyn_dict_set(data, "version", dyn_int(int(FORMAT_VERSION, int64)))
     call json_dumps(data, .true., .true., 1, text)
     call dyn_free(data)
+  end subroutine emit_json_v2_typed
+
+  !> emit_json.emit_json_v2: dyn boundary wrapper (old signature;
+  !! converts once via ir_scene_from_dict and delegates).
+  subroutine emit_json_v2(ir, text)
+    type(dyn), intent(in) :: ir
+    character(len=:), allocatable, intent(out) :: text
+    call emit_json_v2_typed(ir_scene_from_dict(ir), text)
   end subroutine emit_json_v2
+
+  !> emit_json.emit_json (typed): alias for the v2 dialect.
+  subroutine emit_json_typed(scene, text)
+    type(ir_scene), intent(in) :: scene
+    character(len=:), allocatable, intent(out) :: text
+    call emit_json_v2_typed(scene, text)
+  end subroutine emit_json_typed
 
   !> emit_json.emit_json: alias for the v2 dialect.
   subroutine emit_json(ir, text)
@@ -621,20 +641,23 @@ contains
   ! Legacy v1 -- scene
   ! ------------------------------------------------------------------
 
-  !> emit_json.emit_json_legacy(ir, bag=None).
-  subroutine emit_json_legacy(ir, text, bag)
-    type(dyn), intent(in) :: ir
+  !> emit_json.emit_json_legacy (typed, C1): legacy triangle JSON
+  !! from a typed ir_scene.  Each typed object is crossed back to
+  !! its canonical dict (ir_object_to_dict) so the cube/tris
+  !! flatteners below -- which read exactly the core fields that
+  !! dict carries -- run unchanged.
+  subroutine emit_json_legacy_typed(scene, text, bag)
+    type(ir_scene), intent(in) :: scene
     character(len=:), allocatable, intent(out) :: text
     type(error_bag_t), intent(inout), optional :: bag
-    type(dyn) :: objects, obj, tris, root, prim_v
+    type(dyn) :: obj, tris, root, prim_v
     character(len=:), allocatable :: prim
     integer :: i
 
     tris = dyn_list()
-    objects = dyn_dict_get(ir, "objects")
-    if (objects%kind == DYN_K_LIST) then
-      do i = 1, dyn_list_len(objects)
-        obj = dyn_list_at(objects, i)
+    if (allocated(scene%objects)) then
+      do i = 1, size(scene%objects)
+        obj = ir_object_to_dict(scene%objects(i))
         prim_v = dyn_dict_get(obj, "prim")
         if (prim_v%kind == DYN_K_STR .and. allocated(prim_v%s)) then
           prim = prim_v%s
@@ -666,6 +689,19 @@ contains
     call json_dumps(root, .false., .true., 1, text)
     call dyn_free(root)
     call dyn_free(tris)
+  end subroutine emit_json_legacy_typed
+
+  !> emit_json.emit_json_legacy(ir, bag=None): dyn boundary wrapper
+  !! (old signature; converts once via ir_scene_from_dict).
+  subroutine emit_json_legacy(ir, text, bag)
+    type(dyn), intent(in) :: ir
+    character(len=:), allocatable, intent(out) :: text
+    type(error_bag_t), intent(inout), optional :: bag
+    if (present(bag)) then
+      call emit_json_legacy_typed(ir_scene_from_dict(ir), text, bag)
+    else
+      call emit_json_legacy_typed(ir_scene_from_dict(ir), text)
+    end if
   end subroutine emit_json_legacy
 
 end module f3dc_emit_json

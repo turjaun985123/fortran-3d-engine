@@ -32,11 +32,14 @@ module f3dc_emit_js
   use f3dc_str, only: str_replace
   use f3dc_emit_common, only: header_stamp, json_dumps, NL
   use f3dc_emit_json, only: FORMAT_NAME, FORMAT_VERSION
-  use f3dc_ir, only: ir_to_dict
+  use f3dc_ir, only: ir_scene, ir_scene_from_dict, ir_scene_to_dict
   implicit none
   private
 
   public :: emit_js
+  ! C1: typed entry point (the dyn emit_js below is a wrapper that
+  ! converts once via ir_scene_from_dict and delegates).
+  public :: emit_js_typed
 
 contains
 
@@ -90,17 +93,17 @@ contains
   end subroutine compact_json
 
 
-  !> emit_js.emit_js(ir, source_name=None).
+  !> emit_js.emit_js (typed, C1).
   !! source_name resolution mirrors Python: explicit argument,
-  !! else the scene dict's "name" when non-empty, else "scene".
-  subroutine emit_js(ir, text, source_name)
-    type(dyn), intent(in) :: ir
+  !! else the typed scene's "name" when non-empty, else "scene".
+  subroutine emit_js_typed(scene, text, source_name)
+    type(ir_scene), intent(in) :: scene
     character(len=:), allocatable, intent(out) :: text
     character(len=*), intent(in), optional :: source_name
-    type(dyn) :: data, name_v
+    type(dyn) :: data
     character(len=:), allocatable :: src, payload, header
 
-    data = ir_to_dict(ir)
+    data = ir_scene_to_dict(scene)
     call dyn_dict_set(data, "format", dyn_str(FORMAT_NAME))
     call dyn_dict_set(data, "version", &
                       dyn_int(int(FORMAT_VERSION, int64)))
@@ -111,9 +114,8 @@ contains
       end if
     end if
     if (.not. allocated(src)) then
-      name_v = dyn_dict_get(ir, "name")
-      if (name_v%kind == DYN_K_STR .and. allocated(name_v%s)) then
-        if (len(name_v%s) > 0) src = name_v%s
+      if (scene%name%present .and. allocated(scene%name%s)) then
+        if (len(scene%name%s) > 0) src = scene%name%s
       end if
     end if
     if (.not. allocated(src)) src = "scene"
@@ -126,6 +128,19 @@ contains
            "window.F3D_SCENE = " // payload // ";" // NL // &
            bootstrap_text()
     call dyn_free(data)
+  end subroutine emit_js_typed
+
+  !> emit_js.emit_js(ir, source_name=None): dyn boundary wrapper
+  !! (old signature; converts once via ir_scene_from_dict).
+  subroutine emit_js(ir, text, source_name)
+    type(dyn), intent(in) :: ir
+    character(len=:), allocatable, intent(out) :: text
+    character(len=*), intent(in), optional :: source_name
+    if (present(source_name)) then
+      call emit_js_typed(ir_scene_from_dict(ir), text, source_name)
+    else
+      call emit_js_typed(ir_scene_from_dict(ir), text)
+    end if
   end subroutine emit_js
 
 end module f3dc_emit_js

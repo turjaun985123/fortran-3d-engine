@@ -1,13 +1,39 @@
-! f3dc_ir.f90 -- frozen Typed IR (ir_version=1) for the native Forge3D
+! f3dc_ir.f90 -- Typed IR (ir_version=1) for the native Forge3D
 ! compiler.  Port of tools/f3dc/ir_nodes.py (read in full).
 ! Port contract: compiler/DESIGN.md.
 !
-! IR nodes are dyn DICTS (module f3dc_dyn) whose keys are exactly the
-! Python dataclass field names, in declaration order; vec3 / colour
-! tuples are dyn lists, None is dyn_null, and int-valued fields stay
-! dyn_int while float-valued fields stay dyn_real (the Python types
-! are mirrored exactly -- e.g. IRCamera.fov defaults to the REAL 60.0
-! here, whereas desugar's DEFAULT_CAMERA carries the INT 60).
+! v3.0 Phase 6 (C1): IR nodes are REAL DERIVED TYPES -- ir_camera,
+! ir_light, ir_object, ir_anim, ir_output, ir_scene below, one type
+! per node kind, with typed fields for every core field.  dyn DICTS
+! survive only at the JSON / pipeline boundary: the converters
+! ir_scene_from_dict / ir_scene_to_dict (plus per-node *_from_dict /
+! *_to_dict) translate between a boundary dyn dict and the typed
+! scene, and ir_to_dict / ir_from_dict / ir_to_json / ir_from_json
+! are implemented on top of them, so there is exactly one code path
+! that knows the field inventory.  The legacy dyn constructors
+! (ir_camera_make & friends) are kept as boundary constructors for
+! the pipeline stages that still pass dyn scenes (validate, desugar,
+! emit_fortran); they build the same dicts they always did.
+!
+! Leaf fidelity: Python mirrors int-valued fields as dyn_int and
+! float-valued fields as dyn_real, and JSON text distinguishes 60
+! from 60.0, so scalar leaves are carried by the typed ir_scalar /
+! ir_vec3 / ir_text types (kind tag + value), NOT collapsed to one
+! Fortran numeric type.  Extension data -- the per-object and
+! per-scene "extensions" dicts (Phase 4 material slots under
+! extensions%material, Wave B/C/E extras, raw_props, geometry, ...)
+! -- rides in the typed nodes' `ext` member: a retained dyn dict,
+! documented as the EXTENSION BAG.  It is opaque to the IR layer by
+! design (extensions register new keys without changing the core
+! types); the core fields are never stored in it.  Two further dyn
+! payloads are retained verbatim, also by design: an object's
+! `triangles` (an arbitrary nested vertex payload, not IR structure)
+! and a scene's `source_map` (an arbitrary JSON value).
+!
+! Boundary dict keys are exactly the Python dataclass field names,
+! in declaration order; vec3 / colour tuples are dyn lists, None is
+! dyn_null (e.g. IRCamera.fov defaults to the REAL 60.0 here,
+! whereas desugar's DEFAULT_CAMERA carries the INT 60).
 !
 ! Mirror map (ir_nodes.py -> this module):
 !   IR_VERSION            -> IR_VERSION parameter (= 1)
@@ -62,7 +88,7 @@
 module f3dc_ir
   use, intrinsic :: iso_fortran_env, only: int64, real64
   use f3dc_dyn, only: dyn, dyn_null, dyn_bool, dyn_int, dyn_real, &
-                      dyn_str, dyn_list, dyn_dict, dyn_copy, &
+                      dyn_str, dyn_list, dyn_dict, dyn_copy, dyn_assign, &
                       dyn_dict_get, dyn_dict_set, dyn_dict_has, &
                       dyn_dict_len, dyn_dict_key_at, &
                       dyn_dict_value_at, &
@@ -93,6 +119,21 @@ module f3dc_ir
   public :: ir_parse_color, ir_parse_color_nobag
   public :: ir_to_dict, ir_from_dict, ir_to_json, ir_from_json
   public :: ir_json_write, ir_json_parse
+  ! C1 typed IR: node types, leaf types, boundary converters.
+  public :: ir_scalar, ir_vec3, ir_text
+  public :: ir_camera, ir_light, ir_object, ir_anim, ir_output, &
+            ir_scene
+  public :: ir_scalar_from_dyn, ir_scalar_to_dyn
+  public :: ir_vec3_from_dyn, ir_vec3_to_dyn
+  public :: ir_camera_from_dict, ir_camera_to_dict
+  public :: ir_light_from_dict, ir_light_to_dict
+  public :: ir_object_from_dict, ir_object_to_dict
+  public :: ir_anim_from_dict, ir_anim_to_dict
+  public :: ir_output_from_dict, ir_output_to_dict
+  public :: ir_scene_from_dict, ir_scene_to_dict
+  public :: ir_camera_typed_default, ir_light_typed_default, &
+            ir_object_typed_default, ir_anim_typed_default, &
+            ir_output_typed_default, ir_scene_typed_default
 
   integer, parameter :: IR_VERSION = 1
 
@@ -117,6 +158,106 @@ module f3dc_ir
 
   type(ext_entry), allocatable :: registry(:)
   integer :: n_registry = 0
+
+  ! ------------------------------------------------------------------
+  ! C1 typed IR -- leaf types
+  ! ------------------------------------------------------------------
+
+  !> One scalar leaf with its Python type fidelity preserved: kind
+  !! is a DYN_K_* tag for the scalar kinds (NULL/BOOL/INT/REAL/STR);
+  !! the matching component carries the value.  A non-scalar dyn
+  !! (list/dict) in a scalar slot is malformed IR; it is retained
+  !! verbatim in `raw` (has_raw) so the boundary converters stay
+  !! lossless even then -- no valid scene ever takes that path.
+  type :: ir_scalar
+    integer :: kind = DYN_K_NULL
+    integer(int64) :: i = 0_int64
+    real(real64) :: r = 0.0_real64
+    logical :: b = .false.
+    character(len=:), allocatable :: s
+    logical :: has_raw = .false.
+    type(dyn) :: raw
+  end type ir_scalar
+
+  !> A vec3 / colour triple: three ir_scalar components.  A value
+  !! that is not a 3-element list (including null, for the
+  !! list-or-None fields) is retained verbatim in `raw` (has_raw).
+  type :: ir_vec3
+    type(ir_scalar) :: c(3)
+    logical :: has_raw = .false.
+    type(dyn) :: raw
+  end type ir_vec3
+
+  !> A text field.  `present` distinguishes an absent key (the
+  !! canonical serialiser emits null for the direct-get fields) from
+  !! a present string; defaulted text fields are always present once
+  !! converted (the default is applied at conversion time, exactly
+  !! as ir_from_dict applies it).
+  type :: ir_text
+    character(len=:), allocatable :: s
+    logical :: present = .false.
+  end type ir_text
+
+  ! ------------------------------------------------------------------
+  ! C1 typed IR -- node types (field order = dataclass field order)
+  ! ------------------------------------------------------------------
+
+  type :: ir_camera
+    type(ir_vec3) :: pos, target, up
+    type(ir_scalar) :: fov, near, far
+  end type ir_camera
+
+  type :: ir_light
+    type(ir_text) :: kind
+    type(ir_vec3) :: direction, color
+    type(ir_scalar) :: intensity
+  end type ir_light
+
+  type :: ir_object
+    type(ir_text) :: name, prim
+    type(ir_vec3) :: color
+    type(ir_vec3) :: pos, rotate, scale
+    type(ir_scalar) :: size
+    type(ir_vec3) :: size3
+    type(ir_scalar) :: radius, height, segments
+    type(ir_text) :: detail
+    ! Optional keys, carried only when present on the boundary dict
+    ! (validate sets them only for explicitly determined values):
+    logical :: has_shading = .false.
+    type(ir_scalar) :: shading
+    logical :: has_mirror = .false.
+    type(ir_scalar) :: mirror
+    logical :: capped = .true.
+    type(ir_text) :: material
+    type(dyn) :: triangles     !< verbatim vertex payload (see header)
+    type(ir_scalar) :: source_file
+    type(dyn) :: ext           !< EXTENSION BAG: the "extensions" dict
+  end type ir_object
+
+  type :: ir_anim
+    type(ir_text) :: kind, target, axis
+    type(ir_scalar) :: speed, duration, fps
+    type(ir_text) :: ease, loop
+  end type ir_anim
+
+  type :: ir_output
+    type(ir_text) :: kind
+    type(ir_scalar) :: path, format, width, height
+  end type ir_output
+
+  type :: ir_scene
+    type(ir_text) :: name
+    type(ir_scalar) :: width, height
+    type(ir_vec3) :: bg
+    type(ir_camera) :: camera
+    type(ir_light), allocatable :: lights(:)
+    type(ir_object), allocatable :: objects(:)
+    type(ir_anim), allocatable :: animations(:)
+    type(ir_output), allocatable :: outputs(:)
+    type(dyn) :: ext           !< EXTENSION BAG: the "extensions" dict
+    logical :: has_source_map = .false.
+    type(dyn) :: source_map    !< verbatim JSON value (see header)
+  end type ir_scene
 
   !> State of the JSON parser (json.loads port; see ir_json_parse).
   type :: json_parser
@@ -225,14 +366,25 @@ contains
 
   !> apply_extensions(scene, bag): run every registered extension in
   !! registration order; each may mutate or replace scene in place.
+  !! Public behaviour is unchanged: hooks still receive and return
+  !! boundary dyn scenes.  Internally the dispatch crosses the typed
+  !! layer (C1): the scene is converted dyn -> typed -> dyn before
+  !! the first hook and dyn -> typed -> dyn again after the last
+  !! one, so hooks always see a canonical, fully-defaulted scene
+  !! dict.  With an empty registry this is the identity, exactly as
+  !! before (the scene is not touched at all).
   subroutine ir_apply_extensions(scene, bag)
     type(dyn), intent(inout) :: scene
     type(error_bag_t), intent(inout) :: bag
+    type(dyn) :: work
     integer :: k
+    if (n_registry == 0) return
+    work = ir_scene_to_dict(ir_scene_from_dict(scene))
     do k = 1, n_registry
       if (associated(registry(k)%fn)) &
-        call registry(k)%fn(scene, bag)
+        call registry(k)%fn(work, bag)
     end do
+    scene = ir_scene_to_dict(ir_scene_from_dict(work))
   end subroutine ir_apply_extensions
 
   pure integer function ir_extension_count()
@@ -812,6 +964,553 @@ contains
   end subroutine ir_parse_color_nobag
 
   ! ==================================================================
+  ! C1 boundary converters: dyn dict <-> typed IR
+  !
+  ! Reading semantics mirror ir_from_dict (the canonical-dict
+  ! reader): list_or_default / str_or / str_of defaults, dict-or-
+  ! empty extensions, source_map kept only when present and
+  ! non-null.  On every VALID scene these coincide with the old
+  ! ir_to_dict reading (dget_or defaults + direct gets), because
+  ! validate only ever produces fully-typed fields; the residual
+  ! divergences are the malformed-input ones already documented for
+  ! ir_from_dict (a non-string in a string slot reads as the
+  ! default, a non-list in a vec3 slot reads as the default, a
+  ! non-bool "capped" reads as .true.).
+  ! ==================================================================
+
+  function ir_scalar_from_dyn(v) result(s)
+    type(dyn), intent(in) :: v
+    type(ir_scalar) :: s
+    s%kind = v%kind
+    s%i = v%i
+    s%r = v%r
+    s%b = v%b
+    if (allocated(v%s)) s%s = v%s
+    if (v%kind == DYN_K_LIST .or. v%kind == DYN_K_DICT) then
+      s%has_raw = .true.
+      s%raw = dyn_copy(v)
+    end if
+  end function ir_scalar_from_dyn
+
+  function ir_scalar_to_dyn(s) result(v)
+    type(ir_scalar), intent(in) :: s
+    type(dyn) :: v
+    if (s%has_raw) then
+      v = dyn_copy(s%raw)
+      return
+    end if
+    select case (s%kind)
+    case (DYN_K_BOOL)
+      v = dyn_bool(s%b)
+    case (DYN_K_INT)
+      v = dyn_int(s%i)
+    case (DYN_K_REAL)
+      v = dyn_real(s%r)
+    case (DYN_K_STR)
+      if (allocated(s%s)) then
+        v = dyn_str(s%s)
+      else
+        v = dyn_str("")
+      end if
+    case default
+      v = dyn_null()
+    end select
+  end function ir_scalar_to_dyn
+
+  !> Any dyn value as an ir_vec3: a 3-element list becomes three
+  !! typed components; anything else is retained verbatim (raw).
+  function ir_vec3_from_dyn(v) result(t)
+    type(dyn), intent(in) :: v
+    type(ir_vec3) :: t
+    integer :: k
+    if (v%kind == DYN_K_LIST .and. dyn_list_len(v) == 3) then
+      do k = 1, 3
+        t%c(k) = ir_scalar_from_dyn(dyn_list_at(v, k))
+      end do
+    else
+      t%has_raw = .true.
+      t%raw = dyn_copy(v)
+    end if
+  end function ir_vec3_from_dyn
+
+  function ir_vec3_to_dyn(t) result(v)
+    type(ir_vec3), intent(in) :: t
+    type(dyn) :: v
+    integer :: k
+    if (t%has_raw) then
+      v = dyn_copy(t%raw)
+      return
+    end if
+    v = dyn_list()
+    do k = 1, 3
+      call dyn_list_push(v, ir_scalar_to_dyn(t%c(k)))
+    end do
+  end function ir_vec3_to_dyn
+
+  !> Scalar field: dget_or semantics (default only when absent).
+  function scalar_field(d, key, def) result(s)
+    type(dyn), intent(in) :: d, def
+    character(len=*), intent(in) :: key
+    type(ir_scalar) :: s
+    s = ir_scalar_from_dyn(dget_or(d, key, def))
+  end function scalar_field
+
+  !> Scalar field taken directly (dyn_dict_get; null when absent).
+  function scalar_direct(d, key) result(s)
+    type(dyn), intent(in) :: d
+    character(len=*), intent(in) :: key
+    type(ir_scalar) :: s
+    s = ir_scalar_from_dyn(dyn_dict_get(d, key))
+  end function scalar_direct
+
+  !> Vec3 field with list_or_default semantics.
+  function vec3_field(d, key, def) result(t)
+    type(dyn), intent(in) :: d, def
+    character(len=*), intent(in) :: key
+    type(ir_vec3) :: t
+    t = ir_vec3_from_dyn(list_or_default(d, key, def))
+  end function vec3_field
+
+  !> Vec3-or-null field with list_or_null semantics.
+  function vec3_or_null(d, key) result(t)
+    type(dyn), intent(in) :: d
+    character(len=*), intent(in) :: key
+    type(ir_vec3) :: t
+    t = ir_vec3_from_dyn(list_or_null(dyn_dict_get(d, key)))
+  end function vec3_or_null
+
+  !> Defaulted text field (str_or semantics; always present after).
+  function text_field(d, key, def) result(t)
+    type(dyn), intent(in) :: d
+    character(len=*), intent(in) :: key, def
+    type(ir_text) :: t
+    t%s = str_or(d, key, def)
+    t%present = .true.
+  end function text_field
+
+  !> Direct text field (str_of semantics; present tracks the key).
+  function text_direct(d, key) result(t)
+    type(dyn), intent(in) :: d
+    character(len=*), intent(in) :: key
+    type(ir_text) :: t
+    t%s = str_of(d, key)
+    t%present = dyn_dict_has(d, key)
+  end function text_direct
+
+  function text_to_dyn(t) result(v)
+    type(ir_text), intent(in) :: t
+    type(dyn) :: v
+    if (.not. t%present) then
+      v = dyn_null()
+    else if (allocated(t%s)) then
+      v = dyn_str(t%s)
+    else
+      v = dyn_str("")
+    end if
+  end function text_to_dyn
+
+  !> The extensions dict of a boundary dict ({} when absent or not
+  !! a dict, exactly as ir_from_dict / ir_to_dict read it).
+  function ext_bag_of(d) result(ext)
+    type(dyn), intent(in) :: d
+    type(dyn) :: ext
+    ext = dyn_dict_get(d, "extensions")
+    if (ext%kind /= DYN_K_DICT) ext = dyn_dict()
+  end function ext_bag_of
+
+  ! ------------------------------------------------------------------
+  ! Per-node converters
+  ! ------------------------------------------------------------------
+
+  function ir_camera_from_dict(d) result(cam)
+    type(dyn), intent(in) :: d
+    type(ir_camera) :: cam
+    type(dyn) :: dd
+    if (d%kind == DYN_K_DICT) then
+      call dyn_assign(dd, d)
+    else
+      dd = dyn_dict()
+    end if
+    cam%pos = vec3_field(dd, "pos", ir_vec3_mixed( &
+      dyn_int(3_int64), dyn_real(2.5_real64), dyn_int(4_int64)))
+    cam%target = vec3_field(dd, "target", ir_vec3_ints(0, 0, 0))
+    cam%up = vec3_field(dd, "up", ir_vec3_ints(0, 1, 0))
+    cam%fov = scalar_field(dd, "fov", dyn_real(60.0_real64))
+    cam%near = scalar_field(dd, "near", dyn_real(0.1_real64))
+    cam%far = scalar_field(dd, "far", dyn_real(100.0_real64))
+  end function ir_camera_from_dict
+
+  function ir_camera_to_dict(cam) result(d)
+    type(ir_camera), intent(in) :: cam
+    type(dyn) :: d
+    d = dyn_dict()
+    call dset(d, "pos", json_safe(ir_vec3_to_dyn(cam%pos)))
+    call dset(d, "target", json_safe(ir_vec3_to_dyn(cam%target)))
+    call dset(d, "up", json_safe(ir_vec3_to_dyn(cam%up)))
+    call dset(d, "fov", ir_scalar_to_dyn(cam%fov))
+    call dset(d, "near", ir_scalar_to_dyn(cam%near))
+    call dset(d, "far", ir_scalar_to_dyn(cam%far))
+  end function ir_camera_to_dict
+
+  function ir_light_from_dict(d) result(light)
+    type(dyn), intent(in) :: d
+    type(ir_light) :: light
+    light%kind = text_field(d, "kind", "directional")
+    light%direction = vec3_field(d, "direction", ir_vec3_mixed( &
+      dyn_real(-0.5_real64), dyn_int(-1_int64), &
+      dyn_real(-0.7_real64)))
+    light%color = vec3_field(d, "color", ir_vec3_ints(255, 255, 255))
+    light%intensity = scalar_field(d, "intensity", &
+                                   dyn_real(1.0_real64))
+  end function ir_light_from_dict
+
+  function ir_light_to_dict(light) result(d)
+    type(ir_light), intent(in) :: light
+    type(dyn) :: d
+    d = dyn_dict()
+    call dset(d, "kind", text_to_dyn(light%kind))
+    call dset(d, "direction", json_safe(ir_vec3_to_dyn( &
+                                         light%direction)))
+    call dset(d, "color", json_safe(ir_vec3_to_dyn(light%color)))
+    call dset(d, "intensity", ir_scalar_to_dyn(light%intensity))
+  end function ir_light_to_dict
+
+  function ir_object_from_dict(d) result(obj)
+    type(dyn), intent(in) :: d
+    type(ir_object) :: obj
+    type(dyn) :: capv, tri
+    obj%name = text_direct(d, "name")
+    obj%prim = text_direct(d, "prim")
+    obj%color = vec3_or_null(d, "color")
+    obj%pos = vec3_field(d, "pos", ir_vec3_ints(0, 0, 0))
+    obj%rotate = vec3_field(d, "rotate", ir_vec3_ints(0, 0, 0))
+    obj%scale = vec3_field(d, "scale", ir_vec3_ints(1, 1, 1))
+    obj%size = scalar_field(d, "size", dyn_real(2.0_real64))
+    obj%size3 = vec3_or_null(d, "size3")
+    obj%radius = scalar_direct(d, "radius")
+    obj%height = scalar_direct(d, "height")
+    obj%segments = scalar_direct(d, "segments")
+    obj%detail = text_field(d, "detail", "med")
+    obj%has_shading = dyn_dict_has(d, "shading")
+    if (obj%has_shading) &
+      obj%shading = ir_scalar_from_dyn(dyn_dict_get(d, "shading"))
+    obj%has_mirror = dyn_dict_has(d, "mirror")
+    if (obj%has_mirror) &
+      obj%mirror = ir_scalar_from_dyn(dyn_dict_get(d, "mirror"))
+    obj%capped = .true.
+    if (dyn_dict_has(d, "capped")) then
+      capv = dyn_dict_get(d, "capped")
+      if (capv%kind == DYN_K_BOOL) obj%capped = capv%b
+    end if
+    obj%material = text_field(d, "material", "lambert")
+    tri = dyn_dict_get(d, "triangles")
+    if (tri%kind /= DYN_K_NULL) tri = restore_triangles(tri)
+    call dyn_assign(obj%triangles, tri)
+    obj%source_file = scalar_direct(d, "source_file")
+    obj%ext = ext_bag_of(d)
+  end function ir_object_from_dict
+
+  !> Canonical object dict, key order exactly as ir_to_dict emits:
+  !! shading / mirror sit between detail and capped, carried only
+  !! when present.
+  function ir_object_to_dict(obj) result(d)
+    type(ir_object), intent(in) :: obj
+    type(dyn) :: d
+    d = dyn_dict()
+    call dset(d, "name", text_to_dyn(obj%name))
+    call dset(d, "prim", text_to_dyn(obj%prim))
+    call dset(d, "color", json_safe(ir_vec3_to_dyn(obj%color)))
+    call dset(d, "pos", json_safe(ir_vec3_to_dyn(obj%pos)))
+    call dset(d, "rotate", json_safe(ir_vec3_to_dyn(obj%rotate)))
+    call dset(d, "scale", json_safe(ir_vec3_to_dyn(obj%scale)))
+    call dset(d, "size", ir_scalar_to_dyn(obj%size))
+    call dset(d, "size3", json_safe(ir_vec3_to_dyn(obj%size3)))
+    call dset(d, "radius", ir_scalar_to_dyn(obj%radius))
+    call dset(d, "height", ir_scalar_to_dyn(obj%height))
+    call dset(d, "segments", ir_scalar_to_dyn(obj%segments))
+    call dset(d, "detail", text_to_dyn(obj%detail))
+    if (obj%has_shading) &
+      call dset(d, "shading", ir_scalar_to_dyn(obj%shading))
+    if (obj%has_mirror) &
+      call dset(d, "mirror", ir_scalar_to_dyn(obj%mirror))
+    call dset(d, "capped", dyn_bool(obj%capped))
+    call dset(d, "material", text_to_dyn(obj%material))
+    call dset(d, "triangles", json_safe(dyn_copy(obj%triangles)))
+    call dset(d, "source_file", ir_scalar_to_dyn(obj%source_file))
+    call dset(d, "extensions", json_safe(dyn_copy(obj%ext)))
+  end function ir_object_to_dict
+
+  function ir_anim_from_dict(d) result(anim)
+    type(dyn), intent(in) :: d
+    type(ir_anim) :: anim
+    anim%kind = text_direct(d, "kind")
+    anim%target = text_direct(d, "target")
+    anim%axis = text_field(d, "axis", "y")
+    anim%speed = scalar_field(d, "speed", dyn_real(90.0_real64))
+    anim%duration = scalar_field(d, "duration", dyn_real(5.0_real64))
+    anim%fps = scalar_field(d, "fps", dyn_int(30_int64))
+    anim%ease = text_field(d, "ease", "linear")
+    anim%loop = text_field(d, "loop", "forever")
+  end function ir_anim_from_dict
+
+  function ir_anim_to_dict(anim) result(d)
+    type(ir_anim), intent(in) :: anim
+    type(dyn) :: d
+    d = dyn_dict()
+    call dset(d, "kind", text_to_dyn(anim%kind))
+    call dset(d, "target", text_to_dyn(anim%target))
+    call dset(d, "axis", text_to_dyn(anim%axis))
+    call dset(d, "speed", ir_scalar_to_dyn(anim%speed))
+    call dset(d, "duration", ir_scalar_to_dyn(anim%duration))
+    call dset(d, "fps", ir_scalar_to_dyn(anim%fps))
+    call dset(d, "ease", text_to_dyn(anim%ease))
+    call dset(d, "loop", text_to_dyn(anim%loop))
+  end function ir_anim_to_dict
+
+  function ir_output_from_dict(d) result(outp)
+    type(dyn), intent(in) :: d
+    type(ir_output) :: outp
+    outp%kind = text_field(d, "kind", "render")
+    outp%path = scalar_direct(d, "path")
+    outp%format = scalar_direct(d, "format")
+    outp%width = scalar_direct(d, "width")
+    outp%height = scalar_direct(d, "height")
+  end function ir_output_from_dict
+
+  function ir_output_to_dict(outp) result(d)
+    type(ir_output), intent(in) :: outp
+    type(dyn) :: d
+    d = dyn_dict()
+    call dset(d, "kind", text_to_dyn(outp%kind))
+    call dset(d, "path", ir_scalar_to_dyn(outp%path))
+    call dset(d, "format", ir_scalar_to_dyn(outp%format))
+    call dset(d, "width", ir_scalar_to_dyn(outp%width))
+    call dset(d, "height", ir_scalar_to_dyn(outp%height))
+  end function ir_output_to_dict
+
+  ! ------------------------------------------------------------------
+  ! Scene converter pair (the C1 boundary)
+  ! ------------------------------------------------------------------
+
+  function ir_scene_from_dict(d) result(scene)
+    type(dyn), intent(in) :: d
+    type(ir_scene) :: scene
+    type(dyn) :: dd, item
+    integer :: k, n
+    if (d%kind == DYN_K_DICT) then
+      call dyn_assign(dd, d)
+    else
+      dd = dyn_dict()
+    end if
+    scene%name = text_field(dd, "name", "untitled")
+    scene%width = scalar_field(dd, "width", dyn_int(640_int64))
+    scene%height = scalar_field(dd, "height", dyn_int(480_int64))
+    scene%bg = vec3_field(dd, "bg", ir_vec3_ints(25, 25, 35))
+    scene%camera = ir_camera_from_dict(dyn_dict_get(dd, "camera"))
+    item = dyn_dict_get(dd, "lights")
+    n = 0
+    if (item%kind == DYN_K_LIST) n = dyn_list_len(item)
+    allocate (scene%lights(n))
+    do k = 1, n
+      scene%lights(k) = ir_light_from_dict(dyn_list_at(item, k))
+    end do
+    item = dyn_dict_get(dd, "objects")
+    n = 0
+    if (item%kind == DYN_K_LIST) n = dyn_list_len(item)
+    allocate (scene%objects(n))
+    do k = 1, n
+      scene%objects(k) = ir_object_from_dict(dyn_list_at(item, k))
+    end do
+    item = dyn_dict_get(dd, "animations")
+    n = 0
+    if (item%kind == DYN_K_LIST) n = dyn_list_len(item)
+    allocate (scene%animations(n))
+    do k = 1, n
+      scene%animations(k) = ir_anim_from_dict(dyn_list_at(item, k))
+    end do
+    item = dyn_dict_get(dd, "outputs")
+    n = 0
+    if (item%kind == DYN_K_LIST) n = dyn_list_len(item)
+    allocate (scene%outputs(n))
+    do k = 1, n
+      scene%outputs(k) = ir_output_from_dict(dyn_list_at(item, k))
+    end do
+    scene%ext = ext_bag_of(dd)
+    scene%has_source_map = .false.
+    if (dyn_dict_has(dd, "source_map")) then
+      item = dyn_dict_get(dd, "source_map")
+      if (item%kind /= DYN_K_NULL) then
+        scene%has_source_map = .true.
+        call dyn_assign(scene%source_map, item)
+      end if
+    end if
+  end function ir_scene_from_dict
+
+  !> Canonical scene dict: ir_version first, dataclass field order,
+  !! source_map appended only when set -- byte-for-byte the dict
+  !! the old dyn ir_to_dict produced for every valid scene.
+  function ir_scene_to_dict(scene) result(data)
+    type(ir_scene), intent(in) :: scene
+    type(dyn) :: data
+    type(dyn) :: arr
+    integer :: k
+    data = dyn_dict()
+    call dset(data, "ir_version", dyn_int(int(IR_VERSION, int64)))
+    call dset(data, "name", text_to_dyn(scene%name))
+    call dset(data, "width", ir_scalar_to_dyn(scene%width))
+    call dset(data, "height", ir_scalar_to_dyn(scene%height))
+    call dset(data, "bg", json_safe(ir_vec3_to_dyn(scene%bg)))
+    call dset(data, "camera", ir_camera_to_dict(scene%camera))
+    arr = dyn_list()
+    if (allocated(scene%lights)) then
+      do k = 1, size(scene%lights)
+        call dyn_list_push(arr, ir_light_to_dict(scene%lights(k)))
+      end do
+    end if
+    call dset(data, "lights", arr)
+    arr = dyn_list()
+    if (allocated(scene%objects)) then
+      do k = 1, size(scene%objects)
+        call dyn_list_push(arr, ir_object_to_dict(scene%objects(k)))
+      end do
+    end if
+    call dset(data, "objects", arr)
+    arr = dyn_list()
+    if (allocated(scene%animations)) then
+      do k = 1, size(scene%animations)
+        call dyn_list_push(arr, ir_anim_to_dict(scene%animations(k)))
+      end do
+    end if
+    call dset(data, "animations", arr)
+    arr = dyn_list()
+    if (allocated(scene%outputs)) then
+      do k = 1, size(scene%outputs)
+        call dyn_list_push(arr, ir_output_to_dict(scene%outputs(k)))
+      end do
+    end if
+    call dset(data, "outputs", arr)
+    call dset(data, "extensions", json_safe(dyn_copy(scene%ext)))
+    if (scene%has_source_map) &
+      call dset(data, "source_map", json_safe(dyn_copy( &
+                                               scene%source_map)))
+  end function ir_scene_to_dict
+
+  !> One typed object back to a RAW object dict (ir_object_make key
+  !! order; shading/mirror appended after "extensions", as
+  !! ir_from_dict has always emitted them).
+  function typed_object_to_raw_dict(o) result(sub)
+    type(ir_object), intent(in) :: o
+    type(dyn) :: sub
+    sub = dyn_dict()
+    call dset(sub, "name", text_to_dyn(o%name))
+    call dset(sub, "prim", text_to_dyn(o%prim))
+    call dset(sub, "color", ir_vec3_to_dyn(o%color))
+    call dset(sub, "pos", ir_vec3_to_dyn(o%pos))
+    call dset(sub, "rotate", ir_vec3_to_dyn(o%rotate))
+    call dset(sub, "scale", ir_vec3_to_dyn(o%scale))
+    call dset(sub, "size", ir_scalar_to_dyn(o%size))
+    call dset(sub, "size3", ir_vec3_to_dyn(o%size3))
+    call dset(sub, "radius", ir_scalar_to_dyn(o%radius))
+    call dset(sub, "height", ir_scalar_to_dyn(o%height))
+    call dset(sub, "segments", ir_scalar_to_dyn(o%segments))
+    call dset(sub, "detail", text_to_dyn(o%detail))
+    call dset(sub, "capped", dyn_bool(o%capped))
+    call dset(sub, "material", text_to_dyn(o%material))
+    call dset(sub, "triangles", dyn_copy(o%triangles))
+    call dset(sub, "source_file", ir_scalar_to_dyn(o%source_file))
+    call dset(sub, "extensions", dyn_copy(o%ext))
+    if (o%has_shading) &
+      call dset(sub, "shading", ir_scalar_to_dyn(o%shading))
+    if (o%has_mirror) &
+      call dset(sub, "mirror", ir_scalar_to_dyn(o%mirror))
+  end function typed_object_to_raw_dict
+
+  !> Typed scene back to a RAW scene dict (the ir_scene_make key
+  !! order ir_from_dict has always produced: object shading/mirror
+  !! appended after "extensions", a trailing null-free source_map
+  !! only when set).  Private: used by ir_from_dict only.
+  function typed_scene_to_raw_dict(scene) result(d)
+    type(ir_scene), intent(in) :: scene
+    type(dyn) :: d
+    type(dyn) :: arr
+    integer :: k
+    d = dyn_dict()
+    call dset(d, "name", text_to_dyn(scene%name))
+    call dset(d, "width", ir_scalar_to_dyn(scene%width))
+    call dset(d, "height", ir_scalar_to_dyn(scene%height))
+    call dset(d, "bg", ir_vec3_to_dyn(scene%bg))
+    call dset(d, "camera", ir_camera_to_dict(scene%camera))
+    arr = dyn_list()
+    if (allocated(scene%lights)) then
+      do k = 1, size(scene%lights)
+        call dyn_list_push(arr, ir_light_to_dict(scene%lights(k)))
+      end do
+    end if
+    call dset(d, "lights", arr)
+    arr = dyn_list()
+    if (allocated(scene%objects)) then
+      do k = 1, size(scene%objects)
+        call dyn_list_push(arr, &
+                           typed_object_to_raw_dict(scene%objects(k)))
+      end do
+    end if
+    call dset(d, "objects", arr)
+    arr = dyn_list()
+    if (allocated(scene%animations)) then
+      do k = 1, size(scene%animations)
+        call dyn_list_push(arr, ir_anim_to_dict(scene%animations(k)))
+      end do
+    end if
+    call dset(d, "animations", arr)
+    arr = dyn_list()
+    if (allocated(scene%outputs)) then
+      do k = 1, size(scene%outputs)
+        call dyn_list_push(arr, ir_output_to_dict(scene%outputs(k)))
+      end do
+    end if
+    call dset(d, "outputs", arr)
+    call dset(d, "extensions", dyn_copy(scene%ext))
+    if (scene%has_source_map) &
+      call ir_scene_set_source_map(d, dyn_copy(scene%source_map))
+  end function typed_scene_to_raw_dict
+
+  ! ------------------------------------------------------------------
+  ! Typed defaults (the dyn *_default constructors, crossed over)
+  ! ------------------------------------------------------------------
+
+  function ir_camera_typed_default() result(cam)
+    type(ir_camera) :: cam
+    cam = ir_camera_from_dict(ir_camera_default())
+  end function ir_camera_typed_default
+
+  function ir_light_typed_default() result(light)
+    type(ir_light) :: light
+    light = ir_light_from_dict(ir_light_default())
+  end function ir_light_typed_default
+
+  function ir_object_typed_default(name, prim) result(obj)
+    character(len=*), intent(in) :: name, prim
+    type(ir_object) :: obj
+    obj = ir_object_from_dict(ir_object_default(name, prim))
+  end function ir_object_typed_default
+
+  function ir_anim_typed_default(kind, target) result(anim)
+    character(len=*), intent(in) :: kind, target
+    type(ir_anim) :: anim
+    anim = ir_anim_from_dict(ir_anim_default(kind, target))
+  end function ir_anim_typed_default
+
+  function ir_output_typed_default() result(outp)
+    type(ir_output) :: outp
+    outp = ir_output_from_dict(ir_output_default())
+  end function ir_output_typed_default
+
+  function ir_scene_typed_default() result(scene)
+    type(ir_scene) :: scene
+    scene = ir_scene_from_dict(ir_scene_default())
+  end function ir_scene_typed_default
+
+  ! ==================================================================
   ! Serialisation: to_dict / from_dict / to_json / from_json
   ! ==================================================================
 
@@ -844,172 +1543,14 @@ contains
 
   !> to_dict(scene): JSON-safe dict stamped ir_version: 1, keys in
   !! exactly the Python order; source_map appended only when set.
+  !! C1: this is now a thin boundary wrapper -- the field inventory
+  !! lives in the typed converters (ir_scene_from_dict /
+  !! ir_scene_to_dict below); the dyn dict is crossed into the typed
+  !! scene and back, so dyn and typed consumers can never drift.
   function ir_to_dict(scene) result(data)
     type(dyn), intent(in) :: scene
     type(dyn) :: data
-    type(dyn) :: cam, sub, arr, item
-    integer :: k
-    data = dyn_dict()
-    call dset(data, "ir_version", dyn_int(int(IR_VERSION, int64)))
-    call dset(data, "name", dget_or(scene, "name", &
-                                    dyn_str("untitled")))
-    call dset(data, "width", dget_or(scene, "width", &
-                                     dyn_int(640_int64)))
-    call dset(data, "height", dget_or(scene, "height", &
-                                      dyn_int(480_int64)))
-    call dset(data, "bg", json_safe(dget_or(scene, "bg", &
-                                            ir_vec3_ints(25, 25, 35))))
-    cam = dget_or(scene, "camera", ir_camera_default())
-    sub = dyn_dict()
-    call dset(sub, "pos", json_safe(dget_or(cam, "pos", &
-      ir_vec3_mixed(dyn_int(3_int64), dyn_real(2.5_real64), &
-                    dyn_int(4_int64)))))
-    call dset(sub, "target", json_safe(dget_or(cam, "target", &
-                                               ir_vec3_ints(0, 0, 0))))
-    call dset(sub, "up", json_safe(dget_or(cam, "up", &
-                                           ir_vec3_ints(0, 1, 0))))
-    call dset(sub, "fov", dget_or(cam, "fov", &
-                                  dyn_real(60.0_real64)))
-    call dset(sub, "near", dget_or(cam, "near", &
-                                   dyn_real(0.1_real64)))
-    call dset(sub, "far", dget_or(cam, "far", &
-                                  dyn_real(100.0_real64)))
-    call dset(data, "camera", sub)
-    ! lights
-    arr = dyn_list()
-    item = dget_or(scene, "lights", dyn_list())
-    if (item%kind == DYN_K_LIST) then
-      do k = 1, dyn_list_len(item)
-        block
-          type(dyn) :: light, lsub
-          light = dyn_list_at(item, k)
-          lsub = dyn_dict()
-          call dset(lsub, "kind", dget_or(light, "kind", &
-                                          dyn_str("directional")))
-          call dset(lsub, "direction", json_safe(dget_or( &
-            light, "direction", ir_vec3_mixed( &
-              dyn_real(-0.5_real64), dyn_int(-1_int64), &
-              dyn_real(-0.7_real64)))))
-          call dset(lsub, "color", json_safe(dget_or( &
-            light, "color", ir_vec3_ints(255, 255, 255))))
-          call dset(lsub, "intensity", dget_or(light, "intensity", &
-                                               dyn_real(1.0_real64)))
-          call dyn_list_push(arr, lsub)
-        end block
-      end do
-    end if
-    call dset(data, "lights", arr)
-    ! objects
-    arr = dyn_list()
-    item = dget_or(scene, "objects", dyn_list())
-    if (item%kind == DYN_K_LIST) then
-      do k = 1, dyn_list_len(item)
-        block
-          type(dyn) :: obj, osub, ext
-          obj = dyn_list_at(item, k)
-          osub = dyn_dict()
-          call dset(osub, "name", dyn_dict_get(obj, "name"))
-          call dset(osub, "prim", dyn_dict_get(obj, "prim"))
-          call dset(osub, "color", json_safe(list_or_null( &
-            dyn_dict_get(obj, "color"))))
-          call dset(osub, "pos", json_safe(dget_or(obj, "pos", &
-                                                   ir_vec3_ints(0, 0, 0))))
-          call dset(osub, "rotate", json_safe(dget_or( &
-            obj, "rotate", ir_vec3_ints(0, 0, 0))))
-          call dset(osub, "scale", json_safe(dget_or( &
-            obj, "scale", ir_vec3_ints(1, 1, 1))))
-          call dset(osub, "size", dget_or(obj, "size", &
-                                          dyn_real(2.0_real64)))
-          call dset(osub, "size3", json_safe(list_or_null( &
-            dyn_dict_get(obj, "size3"))))
-          call dset(osub, "radius", dyn_dict_get(obj, "radius"))
-          call dset(osub, "height", dyn_dict_get(obj, "height"))
-          call dset(osub, "segments", dyn_dict_get(obj, "segments"))
-          call dset(osub, "detail", dget_or(obj, "detail", &
-                                            dyn_str("med")))
-          ! P1: "shading" is carried only when the IR object has it
-          ! (validate sets it only for explicitly determined values),
-          ! so objects without it serialise byte-identically.
-          if (dyn_dict_has(obj, "shading")) &
-            call dset(osub, "shading", dyn_dict_get(obj, "shading"))
-          ! P3: "mirror" likewise carried only when present.
-          if (dyn_dict_has(obj, "mirror")) &
-            call dset(osub, "mirror", dyn_dict_get(obj, "mirror"))
-          call dset(osub, "capped", dget_or(obj, "capped", &
-                                            dyn_bool(.true.)))
-          call dset(osub, "material", dget_or(obj, "material", &
-                                              dyn_str("lambert")))
-          call dset(osub, "triangles", json_safe( &
-            dyn_dict_get(obj, "triangles")))
-          call dset(osub, "source_file", &
-                    dyn_dict_get(obj, "source_file"))
-          ext = dyn_dict_get(obj, "extensions")
-          if (ext%kind /= DYN_K_DICT) ext = dyn_dict()
-          call dset(osub, "extensions", json_safe(ext))
-          call dyn_list_push(arr, osub)
-        end block
-      end do
-    end if
-    call dset(data, "objects", arr)
-    ! animations
-    arr = dyn_list()
-    item = dget_or(scene, "animations", dyn_list())
-    if (item%kind == DYN_K_LIST) then
-      do k = 1, dyn_list_len(item)
-        block
-          type(dyn) :: anim, asub
-          anim = dyn_list_at(item, k)
-          asub = dyn_dict()
-          call dset(asub, "kind", dyn_dict_get(anim, "kind"))
-          call dset(asub, "target", dyn_dict_get(anim, "target"))
-          call dset(asub, "axis", dget_or(anim, "axis", &
-                                          dyn_str("y")))
-          call dset(asub, "speed", dget_or(anim, "speed", &
-                                           dyn_real(90.0_real64)))
-          call dset(asub, "duration", dget_or(anim, "duration", &
-                                              dyn_real(5.0_real64)))
-          call dset(asub, "fps", dget_or(anim, "fps", &
-                                         dyn_int(30_int64)))
-          call dset(asub, "ease", dget_or(anim, "ease", &
-                                          dyn_str("linear")))
-          call dset(asub, "loop", dget_or(anim, "loop", &
-                                          dyn_str("forever")))
-          call dyn_list_push(arr, asub)
-        end block
-      end do
-    end if
-    call dset(data, "animations", arr)
-    ! outputs
-    arr = dyn_list()
-    item = dget_or(scene, "outputs", dyn_list())
-    if (item%kind == DYN_K_LIST) then
-      do k = 1, dyn_list_len(item)
-        block
-          type(dyn) :: outp, psub
-          outp = dyn_list_at(item, k)
-          psub = dyn_dict()
-          call dset(psub, "kind", dget_or(outp, "kind", &
-                                          dyn_str("render")))
-          call dset(psub, "path", dyn_dict_get(outp, "path"))
-          call dset(psub, "format", dyn_dict_get(outp, "format"))
-          call dset(psub, "width", dyn_dict_get(outp, "width"))
-          call dset(psub, "height", dyn_dict_get(outp, "height"))
-          call dyn_list_push(arr, psub)
-        end block
-      end do
-    end if
-    call dset(data, "outputs", arr)
-    block
-      type(dyn) :: ext
-      ext = dyn_dict_get(scene, "extensions")
-      if (ext%kind /= DYN_K_DICT) ext = dyn_dict()
-      call dset(data, "extensions", json_safe(ext))
-    end block
-    if (dyn_dict_has(scene, "source_map")) then
-      item = dyn_dict_get(scene, "source_map")
-      if (item%kind /= DYN_K_NULL) &
-        call dset(data, "source_map", json_safe(item))
-    end if
+    data = ir_scene_to_dict(ir_scene_from_dict(scene))
   end function ir_to_dict
 
   !> from_dict(d): rebuild a scene dyn from to_dict output, with
@@ -1017,152 +1558,18 @@ contains
   !! non-dict and KeyError for a missing object name/prim; here a
   !! non-dict yields a default scene and missing keys yield null --
   !! malformed-input divergence, noted in the report.)
+  !! C1: implemented via the typed converters -- the canonical dict
+  !! is crossed into an ir_scene and back out as a raw scene dict
+  !! (typed_scene_to_raw_dict mirrors the old key order exactly,
+  !! including shading/mirror appended after "extensions").
   function ir_from_dict(d) result(scene)
     type(dyn), intent(in) :: d
     type(dyn) :: scene
-    type(dyn) :: cam_d, cam, arr, item
-    integer :: k
     if (d%kind /= DYN_K_DICT) then
       scene = ir_scene_default()
       return
     end if
-    cam_d = dyn_dict_get(d, "camera")
-    if (cam_d%kind /= DYN_K_DICT) cam_d = dyn_dict()
-    cam = ir_camera_make( &
-      list_or_default(cam_d, "pos", ir_vec3_mixed( &
-        dyn_int(3_int64), dyn_real(2.5_real64), dyn_int(4_int64))), &
-      list_or_default(cam_d, "target", ir_vec3_ints(0, 0, 0)), &
-      list_or_default(cam_d, "up", ir_vec3_ints(0, 1, 0)), &
-      dget_or(cam_d, "fov", dyn_real(60.0_real64)), &
-      dget_or(cam_d, "near", dyn_real(0.1_real64)), &
-      dget_or(cam_d, "far", dyn_real(100.0_real64)))
-    ! lights
-    arr = dyn_list()
-    item = dyn_dict_get(d, "lights")
-    if (item%kind == DYN_K_LIST) then
-      do k = 1, dyn_list_len(item)
-        block
-          type(dyn) :: light
-          light = dyn_list_at(item, k)
-          call dyn_list_push(arr, ir_light_make( &
-            str_or(light, "kind", "directional"), &
-            list_or_default(light, "direction", ir_vec3_mixed( &
-              dyn_real(-0.5_real64), dyn_int(-1_int64), &
-              dyn_real(-0.7_real64))), &
-            list_or_default(light, "color", &
-                            ir_vec3_ints(255, 255, 255)), &
-            dget_or(light, "intensity", dyn_real(1.0_real64))))
-        end block
-      end do
-    end if
-    scene = dyn_dict()
-    call dset(scene, "name", dyn_str(str_or(d, "name", "untitled")))
-    call dset(scene, "width", dget_or(d, "width", &
-                                      dyn_int(640_int64)))
-    call dset(scene, "height", dget_or(d, "height", &
-                                       dyn_int(480_int64)))
-    call dset(scene, "bg", list_or_default(d, "bg", &
-                                           ir_vec3_ints(25, 25, 35)))
-    call dset(scene, "camera", cam)
-    call dset(scene, "lights", arr)
-    ! objects
-    arr = dyn_list()
-    item = dyn_dict_get(d, "objects")
-    if (item%kind == DYN_K_LIST) then
-      do k = 1, dyn_list_len(item)
-        block
-          type(dyn) :: obj, tri, ext
-          logical :: capped
-          obj = dyn_list_at(item, k)
-          tri = dyn_dict_get(obj, "triangles")
-          if (tri%kind /= DYN_K_NULL) tri = restore_triangles(tri)
-          ext = dyn_dict_get(obj, "extensions")
-          if (ext%kind /= DYN_K_DICT) ext = dyn_dict()
-          capped = .true.
-          if (dyn_dict_has(obj, "capped")) then
-            block
-              type(dyn) :: capv
-              capv = dyn_dict_get(obj, "capped")
-              if (capv%kind == DYN_K_BOOL) capped = capv%b
-            end block
-          end if
-          block
-            type(dyn) :: new_obj
-            new_obj = ir_object_make( &
-              str_of(obj, "name"), str_of(obj, "prim"), &
-              list_or_null(dyn_dict_get(obj, "color")), &
-              list_or_default(obj, "pos", ir_vec3_ints(0, 0, 0)), &
-              list_or_default(obj, "rotate", ir_vec3_ints(0, 0, 0)), &
-              list_or_default(obj, "scale", ir_vec3_ints(1, 1, 1)), &
-              dget_or(obj, "size", dyn_real(2.0_real64)), &
-              list_or_null(dyn_dict_get(obj, "size3")), &
-              dyn_dict_get(obj, "radius"), &
-              dyn_dict_get(obj, "height"), &
-              dyn_dict_get(obj, "segments"), &
-              str_or(obj, "detail", "med"), capped, &
-              str_or(obj, "material", "lambert"), tri, &
-              dyn_dict_get(obj, "source_file"), ext)
-            if (dyn_dict_has(obj, "shading")) &
-              call dset(new_obj, "shading", &
-                        dyn_dict_get(obj, "shading"))
-            if (dyn_dict_has(obj, "mirror")) &
-              call dset(new_obj, "mirror", &
-                        dyn_dict_get(obj, "mirror"))
-            call dyn_list_push(arr, new_obj)
-          end block
-        end block
-      end do
-    end if
-    call dset(scene, "objects", arr)
-    ! animations
-    arr = dyn_list()
-    item = dyn_dict_get(d, "animations")
-    if (item%kind == DYN_K_LIST) then
-      do k = 1, dyn_list_len(item)
-        block
-          type(dyn) :: anim
-          anim = dyn_list_at(item, k)
-          call dyn_list_push(arr, ir_anim_make( &
-            str_of(anim, "kind"), str_of(anim, "target"), &
-            str_or(anim, "axis", "y"), &
-            dget_or(anim, "speed", dyn_real(90.0_real64)), &
-            dget_or(anim, "duration", dyn_real(5.0_real64)), &
-            dget_or(anim, "fps", dyn_int(30_int64)), &
-            str_or(anim, "ease", "linear"), &
-            str_or(anim, "loop", "forever")))
-        end block
-      end do
-    end if
-    call dset(scene, "animations", arr)
-    ! outputs
-    arr = dyn_list()
-    item = dyn_dict_get(d, "outputs")
-    if (item%kind == DYN_K_LIST) then
-      do k = 1, dyn_list_len(item)
-        block
-          type(dyn) :: outp
-          outp = dyn_list_at(item, k)
-          call dyn_list_push(arr, ir_output_make( &
-            str_or(outp, "kind", "render"), &
-            dyn_dict_get(outp, "path"), &
-            dyn_dict_get(outp, "format"), &
-            dyn_dict_get(outp, "width"), &
-            dyn_dict_get(outp, "height")))
-        end block
-      end do
-    end if
-    call dset(scene, "outputs", arr)
-    block
-      type(dyn) :: ext
-      ext = dyn_dict_get(d, "extensions")
-      if (ext%kind /= DYN_K_DICT) ext = dyn_dict()
-      call dset(scene, "extensions", ext)
-    end block
-    if (dyn_dict_has(d, "source_map")) then
-      item = dyn_dict_get(d, "source_map")
-      if (item%kind /= DYN_K_NULL) &
-        call ir_scene_set_source_map(scene, item)
-    end if
+    scene = typed_scene_to_raw_dict(ir_scene_from_dict(d))
   end function ir_from_dict
 
   !> Value for key when it is a list, else the default (Python
