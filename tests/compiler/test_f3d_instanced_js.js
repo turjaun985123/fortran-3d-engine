@@ -40,7 +40,7 @@ let I = null;
 let loadError = null;
 try {
   global.window = globalThis;
-  eval(fs.readFileSync(JS_PATH, 'utf8'));
+  require(JS_PATH);
   I = globalThis.F3DInstanced;
 } catch (e) { loadError = e; }
 function needI() {

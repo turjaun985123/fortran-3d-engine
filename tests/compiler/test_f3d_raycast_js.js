@@ -37,7 +37,7 @@ let loadError = null;
 let CUBE = null;
 try {
   global.window = globalThis;
-  eval(fs.readFileSync(JS_PATH, 'utf8'));
+  require(JS_PATH);
   R = globalThis.F3DRay;
   const P = [[-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
     [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]];

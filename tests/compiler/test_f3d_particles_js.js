@@ -35,7 +35,7 @@ let P = null;
 let loadError = null;
 try {
   global.window = globalThis;
-  eval(fs.readFileSync(JS_PATH, 'utf8'));
+  require(JS_PATH);
   P = globalThis.F3DParticles;
 } catch (e) { loadError = e; }
 function needP() {

@@ -617,10 +617,16 @@ contains
       end if
     end if
     if (dyn_dict_has(node, "target")) then
-      stmt%has_target = .true.
       v = dyn_dict_get(node, "target")
-      if (v%kind == DYN_K_STR) then
-        if (allocated(v%s)) stmt%target = v%s
+      ! Only a string (or null) target is extracted into the typed
+      ! field: a CameraStmt's target is a vec3 LIST, and extracting
+      ! it would silently lower it back to null in ast_stmt_to_dyn.
+      ! A non-string target stays verbatim in the fields bag.
+      if (v%kind == DYN_K_STR .or. v%kind == DYN_K_NULL) then
+        stmt%has_target = .true.
+        if (v%kind == DYN_K_STR) then
+          if (allocated(v%s)) stmt%target = v%s
+        end if
       end if
     end if
     if (dyn_dict_has(node, "line")) then

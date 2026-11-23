@@ -675,6 +675,11 @@ contains
     call dyn_dict_set(node, "format", dyn_null())
     call dyn_dict_set(node, "width", dyn_null())
     call dyn_dict_set(node, "height", dyn_null())
+    ! "mode" must be present (null, the dataclass default): without
+    ! it the node fails is_node's OutputStmt signature, so a second
+    ! desugar pass (validate_program desugars again, B07) cannot
+    ! see this output and injects a duplicate default render.
+    call dyn_dict_set(node, "mode", dyn_null())
     call dyn_dict_set(node, "span", span)
   end function make_default_output
 

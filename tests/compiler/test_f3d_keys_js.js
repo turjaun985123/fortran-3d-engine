@@ -36,7 +36,7 @@ let K = null;
 let loadError = null;
 try {
   global.window = globalThis;
-  eval(fs.readFileSync(JS_PATH, 'utf8'));
+  require(JS_PATH);
   K = globalThis.F3DKeys;
 } catch (e) { loadError = e; }
 function needK() {

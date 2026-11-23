@@ -96,9 +96,9 @@ function makeCanvas(W, H) {
 let F3D = null, W2 = null, loadError = null;
 try {
   global.window = globalThis;
-  eval(fs.readFileSync(CORE_PATH, 'utf8'));
+  require(CORE_PATH);
   F3D = globalThis.F3D;
-  eval(fs.readFileSync(GL2_PATH, 'utf8'));
+  require(GL2_PATH);
   W2 = globalThis.Forge3DWebGL2;
 } catch (e) { loadError = e; }
 function need() { if (loadError) throw loadError; }

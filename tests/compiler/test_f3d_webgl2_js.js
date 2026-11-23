@@ -38,7 +38,7 @@ let W = null;
 let loadError = null;
 try {
   global.window = globalThis;
-  eval(fs.readFileSync(JS_PATH, 'utf8'));
+  require(JS_PATH);
   W = globalThis.Forge3DWebGL2;
 } catch (e) { loadError = e; }
 function needW() {

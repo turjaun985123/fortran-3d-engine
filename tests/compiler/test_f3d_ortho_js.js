@@ -69,7 +69,7 @@ let O = null;
 let loadError = null;
 try {
   global.window = globalThis;
-  eval(fs.readFileSync(JS_PATH, 'utf8'));
+  require(JS_PATH);
   O = globalThis.F3DOrtho;
 } catch (e) { loadError = e; }
 function needO() {

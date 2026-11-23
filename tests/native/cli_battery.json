@@ -11,12 +11,12 @@
    "build_artifacts": false,
    "expect": {
     "exit": 0,
-    "stdout_sha256": "ed8b286b04d0197386fb024c738d6217fca28504459ce250a3ab1c45053cf315",
+    "stdout_sha256": "d5bd3c1281e9164d1ff5b5ae444ce9674ebffa5d3fda29738779c31da3e5d472",
     "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "stdout_len": 11,
     "stderr_len": 0,
     "codes": [],
-    "stdout_text": "f3dc 2.0.0\n",
+    "stdout_text": "f3dc 3.0.0\n",
     "stderr_text": ""
    }
   },
@@ -30,12 +30,12 @@
    "build_artifacts": false,
    "expect": {
     "exit": 0,
-    "stdout_sha256": "c39255c961a8dec18922a59e59d210c852722b38734b4894920795639d29b014",
+    "stdout_sha256": "e4e985b822c3680e56ab8bb4ba8261ec7f21e38fd79614a55186983117405ea7",
     "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "stdout_len": 874,
+    "stdout_len": 1119,
     "stderr_len": 0,
     "codes": [],
-    "stdout_text": "usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor,bench} ...\n\nForge3D compiler -- compile and run .f3d scenes, the easy way\n\npositional arguments:\n  {run,build,check,new,preview,fmt,doctor,bench}\n    run                 build, compile the engine and render\n    build               compile to build/ (Fortran + JSON + JS + HTML)\n    check               validate only -- no files written\n    new                 create <name>.f3d from the starter template\n    preview             real-time preview in the browser -- recompiles and\n                        reloads on save\n    fmt                 print the canonical .f3d form to stdout\n    doctor              check gfortran / make / cc and print fixes\n    bench               run the engine frame-time benchmarks (repo\n                        scenes under docs/bench/)\n\noptions:\n  -h, --help            show this help message and exit\n  --version             show program's version number and exit\n",
+    "stdout_text": "usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor,bench,profile} ...\n\nForge3D compiler -- compile and run .f3d scenes, the easy way\n\npositional arguments:\n  {run,build,check,new,preview,fmt,doctor,bench,profile}\n    run                 build, compile the engine and render\n    build               compile to build/ (Fortran + JSON + JS + HTML)\n    check               validate only -- no files written\n    new                 create <name>.f3d from the starter template\n    preview             real-time preview in the browser -- recompiles and\n                        reloads on save\n    fmt                 print the canonical .f3d form to stdout\n    doctor              check gfortran / make / cc and print fixes\n    bench               run the engine frame-time benchmarks (repo\n                        scenes under docs/bench/)\n    profile             build a scene and print per-stage compile\n                        timings (parse, desugar, validate, emit, write)\n\noptions:\n  -h, --help            show this help message and exit\n  --version             show program's version number and exit\n",
     "stderr_text": ""
    }
   },
@@ -49,12 +49,12 @@
    "build_artifacts": false,
    "expect": {
     "exit": 0,
-    "stdout_sha256": "c39255c961a8dec18922a59e59d210c852722b38734b4894920795639d29b014",
+    "stdout_sha256": "e4e985b822c3680e56ab8bb4ba8261ec7f21e38fd79614a55186983117405ea7",
     "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "stdout_len": 874,
+    "stdout_len": 1119,
     "stderr_len": 0,
     "codes": [],
-    "stdout_text": "usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor,bench} ...\n\nForge3D compiler -- compile and run .f3d scenes, the easy way\n\npositional arguments:\n  {run,build,check,new,preview,fmt,doctor,bench}\n    run                 build, compile the engine and render\n    build               compile to build/ (Fortran + JSON + JS + HTML)\n    check               validate only -- no files written\n    new                 create <name>.f3d from the starter template\n    preview             real-time preview in the browser -- recompiles and\n                        reloads on save\n    fmt                 print the canonical .f3d form to stdout\n    doctor              check gfortran / make / cc and print fixes\n    bench               run the engine frame-time benchmarks (repo\n                        scenes under docs/bench/)\n\noptions:\n  -h, --help            show this help message and exit\n  --version             show program's version number and exit\n",
+    "stdout_text": "usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor,bench,profile} ...\n\nForge3D compiler -- compile and run .f3d scenes, the easy way\n\npositional arguments:\n  {run,build,check,new,preview,fmt,doctor,bench,profile}\n    run                 build, compile the engine and render\n    build               compile to build/ (Fortran + JSON + JS + HTML)\n    check               validate only -- no files written\n    new                 create <name>.f3d from the starter template\n    preview             real-time preview in the browser -- recompiles and\n                        reloads on save\n    fmt                 print the canonical .f3d form to stdout\n    doctor              check gfortran / make / cc and print fixes\n    bench               run the engine frame-time benchmarks (repo\n                        scenes under docs/bench/)\n    profile             build a scene and print per-stage compile\n                        timings (parse, desugar, validate, emit, write)\n\noptions:\n  -h, --help            show this help message and exit\n  --version             show program's version number and exit\n",
     "stderr_text": ""
    }
   },
@@ -209,12 +209,12 @@
    "expect": {
     "exit": 2,
     "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "stderr_sha256": "9f26f777870d4cb91fa4dc47956c5e275a9ffe9c3a92f1b402a296f2dfd3b13e",
+    "stderr_sha256": "4dcd59f0b899e73ac8c564a2cc2876b5090ad0a0d7dee9d1002e5cbba1ec5f63",
     "stdout_len": 0,
-    "stderr_len": 204,
+    "stderr_len": 234,
     "codes": [],
     "stdout_text": "",
-    "stderr_text": "usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor,bench} ...\nf3dc: error: unknown command 'nosuchcmd' (commands: run, build, check, new, fmt, doctor, preview, bench; or pass a scene file to run it)\n"
+    "stderr_text": "usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor,bench,profile} ...\nf3dc: error: unknown command 'nosuchcmd' (commands: run, build, check, new, fmt, doctor, preview, bench, profile; or pass a scene file to run it)\n"
    }
   },
   {
@@ -226,12 +226,12 @@
    "expect": {
     "exit": 2,
     "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "stderr_sha256": "b8a7c2fd47fef99d5d5c82857cb35cd96dff0207cba6a7a6441886ad18780450",
+    "stderr_sha256": "aa467edb57ad4ede92b1aa4f942d93f5f18e11f2baaa0575284505a2074128d0",
     "stdout_len": 0,
-    "stderr_len": 930,
+    "stderr_len": 1175,
     "codes": [],
     "stdout_text": "",
-    "stderr_text": "usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor,bench} ...\n\nForge3D compiler -- compile and run .f3d scenes, the easy way\n\npositional arguments:\n  {run,build,check,new,preview,fmt,doctor,bench}\n    run                 build, compile the engine and render\n    build               compile to build/ (Fortran + JSON + JS + HTML)\n    check               validate only -- no files written\n    new                 create <name>.f3d from the starter template\n    preview             real-time preview in the browser -- recompiles and\n                        reloads on save\n    fmt                 print the canonical .f3d form to stdout\n    doctor              check gfortran / make / cc and print fixes\n    bench               run the engine frame-time benchmarks (repo\n                        scenes under docs/bench/)\n\noptions:\n  -h, --help            show this help message and exit\n  --version             show program's version number and exit\nerror: no .f3d file here -- create one:  f3dc new hello\n"
+    "stderr_text": "usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor,bench,profile} ...\n\nForge3D compiler -- compile and run .f3d scenes, the easy way\n\npositional arguments:\n  {run,build,check,new,preview,fmt,doctor,bench,profile}\n    run                 build, compile the engine and render\n    build               compile to build/ (Fortran + JSON + JS + HTML)\n    check               validate only -- no files written\n    new                 create <name>.f3d from the starter template\n    preview             real-time preview in the browser -- recompiles and\n                        reloads on save\n    fmt                 print the canonical .f3d form to stdout\n    doctor              check gfortran / make / cc and print fixes\n    bench               run the engine frame-time benchmarks (repo\n                        scenes under docs/bench/)\n    profile             build a scene and print per-stage compile\n                        timings (parse, desugar, validate, emit, write)\n\noptions:\n  -h, --help            show this help message and exit\n  --version             show program's version number and exit\nerror: no .f3d file here -- create one:  f3dc new hello\n"
    }
   },
   {
@@ -558,7 +558,7 @@
     "stdout_text": "out/scene.scene\nout/scene.json\nout/scene.legacy.json\nout/scene.js\nout/scene.html\nout/scene_scene.f90\n",
     "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n",
     "artifacts": {
-     "scene.html": "d4aa5a6402ed2585d2d764840a7340647f07d1dfa87529298c534f730ada2284",
+     "scene.html": "7ac29e11f7af27f1743dadcda4eff6839d73e28a4801506baa1edf400a5a0830",
      "scene.js": "c5f409cba7f8fc95bde84a54037041f178fcf3de9edbdc02d9fa6514461101ef",
      "scene.json": "d3980294aaf012c2b380df2c1f06744dc0ac8572963d22d0a473eedca27031d8",
      "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
@@ -590,7 +590,7 @@
     "stdout_text": "out/scene.scene\nout/scene.json\nout/scene.legacy.json\nout/scene.js\nout/scene.html\nout/scene_scene.f90\n",
     "stderr_text": "",
     "artifacts": {
-     "scene.html": "39ac1f07549029e8547f967fa1f3c2eeabdf4f8c87b118334b2c5f18d90ca144",
+     "scene.html": "bb91d7d849339ad14337aa1c6498408cc8f52c4a73dcc40a2a4add240f525c17",
      "scene.js": "c23b188ffb359f99f7788b4408ea6aee5874a5d07d9b4ed941039709c4da2577",
      "scene.json": "087e0d65343d5b027fb50c4b293279adc66fb272335cd21215bd666afcbd2962",
      "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",

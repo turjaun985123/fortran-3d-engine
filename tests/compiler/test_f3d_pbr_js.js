@@ -18,7 +18,7 @@ const path = require('path');
 
 const REPO = path.join(__dirname, '..', '..');
 const JS_PATH = path.join(REPO, 'runtime', 'f3d-pbr.js');
-const MAX_BYTES = 7680;
+const MAX_BYTES = 8704; // re-pinned 2026-11-23 (v3.0 verification): 8507 B after the Phase 7 ES-module conversion (export block + compatibility footer + module header; no logic growth)
 
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -29,7 +29,7 @@ let P = null;
 let loadError = null;
 try {
   global.window = globalThis;
-  eval(fs.readFileSync(JS_PATH, 'utf8'));
+  require(JS_PATH);
   P = globalThis.F3DPBR;
 } catch (e) { loadError = e; }
 function needP() {

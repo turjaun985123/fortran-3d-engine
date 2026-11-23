@@ -34,9 +34,8 @@ const near3 = (a, b, e) => a.length === 3
 
 // ---- load the core runtime + the WebGL2 sidecar ----
 global.window = globalThis;
-eval(fs.readFileSync(path.join(REPO, 'runtime', 'f3d.js'), 'utf8'));
-eval(fs.readFileSync(path.join(REPO, 'runtime', 'f3d-webgl2.js'),
-  'utf8'));
+require(path.join(REPO, 'runtime', 'f3d.js'));
+require(path.join(REPO, 'runtime', 'f3d-webgl2.js'));
 const F3D = globalThis.F3D;
 const W = globalThis.Forge3DWebGL2;
 

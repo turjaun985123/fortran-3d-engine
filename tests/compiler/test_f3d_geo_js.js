@@ -50,7 +50,7 @@ let G = null;
 let loadError = null;
 try {
   global.window = globalThis;
-  eval(fs.readFileSync(JS_PATH, 'utf8'));
+  require(JS_PATH);
   G = globalThis.Forge3DGeo;
 } catch (e) { loadError = e; }
 function needG() {
@@ -327,7 +327,13 @@ test('test_registry_hook_is_guarded', () => {
   // builders into it; the main load above (without any host
   // at all) already proves the un-hosted load is safe.
   globalThis.F3D = {};
-  eval(fs.readFileSync(JS_PATH, 'utf8'));
+  // Fresh execution against the new host: Node caches ESM-syntax
+  // modules separately from require.cache, so a second require()
+  // would not re-run the module. Re-run the source with its export
+  // statements stripped (the pre-ESM loading mechanism); the
+  // compatibility footer performs the registration.
+  eval(fs.readFileSync(JS_PATH, 'utf8')
+    .replace(/^export \{[\s\S]*?\};[ \t]*$/gm, ''));
   assert.strictEqual(typeof globalThis.F3D.builders
     .circle, 'function');
   assert.strictEqual(globalThis.F3D.builders.torusknot,
