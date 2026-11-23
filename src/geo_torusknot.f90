@@ -10,13 +10,22 @@
 ! Triangle count = seg * tseg * 2 exactly, with
 !   seg  = max(8, segments),  tseg = max(3, tube_segments).
 ! Guards: radius <= 0 -> 1.0, tube <= 0 -> radius * 0.3 (guarded radius).
-! Per-triangle normals via compute_triangle_normal; colour white.
+!
+! Phase 1 indexed form: a (seg+1) x (tseg+1) grid -- the +1 row and
+! column are seam duplicates (the frame at the seam is frame 1 by
+! the holonomy correction, so the duplicates carry identical
+! position/normal with u or v = 1 instead of 0).
+!   n_verts = (seg+1)*(tseg+1), n_tris = 2*seg*tseg.
+! UV: u along the centreline, v around the tube.  Vertex normals are
+! the frame radial directions (position - centreline point).
 module geo_torusknot_3d
     use math_3d
-    use mesh_3d, only: Mesh, Triangle, compute_triangle_normal, tri_set_smooth
+    use mesh_3d, only: Mesh, Triangle, compute_triangle_normal, &
+                       mesh_data_to_triangles
+    use mesh_data_3d
     implicit none
     private
-    public :: create_torusknot
+    public :: create_torusknot, build_torusknot_data
 
 contains
 
@@ -30,17 +39,17 @@ contains
                         radius * sin(3.0_dp * u) * 0.5_dp)
     end function torusknot_centre
 
-    subroutine create_torusknot(m, radius, tube, segments, tube_segments)
-        type(Mesh), intent(inout) :: m
+    subroutine build_torusknot_data(md, radius, tube, segments, &
+                                    tube_segments)
+        type(mesh_data), intent(out) :: md
         real(dp), intent(in) :: radius, tube
         integer, intent(in) :: segments, tube_segments
-        integer :: seg, tseg, i, j, i2, j2, idx
+        integer :: seg, tseg, i, j, i2, j2, t, rb, rb2
         real(dp) :: rad, tb, u, phi, hol, frac, ang, ca, sa
-        type(vec3), allocatable :: centre(:), tangent(:), normal(:), binormal(:)
+        type(vec3), allocatable :: centre(:), tangent(:), normal(:), &
+                                   binormal(:)
         type(vec3), allocatable :: ring(:, :)
         type(vec3) :: a, b, c, d, arb, n_end, tmp
-
-        if (allocated(m%triangles)) deallocate(m%triangles)
 
         rad = radius
         if (rad <= 0.0_dp) rad = 1.0_dp
@@ -70,13 +79,13 @@ contains
         normal(1) = vec3_normalize(vec3_sub(arb, &
             vec3_scale(tangent(1), vec3_dot(arb, tangent(1)))))
 
-        ! Parallel transport: project the previous normal onto the plane
-        ! perpendicular to the new tangent and renormalise (no twist).
+        ! Parallel transport: project the previous normal onto the
+        ! plane perpendicular to the new tangent and renormalise.
         do i = 2, seg
             tmp = vec3_sub(normal(i - 1), &
-                vec3_scale(tangent(i), vec3_dot(normal(i - 1), tangent(i))))
+                vec3_scale(tangent(i), vec3_dot(normal(i - 1), &
+                                                tangent(i))))
             if (vec3_norm(tmp) <= 1.0e-12_dp) then
-                ! Degenerate projection: rebuild from an arbitrary axis.
                 arb = vec3_create(0.0_dp, 0.0_dp, 1.0_dp)
                 if (abs(vec3_dot(arb, tangent(i))) > 0.9_dp) &
                     arb = vec3_create(1.0_dp, 0.0_dp, 0.0_dp)
@@ -86,10 +95,7 @@ contains
             normal(i) = vec3_normalize(tmp)
         end do
 
-        ! Holonomy: transport normal(1) once more around the loop back to
-        ! step 1 and measure its signed angle from normal(1) about
-        ! tangent(1). Distribute the correction evenly so the frame at
-        ! the seam matches frame 1 exactly.
+        ! Holonomy correction, distributed evenly over all steps.
         n_end = vec3_sub(normal(seg), &
             vec3_scale(tangent(1), vec3_dot(normal(seg), tangent(1))))
         if (vec3_norm(n_end) > 1.0e-12_dp) then
@@ -104,10 +110,9 @@ contains
             frac = real(i - 1, dp) / real(seg, dp)
             ang = -hol * frac
             if (abs(ang) > 0.0_dp) then
-                ! Rodrigues rotation of normal(i) about tangent(i); the
-                ! normal stays perpendicular to the tangent.
                 tmp = vec3_add(vec3_scale(normal(i), cos(ang)), &
-                    vec3_scale(vec3_cross(tangent(i), normal(i)), sin(ang)))
+                    vec3_scale(vec3_cross(tangent(i), normal(i)), &
+                               sin(ang)))
                 normal(i) = vec3_normalize(tmp)
             end if
             binormal(i) = vec3_cross(tangent(i), normal(i))
@@ -123,41 +128,52 @@ contains
             end do
         end do
 
-        m%num_triangles = seg * tseg * 2
-        allocate(m%triangles(m%num_triangles))
-        idx = 0
-        do i = 1, seg
-            i2 = mod(i, seg) + 1
-            do j = 1, tseg
-                j2 = mod(j, tseg) + 1
-                a = ring(i, j)
-                b = ring(i2, j)
-                c = ring(i2, j2)
-                d = ring(i, j2)
-                idx = idx + 1
-                m%triangles(idx)%v = [a, d, c]
-                m%triangles(idx)%normal = compute_triangle_normal(a, d, c)
-                ! Vertex normal = direction from the centre-curve point
-                ! of the vertex's ring to the vertex (the frame radial
-                ! the ring vertex was built from), normalised.
-                call tri_set_smooth(m%triangles(idx), &
-                    vec3_normalize(vec3_sub(a, centre(i))), &
-                    vec3_normalize(vec3_sub(d, centre(i))), &
-                    vec3_normalize(vec3_sub(c, centre(i2))))
-                m%triangles(idx)%color = [255, 255, 255]
-                idx = idx + 1
-                m%triangles(idx)%v = [a, c, b]
-                m%triangles(idx)%normal = compute_triangle_normal(a, c, b)
-                call tri_set_smooth(m%triangles(idx), &
-                    vec3_normalize(vec3_sub(a, centre(i))), &
-                    vec3_normalize(vec3_sub(c, centre(i2))), &
-                    vec3_normalize(vec3_sub(b, centre(i2))))
-                m%triangles(idx)%color = [255, 255, 255]
+        call mesh_data_alloc(md, (seg + 1) * (tseg + 1), seg * tseg * 2)
+        do i = 1, seg + 1
+            rb = (i - 1) * (tseg + 1)
+            i2 = mod(i - 1, seg) + 1
+            do j = 1, tseg + 1
+                j2 = mod(j - 1, tseg) + 1
+                a = ring(i2, j2)
+                call mesh_data_put_vertex(md, rb + j, a, &
+                    vec3_normalize(vec3_sub(a, centre(i2))), &
+                    [real(i - 1, dp) / real(seg, dp), &
+                     real(j - 1, dp) / real(tseg, dp)])
             end do
         end do
-        m%num_triangles = idx
+        t = 0
+        do i = 1, seg
+            rb = (i - 1) * (tseg + 1)
+            rb2 = i * (tseg + 1)
+            do j = 1, tseg
+                a = ring(i, j)
+                b = ring(mod(i, seg) + 1, j)
+                c = ring(mod(i, seg) + 1, mod(j, tseg) + 1)
+                d = ring(i, mod(j, tseg) + 1)
+                t = t + 1
+                call mesh_data_put_tri(md, t, rb + j, rb + j + 1, &
+                    rb2 + j + 1, compute_triangle_normal(a, d, c), &
+                    .true., [255, 255, 255])
+                t = t + 1
+                call mesh_data_put_tri(md, t, rb + j, rb2 + j + 1, &
+                    rb2 + j, compute_triangle_normal(a, c, b), &
+                    .true., [255, 255, 255])
+            end do
+        end do
 
         deallocate(centre, tangent, normal, binormal, ring)
+        call mesh_data_finalize(md)
+    end subroutine build_torusknot_data
+
+    subroutine create_torusknot(m, radius, tube, segments, tube_segments)
+        type(Mesh), intent(inout) :: m
+        real(dp), intent(in) :: radius, tube
+        integer, intent(in) :: segments, tube_segments
+        type(mesh_data) :: md
+        call build_torusknot_data(md, radius, tube, segments, &
+                                  tube_segments)
+        call mesh_data_to_triangles(md, m)
+        call mesh_data_free(md)
     end subroutine create_torusknot
 
 end module geo_torusknot_3d

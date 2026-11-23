@@ -1,57 +1,56 @@
 ! geo_tube.f90 -- tube swept along a polyline path.
 !
-! Frame choice: PARALLEL TRANSPORT (documented per seat spec).
-!   An initial frame is built at the first path point from an
-!   arbitrary reference axis that is not parallel to the first
-!   tangent (the coordinate axis with the smallest |component| of
-!   that tangent, so the projection below is always well
-!   conditioned).  Each subsequent frame is obtained by rotating
-!   the previous frame's normal by the rotation that takes the
-!   previous tangent to the current tangent (Rodrigues' formula
-!   about axis = t_prev x t_cur), then re-orthogonalising against
-!   the current tangent; the binormal is b = t x n.  Parallel
-!   transport introduces no twist of its own, so on a straight
-!   path every ring frame is identical and on a gently curving
-!   path frames vary only as much as the tangent itself turns --
-!   rings never twist or flip.  (A fixed-up Frenet frame, by
-!   contrast, flips when the path passes near the up direction.)
+! Frame choice: PARALLEL TRANSPORT (see the legacy notes retained in
+! build_tube_data: initial frame from the least-aligned axis,
+! Rodrigues rotation between tangents, re-orthogonalisation; rings
+! never twist or flip).
 !
 ! Geometry / counts:
 !   seg = max(3, segments) vertices per ring, one ring per point.
 !   Side triangles  = (npts-1) * seg * 2
 !   End caps        = seg triangle-fan triangles at each end
-!                     (start-cap normals along -t_start, end-cap
-!                     normals along +t_end, i.e. both outward)
 !   Total           = (npts-1)*seg*2 + 2*seg
-!   radius <= 0 is guarded to 0.2.  npts < 2 gives an empty mesh
-!   (num_triangles == 0).  All triangles are white and carry a
-!   compute_triangle_normal normal, as in mesh_3d's create_torus.
+!   radius <= 0 is guarded to 0.2.  npts < 2 gives an empty mesh.
+!
+! Phase 1 indexed form: side rings are shared along the tube
+! (npts rings of seg+1 verts; the +1 is the UV-seam duplicate; a ring
+! vertex's radial normal is the same for both adjacent bands, so
+! sharing is exact).  Each end cap splits its centre + ring (cap
+! verts carry the flat cap normal, not the radial side normal).
+!   n_verts = npts*(seg+1) + 2*(seg+2), n_tris as above.
+! UV: side u = (k-1)/seg around, v = cumulative path-length fraction;
+! caps are planar discs in the ring frame (centre (0.5, 0.5)).
 module geo_tube_3d
     use math_3d
     use mesh_3d
+    use mesh_data_3d
     implicit none
     private
-    public :: create_tube
+    public :: create_tube, build_tube_data
 
 contains
 
-    subroutine create_tube(m, radius, segments, pts_flat, npts)
-        type(Mesh), intent(inout) :: m
+    subroutine build_tube_data(md, radius, segments, pts_flat, npts)
+        type(mesh_data), intent(out) :: md
         real(dp), intent(in) :: radius
         integer, intent(in) :: segments
         real(dp), intent(in) :: pts_flat(*)
         integer, intent(in) :: npts
-        integer :: seg, i, k, k2, idx, total
+        integer :: seg, i, k, t, cen_s, cen_e, ring_s, ring_e
         real(dp) :: r, theta, cth, sth
         type(vec3), allocatable :: pts(:), tang(:), nrm(:), bin(:)
         type(vec3), allocatable :: ring(:, :)
-        type(vec3) :: a, b, c, dd, cen, axis_ref, n_prev
+        type(vec3) :: a, b, c, dd, axis_ref, n_prev
         type(vec3) :: rot_axis, t_prev, t_cur
         real(dp) :: cosang, sinang
+        real(dp), allocatable :: cumlen(:)
+        real(dp) :: total_len, vfrac
 
-        if (allocated(m%triangles)) deallocate(m%triangles)
-        m%num_triangles = 0
-        if (npts < 2) return
+        if (npts < 2) then
+            call mesh_data_alloc(md, 0, 0)
+            call mesh_data_finalize(md)
+            return
+        end if
 
         r = radius
         if (r <= 0.0_dp) r = 0.2_dp
@@ -140,73 +139,107 @@ contains
             end do
         end do
 
-        total = (npts - 1) * seg * 2 + 2 * seg
-        m%num_triangles = total
-        allocate(m%triangles(total))
-        idx = 0
+        allocate(cumlen(npts))
+        cumlen(1) = 0.0_dp
+        do i = 2, npts
+            cumlen(i) = cumlen(i - 1) + vec3_norm(vec3_sub(pts(i), &
+                                                           pts(i - 1)))
+        end do
+        total_len = cumlen(npts)
 
+        call mesh_data_alloc(md, npts * (seg + 1) + 2 * (seg + 2), &
+                             (npts - 1) * seg * 2 + 2 * seg)
+        ! Side ring verts.
+        do i = 1, npts
+            if (total_len > 0.0_dp) then
+                vfrac = cumlen(i) / total_len
+            else
+                vfrac = real(i - 1, dp) / real(npts - 1, dp)
+            end if
+            do k = 1, seg + 1
+                a = ring(mod(k - 1, seg) + 1, i)
+                call mesh_data_put_vertex(md, (i - 1) * (seg + 1) + k, &
+                    a, vec3_normalize(vec3_sub(a, pts(i))), &
+                    [real(k - 1, dp) / real(seg, dp), vfrac])
+            end do
+        end do
+        ! Cap verts: start centre + ring, end centre + ring.
+        cen_s = npts * (seg + 1) + 1
+        ring_s = cen_s + 1
+        cen_e = ring_s + seg + 1
+        ring_e = cen_e + 1
+        call mesh_data_put_vertex(md, cen_s, pts(1), &
+            vec3_negate(tang(1)), [0.5_dp, 0.5_dp])
+        call mesh_data_put_vertex(md, cen_e, pts(npts), tang(npts), &
+            [0.5_dp, 0.5_dp])
+        do k = 1, seg + 1
+            theta = 2.0_dp * PI * real(mod(k - 1, seg), dp) / &
+                    real(seg, dp)
+            a = ring(mod(k - 1, seg) + 1, 1)
+            call mesh_data_put_vertex(md, ring_s + k - 1, a, &
+                vec3_negate(tang(1)), &
+                [0.5_dp + 0.5_dp * cos(theta), &
+                 0.5_dp + 0.5_dp * sin(theta)])
+            a = ring(mod(k - 1, seg) + 1, npts)
+            call mesh_data_put_vertex(md, ring_e + k - 1, a, &
+                tang(npts), &
+                [0.5_dp + 0.5_dp * cos(theta), &
+                 0.5_dp + 0.5_dp * sin(theta)])
+        end do
+
+        t = 0
         ! ---- sides: (a,b,c) / (a,c,d), outward winding ----
         do i = 1, npts - 1
             do k = 1, seg
-                k2 = mod(k, seg) + 1
                 a = ring(k, i)
-                b = ring(k2, i)
-                c = ring(k2, i + 1)
+                b = ring(mod(k, seg) + 1, i)
+                c = ring(mod(k, seg) + 1, i + 1)
                 dd = ring(k, i + 1)
-                idx = idx + 1
-                m%triangles(idx)%v = [a, b, c]
-                m%triangles(idx)%normal = compute_triangle_normal(a, b, c)
-                ! Vertex normal = radial direction from the path point
-                ! of the vertex's ring (the parallel-transport frame
-                ! direction the ring vertex was built from).
-                call tri_set_smooth(m%triangles(idx), &
-                    vec3_normalize(vec3_sub(a, pts(i))), &
-                    vec3_normalize(vec3_sub(b, pts(i))), &
-                    vec3_normalize(vec3_sub(c, pts(i + 1))))
-                m%triangles(idx)%color = [255, 255, 255]
-                idx = idx + 1
-                m%triangles(idx)%v = [a, c, dd]
-                m%triangles(idx)%normal = compute_triangle_normal(a, c, dd)
-                call tri_set_smooth(m%triangles(idx), &
-                    vec3_normalize(vec3_sub(a, pts(i))), &
-                    vec3_normalize(vec3_sub(c, pts(i + 1))), &
-                    vec3_normalize(vec3_sub(dd, pts(i + 1))))
-                m%triangles(idx)%color = [255, 255, 255]
+                t = t + 1
+                call mesh_data_put_tri(md, t, (i - 1) * (seg + 1) + k, &
+                    (i - 1) * (seg + 1) + k + 1, i * (seg + 1) + k + 1, &
+                    compute_triangle_normal(a, b, c), .true., &
+                    [255, 255, 255])
+                t = t + 1
+                call mesh_data_put_tri(md, t, (i - 1) * (seg + 1) + k, &
+                    i * (seg + 1) + k + 1, i * (seg + 1) + k, &
+                    compute_triangle_normal(a, c, dd), .true., &
+                    [255, 255, 255])
             end do
         end do
-
         ! ---- start cap fan: centre pts(1), winding gives -tang(1) ----
-        cen = pts(1)
         do k = 1, seg
-            k2 = mod(k, seg) + 1
             a = ring(k, 1)
-            b = ring(k2, 1)
-            idx = idx + 1
-            m%triangles(idx)%v = [cen, b, a]
-            m%triangles(idx)%normal = compute_triangle_normal(cen, b, a)
-            m%triangles(idx)%vn = [m%triangles(idx)%normal, &
-                                   m%triangles(idx)%normal, &
-                                   m%triangles(idx)%normal]
-            m%triangles(idx)%color = [255, 255, 255]
+            b = ring(mod(k, seg) + 1, 1)
+            t = t + 1
+            call mesh_data_put_tri(md, t, cen_s, ring_s + k, &
+                ring_s + k - 1, compute_triangle_normal(pts(1), b, a), &
+                .false., [255, 255, 255])
         end do
-
-        ! ---- end cap fan: centre pts(npts), winding gives +tang(npts) ----
-        cen = pts(npts)
+        ! ---- end cap fan: centre pts(npts), winding gives +tang ----
         do k = 1, seg
-            k2 = mod(k, seg) + 1
             a = ring(k, npts)
-            b = ring(k2, npts)
-            idx = idx + 1
-            m%triangles(idx)%v = [cen, a, b]
-            m%triangles(idx)%normal = compute_triangle_normal(cen, a, b)
-            m%triangles(idx)%vn = [m%triangles(idx)%normal, &
-                                   m%triangles(idx)%normal, &
-                                   m%triangles(idx)%normal]
-            m%triangles(idx)%color = [255, 255, 255]
+            b = ring(mod(k, seg) + 1, npts)
+            t = t + 1
+            call mesh_data_put_tri(md, t, cen_e, ring_e + k - 1, &
+                ring_e + k, compute_triangle_normal(pts(npts), a, b), &
+                .false., [255, 255, 255])
         end do
 
-        m%num_triangles = idx
-        deallocate(pts, tang, nrm, bin, ring)
+        deallocate(pts, tang, nrm, bin, ring, cumlen)
+        call mesh_data_finalize(md)
+    end subroutine build_tube_data
+
+    subroutine create_tube(m, radius, segments, pts_flat, npts)
+        type(Mesh), intent(inout) :: m
+        real(dp), intent(in) :: radius
+        integer, intent(in) :: segments
+        real(dp), intent(in) :: pts_flat(*)
+        integer, intent(in) :: npts
+        type(mesh_data) :: md
+        call build_tube_data(md, radius, segments, pts_flat, npts)
+        call mesh_data_to_triangles(md, m)
+        call mesh_data_free(md)
     end subroutine create_tube
 
 end module geo_tube_3d

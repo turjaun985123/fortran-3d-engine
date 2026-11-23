@@ -7,34 +7,69 @@
 ! All face windings are outward: dot(face normal, face centroid) > 0.
 ! Per-triangle normals come from compute_triangle_normal and every
 ! triangle is coloured white [255,255,255], following mesh.f90.
+!
+! Phase 1 indexed form: the solids are flat-shaded, so each face
+! splits its vertices (per-face normals + per-face planar UVs):
+!   tetrahedron  4 faces x 3 = 12 verts / 4 tris
+!   octahedron   8 faces x 3 = 24 verts / 8 tris
+!   icosahedron 20 faces x 3 = 60 verts / 20 tris
+!   dodecahedron 36 tris x 3 = 108 verts / 36 tris
+! UV: per-face planar projection (mesh_data_face_uv, dominant axis
+! of the face normal, extents (2r, 2r, 2r)) -- the same contract
+! prim_uv applies to cube/pyramid vertices.
 module geo_poly_3d
     use math_3d
     use mesh_3d
+    use mesh_data_3d
     implicit none
     private
     public :: create_tetrahedron, create_octahedron, &
-              create_icosahedron, create_dodecahedron
+              create_icosahedron, create_dodecahedron, &
+              build_tetrahedron_data, build_octahedron_data, &
+              build_icosahedron_data, build_dodecahedron_data
 
 contains
 
-    ! Shared assembly: deallocate-then-allocate, white, winding normals.
-    subroutine assemble_poly(m, p, faces, num_faces)
-        type(Mesh), intent(inout) :: m
+    ! Shared indexed assembly: one split vertex triple per face.
+    subroutine assemble_poly_data(md, p, faces, num_faces, radius)
+        type(mesh_data), intent(out) :: md
         type(vec3), intent(in) :: p(:)
         integer, intent(in) :: faces(:, :), num_faces
-        integer :: i
+        real(dp), intent(in) :: radius
+        integer :: i, k, ax, sg
+        type(vec3) :: fn, fv(3)
+        real(dp) :: ext(3), fc
 
-        if (allocated(m%triangles)) deallocate(m%triangles)
-        m%num_triangles = num_faces
-        allocate(m%triangles(num_faces))
+        ext = [2.0_dp * radius, 2.0_dp * radius, 2.0_dp * radius]
+        call mesh_data_alloc(md, 3 * num_faces, num_faces)
         do i = 1, num_faces
-            m%triangles(i)%v = [p(faces(1, i)), p(faces(2, i)), p(faces(3, i))]
-            m%triangles(i)%normal = compute_triangle_normal( &
-                m%triangles(i)%v(1), m%triangles(i)%v(2), m%triangles(i)%v(3))
-            m%triangles(i)%vn = [m%triangles(i)%normal, m%triangles(i)%normal, m%triangles(i)%normal]
-            m%triangles(i)%color = [255, 255, 255]
+            fn = compute_triangle_normal(p(faces(1, i)), &
+                                         p(faces(2, i)), &
+                                         p(faces(3, i)))
+            if (abs(fn%x) >= abs(fn%y) .and. &
+                abs(fn%x) >= abs(fn%z)) then
+                ax = 1
+                fc = fn%x
+            else if (abs(fn%y) >= abs(fn%z)) then
+                ax = 2
+                fc = fn%y
+            else
+                ax = 3
+                fc = fn%z
+            end if
+            sg = 1
+            if (fc < 0.0_dp) sg = -1
+            do k = 1, 3
+                fv(k) = p(faces(k, i))
+                call mesh_data_put_vertex(md, (i - 1) * 3 + k, fv(k), &
+                    fn, mesh_data_face_uv(fv(k), ext, ax, sg))
+            end do
+            call mesh_data_put_tri(md, i, (i - 1) * 3 + 1, &
+                (i - 1) * 3 + 2, (i - 1) * 3 + 3, fn, .false., &
+                [255, 255, 255])
         end do
-    end subroutine assemble_poly
+        call mesh_data_finalize(md)
+    end subroutine assemble_poly_data
 
     pure function guarded_radius(radius) result(r)
         real(dp), intent(in) :: radius
@@ -45,8 +80,8 @@ contains
 
     ! Vertices (+-1,+-1,+-1) with an even number of minus signs,
     ! scaled by radius/sqrt(3).  4 triangular faces.
-    subroutine create_tetrahedron(m, radius)
-        type(Mesh), intent(inout) :: m
+    subroutine build_tetrahedron_data(md, radius)
+        type(mesh_data), intent(out) :: md
         real(dp), intent(in) :: radius
         type(vec3) :: p(4)
         integer :: faces(3, 4)
@@ -63,13 +98,22 @@ contains
             1, 4, 2,   &
             1, 3, 4,   &
             2, 4, 3], [3, 4])
-        call assemble_poly(m, p, faces, 4)
+        call assemble_poly_data(md, p, faces, 4, guarded_radius(radius))
+    end subroutine build_tetrahedron_data
+
+    subroutine create_tetrahedron(m, radius)
+        type(Mesh), intent(inout) :: m
+        real(dp), intent(in) :: radius
+        type(mesh_data) :: md
+        call build_tetrahedron_data(md, radius)
+        call mesh_data_to_triangles(md, m)
+        call mesh_data_free(md)
     end subroutine create_tetrahedron
 
     ! Vertices on the coordinate axes at distance radius.
     ! 8 triangular faces.
-    subroutine create_octahedron(m, radius)
-        type(Mesh), intent(inout) :: m
+    subroutine build_octahedron_data(md, radius)
+        type(mesh_data), intent(out) :: md
         real(dp), intent(in) :: radius
         type(vec3) :: p(6)
         integer :: faces(3, 8)
@@ -92,14 +136,23 @@ contains
             2, 3, 6,   &
             4, 2, 6,   &
             1, 4, 6], [3, 8])
-        call assemble_poly(m, p, faces, 8)
+        call assemble_poly_data(md, p, faces, 8, r)
+    end subroutine build_octahedron_data
+
+    subroutine create_octahedron(m, radius)
+        type(Mesh), intent(inout) :: m
+        real(dp), intent(in) :: radius
+        type(mesh_data) :: md
+        call build_octahedron_data(md, radius)
+        call mesh_data_to_triangles(md, m)
+        call mesh_data_free(md)
     end subroutine create_octahedron
 
     ! Vertices (0,+-1,+-phi), (+-1,+-phi,0), (+-phi,0,+-1) with
     ! phi = (1+sqrt(5))/2, scaled by radius/sqrt(1+phi^2).
     ! 20 triangular faces.
-    subroutine create_icosahedron(m, radius)
-        type(Mesh), intent(inout) :: m
+    subroutine build_icosahedron_data(md, radius)
+        type(mesh_data), intent(out) :: md
         real(dp), intent(in) :: radius
         type(vec3) :: p(12)
         integer :: faces(3, 20)
@@ -141,14 +194,23 @@ contains
             7, 3, 11,    &
             9, 7, 8,     &
             10, 9, 2], [3, 20])
-        call assemble_poly(m, p, faces, 20)
+        call assemble_poly_data(md, p, faces, 20, guarded_radius(radius))
+    end subroutine build_icosahedron_data
+
+    subroutine create_icosahedron(m, radius)
+        type(Mesh), intent(inout) :: m
+        real(dp), intent(in) :: radius
+        type(mesh_data) :: md
+        call build_icosahedron_data(md, radius)
+        call mesh_data_to_triangles(md, m)
+        call mesh_data_free(md)
     end subroutine create_icosahedron
 
     ! Vertices (+-1,+-1,+-1), (0,+-1/phi,+-phi), (+-1/phi,+-phi,0),
     ! (+-phi,0,+-1/phi), scaled by radius/sqrt(3).
     ! 12 pentagonal faces, each fanned into 3 triangles -> 36.
-    subroutine create_dodecahedron(m, radius)
-        type(Mesh), intent(inout) :: m
+    subroutine build_dodecahedron_data(md, radius)
+        type(mesh_data), intent(out) :: md
         real(dp), intent(in) :: radius
         type(vec3) :: p(20)
         integer :: pent(5, 12), faces(3, 36)
@@ -204,7 +266,16 @@ contains
                 faces(3, idx) = pent(t + 2, i)
             end do
         end do
-        call assemble_poly(m, p, faces, 36)
+        call assemble_poly_data(md, p, faces, 36, guarded_radius(radius))
+    end subroutine build_dodecahedron_data
+
+    subroutine create_dodecahedron(m, radius)
+        type(Mesh), intent(inout) :: m
+        real(dp), intent(in) :: radius
+        type(mesh_data) :: md
+        call build_dodecahedron_data(md, radius)
+        call mesh_data_to_triangles(md, m)
+        call mesh_data_free(md)
     end subroutine create_dodecahedron
 
 end module geo_poly_3d

@@ -5,60 +5,70 @@
 ! (bottom -> top typical), where x is the radius (>= 0) and y is the
 ! height.  Negative radii are clamped to 0.
 !
-! Vertices: for profile point i and step j (theta = 2*PI*(j-1)/seg),
-!   (x*cos(theta), y, x*sin(theta)).
-!
 ! Triangle count is EXACTLY (npts-1)*seg*2, where seg = max(3, segments):
 ! every quad between consecutive profile points is emitted as 2
-! triangles, with no exceptions.  In particular, quads touching a
-! profile point with radius 0 still emit both triangles even though
-! they are degenerate (zero area, zero normal via
-! compute_triangle_normal / vec3_normalize).  Count stability is the
-! contract: callers can rely on the count regardless of the profile.
-!
+! triangles, with no exceptions (degenerate radius-0 quads included).
 ! If npts < 2 the result is an empty mesh (num_triangles == 0).
+!
+! Phase 1 indexed form: vertices are shared WITHIN one profile band
+! (two rings of seg+1 verts per band, the +1 is the UV-seam
+! duplicate) but split BETWEEN bands: the legacy per-vertex normal
+! comes from the band's own profile segment (adjacent bands generally
+! assign different normals to the same profile point), so sharing
+! across bands would change the legacy shading.
+!   n_verts = (npts-1) * 2 * (seg+1), n_tris = (npts-1)*seg*2.
+! UV: u = (j-1)/seg around, v = cumulative profile arc length
+! fraction (per band: v_lo at the lower ring, v_hi at the upper).
 module geo_lathe_3d
     use math_3d
     use mesh_3d
+    use mesh_data_3d
     implicit none
     private
-    public :: create_lathe
+    public :: create_lathe, build_lathe_data
 
 contains
 
-    subroutine create_lathe(m, segments, pts_flat, npts)
-        type(Mesh), intent(inout) :: m
+    subroutine build_lathe_data(md, segments, pts_flat, npts)
+        type(mesh_data), intent(out) :: md
         integer, intent(in) :: segments
         integer, intent(in) :: npts
         real(dp), intent(in) :: pts_flat(2 * npts)
-        integer :: seg, i, j, j2, idx
+        integer :: seg, i, j, t, base
         real(dp) :: r_lo, r_hi, y_lo, y_hi
-        real(dp) :: dr, dy, plen, n2x, n2y, theta, theta2
+        real(dp) :: dr, dy, plen, n2x, n2y, theta
+        real(dp), allocatable :: cumlen(:)
+        real(dp) :: total_len, v_lo, v_hi
         type(vec3) :: a, b, c, d
         type(vec3) :: na, nb, nc, nd
 
-        if (allocated(m%triangles)) deallocate(m%triangles)
-        m%num_triangles = 0
-
-        if (npts < 2) return
+        if (npts < 2) then
+            call mesh_data_alloc(md, 0, 0)
+            call mesh_data_finalize(md)
+            return
+        end if
 
         seg = max(3, segments)
-        m%num_triangles = (npts - 1) * seg * 2
-        allocate(m%triangles(m%num_triangles))
-        idx = 0
+        allocate(cumlen(npts))
+        cumlen(1) = 0.0_dp
+        do i = 2, npts
+            dr = max(0.0_dp, pts_flat(2 * i - 1)) - &
+                 max(0.0_dp, pts_flat(2 * i - 3))
+            dy = pts_flat(2 * i) - pts_flat(2 * i - 2)
+            cumlen(i) = cumlen(i - 1) + sqrt(dr * dr + dy * dy)
+        end do
+        total_len = cumlen(npts)
+
+        call mesh_data_alloc(md, (npts - 1) * 2 * (seg + 1), &
+                             (npts - 1) * seg * 2)
+        t = 0
         do i = 1, npts - 1
             r_lo = max(0.0_dp, pts_flat(2 * i - 1))
             y_lo = pts_flat(2 * i)
             r_hi = max(0.0_dp, pts_flat(2 * i + 1))
             y_hi = pts_flat(2 * i + 2)
-            ! 2D profile normal for this segment: the profile tangent
-            ! is (dr, dy); rotating it by -90 degrees in the (r, y)
-            ! plane gives n2 = (dy, -dr) / |(dr, dy)|.  This sign
-            ! agrees with the winding below (checked: a vertical
-            ! up segment gives the outward radial normal, a horizontal
-            ! outward segment gives (0,-1,0), matching the face normal
-            ! of the [a,c,b] winding).  A zero-length segment falls
-            ! back to the radial direction.
+            ! 2D profile normal for this segment (legacy formula):
+            ! tangent (dr, dy) rotated by -90 degrees -> (dy, -dr).
             dr = r_hi - r_lo
             dy = y_hi - y_lo
             plen = sqrt(dr * dr + dy * dy)
@@ -69,36 +79,56 @@ contains
                 n2x = 1.0_dp
                 n2y = 0.0_dp
             end if
-            do j = 1, seg
-                j2 = mod(j, seg) + 1
-                a = lathe_point(r_lo, y_lo, seg, j)
-                b = lathe_point(r_lo, y_lo, seg, j2)
-                c = lathe_point(r_hi, y_hi, seg, j2)
-                d = lathe_point(r_hi, y_hi, seg, j)
-                theta = 2.0_dp * PI * real(j - 1, dp) / real(seg, dp)
-                theta2 = 2.0_dp * PI * real(j2 - 1, dp) / real(seg, dp)
+            if (total_len > 0.0_dp) then
+                v_lo = cumlen(i) / total_len
+                v_hi = cumlen(i + 1) / total_len
+            else
+                v_lo = real(i - 1, dp) / real(npts - 1, dp)
+                v_hi = real(i, dp) / real(npts - 1, dp)
+            end if
+            base = (i - 1) * 2 * (seg + 1)
+            do j = 1, seg + 1
+                theta = 2.0_dp * PI * real(mod(j - 1, seg), dp) / &
+                        real(seg, dp)
+                a = lathe_point(r_lo, y_lo, seg, mod(j - 1, seg) + 1)
                 na = lathe_vertex_normal(r_lo, n2x, n2y, dy, theta)
-                nb = lathe_vertex_normal(r_lo, n2x, n2y, dy, theta2)
-                nc = lathe_vertex_normal(r_hi, n2x, n2y, dy, theta2)
+                call mesh_data_put_vertex(md, base + j, a, na, &
+                    [real(j - 1, dp) / real(seg, dp), v_lo])
+                d = lathe_point(r_hi, y_hi, seg, mod(j - 1, seg) + 1)
                 nd = lathe_vertex_normal(r_hi, n2x, n2y, dy, theta)
-                ! Same winding pattern as create_cylinder's side quads.
-                idx = idx + 1
-                m%triangles(idx)%v = [a, c, b]
-                m%triangles(idx)%normal = compute_triangle_normal( &
-                    m%triangles(idx)%v(1), m%triangles(idx)%v(2), &
-                    m%triangles(idx)%v(3))
-                call tri_set_smooth(m%triangles(idx), na, nc, nb)
-                m%triangles(idx)%color = [255, 255, 255]
-                idx = idx + 1
-                m%triangles(idx)%v = [a, d, c]
-                m%triangles(idx)%normal = compute_triangle_normal( &
-                    m%triangles(idx)%v(1), m%triangles(idx)%v(2), &
-                    m%triangles(idx)%v(3))
-                call tri_set_smooth(m%triangles(idx), na, nd, nc)
-                m%triangles(idx)%color = [255, 255, 255]
+                call mesh_data_put_vertex(md, base + (seg + 1) + j, d, &
+                    nd, [real(j - 1, dp) / real(seg, dp), v_hi])
+            end do
+            do j = 1, seg
+                a = lathe_point(r_lo, y_lo, seg, j)
+                b = lathe_point(r_lo, y_lo, seg, mod(j, seg) + 1)
+                c = lathe_point(r_hi, y_hi, seg, mod(j, seg) + 1)
+                d = lathe_point(r_hi, y_hi, seg, j)
+                t = t + 1
+                call mesh_data_put_tri(md, t, base + j, &
+                    base + (seg + 1) + j + 1, base + j + 1, &
+                    compute_triangle_normal(a, c, b), .true., &
+                    [255, 255, 255])
+                t = t + 1
+                call mesh_data_put_tri(md, t, base + j, &
+                    base + (seg + 1) + j, base + (seg + 1) + j + 1, &
+                    compute_triangle_normal(a, d, c), .true., &
+                    [255, 255, 255])
             end do
         end do
-        m%num_triangles = idx
+        deallocate(cumlen)
+        call mesh_data_finalize(md)
+    end subroutine build_lathe_data
+
+    subroutine create_lathe(m, segments, pts_flat, npts)
+        type(Mesh), intent(inout) :: m
+        integer, intent(in) :: segments
+        integer, intent(in) :: npts
+        real(dp), intent(in) :: pts_flat(2 * npts)
+        type(mesh_data) :: md
+        call build_lathe_data(md, segments, pts_flat, npts)
+        call mesh_data_to_triangles(md, m)
+        call mesh_data_free(md)
     end subroutine create_lathe
 
     ! Vertex normal for a lathe vertex at radius r and azimuth theta,
