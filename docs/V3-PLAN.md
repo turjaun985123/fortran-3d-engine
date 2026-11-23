@@ -290,3 +290,30 @@ primitives.
   animated scene onto a full filesystem exits 0 with frames
   silently truncated/missing and the buffered stdout summary lost.
   Phase 9 should add write-status checks + a non-zero exit.
+- 2026-11-23: Phase 1 complete. G1 closed: mesh_data_3d indexed
+  SoA type; every builder (mesh.f90 create_* + all geo_* modules)
+  emits indexed meshes with shared vertices and real UVs; legacy
+  create_* reimplemented via the conversion shim (Triangle gained
+  uv(2,3)); golden + hello-cube hashes byte-identical, A/B renders
+  of geometries/multi-object identical; test_mesh_data 323/323.
+  Recorded deviations: (a) mesh_data carries optional dp shadow
+  arrays next to the real32 SoA — the legacy path's pinned 1e-9 dp
+  precision contract cannot survive a real32 round-trip; real32
+  arrays are authoritative for v3 consumers, the shadow serves
+  only the legacy shim; (b) the plane stays 8 verts/4 tris (legacy
+  double-sided normals) until Phase 2's per-material double-sided;
+  (c) prim_uv survives only in the legacy renderer's env path
+  (2 sites) — Phase 2 removes it. G2 closed: shared json_reader_3d
+  parser (node pool, full JSON, 55/55 tests); OBJ reader now does
+  v/vt/vn, all face forms, groups, mtl basics; glTF 2.0 reader
+  rebuilt on the parser — .glb, node hierarchy transforms, all
+  meshes/primitives, NORMAL/TEXCOORD_0/TANGENT, base-color factor/
+  texture, metallic-roughness; existing assets unchanged (pyramid
+  6 tris, model.obj 12 tris); 100,352-tri OBJ load 0.943 s (< 1 s
+  target); test_loaders 75/75. ADR-3 landed for the v3 path:
+  scene_json_3d typed reader for the forge3d-scene JSON
+  (ir_version 1) filling the existing Scene type, format/version
+  gates rejecting bad files (2 gate branches fixed at integration
+  to reset ok=.false.); docs/SCENE-FORMAT.md documents both scene
+  formats + versioning rules. S1 closed for the v3 path (the v1
+  text reader remains the frozen legacy path).
