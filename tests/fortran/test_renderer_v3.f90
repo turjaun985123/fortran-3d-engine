@@ -15,6 +15,9 @@ program test_renderer_v3
     use material_3d
     use material_pbr_3d, only: pbr_from_material
     use renderer_v3_3d
+    use renderer_3d, only: FrameBuffer, framebuffer_init
+    use post_v3_3d, only: post_v3_apply, post_v3_tonemap_value, &
+                          post_v3_srgb, post_v3_linear_to_byte
     use test_assert
     implicit none
 
@@ -22,6 +25,12 @@ program test_renderer_v3
     type(v3_buffer) :: vb, vb2
     type(mat4) :: models(1)
     integer :: x, y, cnt, cnt2, ndiff
+    ! Phase 3 (post_v3) test state.
+    type(FrameBuffer) :: fb3
+    real(real32) :: buf3(3, 9, 9), ctl3(3, 9, 9)
+    real(real32) :: prev3, cur3
+    integer :: i3, b_lo, b_hi
+    real(dp) :: mono_in(6)
 
     models(1) = mat4_identity()
 
@@ -191,6 +200,153 @@ program test_renderer_v3
     call scene_free(sc)
     call v3_free(vb)
     call v3_free(vb2)
+
+    ! ================================================================
+    ! Phase 3: post_v3 colour/output pipeline
+    ! ================================================================
+    call make_scene(sc, 64, 48)  ! defaults: tonemap 0, exposure 1, no post
+    sc%tonemap_mode = 0
+    sc%tonemap_exposure = 1.0_dp
+    sc%n_post = 0
+    sc%post_names = ''
+    sc%post_amounts = 0.0_dp
+
+    ! ---------- (a) sRGB encode: known linear -> known bytes ------
+    call assert_int_eq(0, post_v3_linear_to_byte(0.0_real32), &
+        'sRGB byte: linear 0.0 -> 0')
+    call assert_int_eq(255, post_v3_linear_to_byte(1.0_real32), &
+        'sRGB byte: linear 1.0 -> 255')
+    call assert_int_eq(188, post_v3_linear_to_byte(0.5_real32), &
+        'sRGB byte: linear 0.5 -> 188')
+    call assert_int_eq(137, post_v3_linear_to_byte(0.25_real32), &
+        'sRGB byte: linear 0.25 -> 137')
+    call assert_int_eq(255, post_v3_linear_to_byte(4.0_real32), &
+        'sRGB byte: linear > 1 clamps to 255')
+    call assert_int_eq(0, post_v3_linear_to_byte(-1.0_real32), &
+        'sRGB byte: negative linear clamps to 0')
+    call assert_real_close(real(post_v3_srgb(0.5_real32), dp), &
+        0.73536_dp, 0.001_dp, 'sRGB float: 0.5 linear -> 0.7354')
+    call assert_real_close(real(post_v3_srgb(0.001_real32), dp), &
+        0.01292_dp, 0.0001_dp, 'sRGB float: linear segment below 0.0031308')
+
+    ! ---------- (b) Reinhard float stage ---------------------------
+    call assert_real_close( &
+        real(post_v3_tonemap_value(1, 1.0_real32, 1.0_real32), dp), &
+        0.5_dp, 0.001_dp, 'Reinhard: 1.0 -> 0.5 pre-encode')
+    call assert_real_close( &
+        real(post_v3_tonemap_value(1, 0.0_real32, 1.0_real32), dp), &
+        0.0_dp, 0.0001_dp, 'Reinhard: 0.0 -> 0.0')
+    buf3 = 0.0_real32
+    buf3(:, 5, 5) = 1.0_real32
+    sc%tonemap_mode = 1
+    call post_v3_apply(buf3, 9, 9, sc)
+    call assert_real_close(real(buf3(1, 5, 5), dp), 0.5_dp, 0.001_dp, &
+        'Reinhard via post_v3_apply: 1.0 -> 0.5 in the float buffer')
+    call assert_int_eq(188, post_v3_linear_to_byte(buf3(1, 5, 5)), &
+        'Reinhard 1.0 encoded -> byte 188')
+
+    ! ---------- (c) ACES (Stephen Hill fit) ------------------------
+    mono_in = [0.0_dp, 0.25_dp, 0.5_dp, 1.0_dp, 2.0_dp, 4.0_dp]
+    prev3 = -1.0_real32
+    do i3 = 1, size(mono_in)
+        cur3 = post_v3_tonemap_value(2, real(mono_in(i3), real32), &
+                                     1.0_real32)
+        call assert_true(cur3 > prev3, 'ACES is strictly monotonic')
+        prev3 = cur3
+    end do
+    call assert_true(abs(real(post_v3_tonemap_value( &
+        2, 0.5_real32, 1.0_real32), dp) &
+        - real(post_v3_tonemap_value(1, 0.5_real32, 1.0_real32), dp)) &
+        > 0.02_dp, 'ACES(0.5) differs from Reinhard(0.5)')
+    b_hi = post_v3_linear_to_byte(post_v3_tonemap_value( &
+        2, 8.0_real32, 1.0_real32))
+    call assert_true(b_hi < 255, 'ACES(8.0) encodes below 255 (no hard clip)')
+    call assert_true(b_hi > 240, 'ACES(8.0) encodes above 240 (bright)')
+
+    ! ---------- (d) HDR survival ----------------------------------
+    ! Construct the float buffer directly: two HDR pixels, 2.0/4.0.
+    buf3 = 0.0_real32
+    buf3(:, 4, 5) = 2.0_real32
+    buf3(:, 6, 5) = 4.0_real32
+    call assert_true(buf3(1, 4, 5) > 1.0_real32 &
+        .and. buf3(1, 6, 5) > 1.0_real32, &
+        'HDR buffer holds values > 1 before post (float stage)')
+    sc%tonemap_mode = 2
+    call post_v3_apply(buf3, 9, 9, sc)
+    b_lo = post_v3_linear_to_byte(buf3(1, 4, 5))
+    b_hi = post_v3_linear_to_byte(buf3(1, 6, 5))
+    call assert_true(b_lo < 255 .and. b_hi < 255, &
+        'ACES maps HDR 2.0 and 4.0 below 255 (highlight not clipped)')
+    call assert_true(b_hi > b_lo, &
+        'ACES preserves HDR detail: byte(4.0) > byte(2.0), no flat blob')
+    ! End-to-end: an HDR pixel through v3_quantize_to_fb (the hook).
+    call v3_init(vb, 4, 4)
+    vb%rgb = 0.0_real32
+    vb%rgb(:, 2, 2) = 4.0_real32
+    vb%vis_tri = 1_int32
+    sc%tonemap_mode = 2
+    sc%tonemap_exposure = 1.0_dp
+    sc%n_post = 0
+    call framebuffer_init(fb3, 4, 4)
+    call v3_quantize_to_fb(vb, sc, fb3)
+    call assert_int_eq(245, fb3%pixels(1, 2, 2), &
+        'quantize hook: HDR 4.0 through ACES + sRGB -> byte 245')
+    call assert_true(fb3%pixels(1, 1, 1) < 255, &
+        'quantize hook: black HDR pixel stays below 255')
+    deallocate(fb3%pixels, fb3%z_buffer)
+    call v3_free(vb)
+
+    ! ---------- (e) bloom ------------------------------------------
+    buf3 = 0.0_real32
+    buf3(:, 5, 5) = 4.0_real32  ! one super-bright pixel
+    ctl3 = buf3
+    sc%tonemap_mode = 0
+    sc%tonemap_exposure = 1.0_dp
+    sc%n_post = 1
+    sc%post_names(1) = 'bloom'
+    sc%post_amounts(1) = 1.0_dp
+    call post_v3_apply(buf3, 9, 9, sc)
+    call assert_true(buf3(1, 6, 5) > ctl3(1, 6, 5) + 0.1_real32, &
+        'bloom: horizontal neighbour gains energy from bright pixel')
+    call assert_true(buf3(1, 5, 6) > ctl3(1, 5, 6) + 0.1_real32, &
+        'bloom: vertical neighbour gains energy from bright pixel')
+    call assert_true(buf3(1, 5, 5) > ctl3(1, 5, 5), &
+        'bloom: bright centre gains additive energy')
+    call assert_true(buf3(1, 1, 1) == ctl3(1, 1, 1), &
+        'bloom: far corner outside blur radius unchanged')
+    ! Control: same buffer, no bloom in the chain -> unchanged.
+    sc%n_post = 0
+    call post_v3_apply(ctl3, 9, 9, sc)
+    call assert_true(ctl3(1, 6, 5) == 0.0_real32 &
+        .and. ctl3(1, 5, 5) == 4.0_real32, &
+        'no-bloom control buffer is unchanged by post_v3_apply')
+    ! Bloom amount 0 -> no change.
+    buf3 = 0.0_real32
+    buf3(:, 5, 5) = 4.0_real32
+    ctl3 = buf3
+    sc%n_post = 1
+    sc%post_amounts(1) = 0.0_dp
+    call post_v3_apply(buf3, 9, 9, sc)
+    call assert_true(all(buf3 == ctl3), 'bloom amount 0 -> no change')
+
+    ! ---------- (f) exposure scales monotonically ------------------
+    call assert_true(post_v3_linear_to_byte(post_v3_tonemap_value( &
+        0, 0.25_real32, 2.0_real32)) &
+        > post_v3_linear_to_byte(post_v3_tonemap_value( &
+        0, 0.25_real32, 1.0_real32)), &
+        'exposure 2x brightens output (mode 0, via bytes)')
+    prev3 = -1.0_real32
+    do i3 = 1, 4
+        cur3 = post_v3_tonemap_value(1, 0.5_real32, &
+                                     real(i3, real32) * 0.5_real32)
+        call assert_true(cur3 > prev3, &
+            'exposure scales Reinhard output monotonically')
+        prev3 = cur3
+    end do
+    call assert_real_close( &
+        real(post_v3_tonemap_value(0, 0.25_real32, 2.0_real32), dp), &
+        0.5_dp, 0.0001_dp, 'mode 0 is exposure only: 0.25 * 2 = 0.5')
+    call scene_free(sc)
 
     call test_summary()
 

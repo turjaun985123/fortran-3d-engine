@@ -33,13 +33,16 @@
 ! Triangles crossing the near plane or with |NDC| > 4 are dropped
 ! rather than clipped (the legacy path keeps full homogeneous
 ! clipping; v3 clipping is later work).  Sprites / text / particles
-! and the env shadow/fog/tonemap passes are not part of the v3 path
-! yet; scene post chains still run on the quantised framebuffer in
-! main, exactly as on the legacy path.
+! are not part of the v3 path yet (main falls back to legacy for
+! such scenes).  (v3.0 Phase 3: per-light shadow maps are built
+! per frame in render_core via shadow_v3_3d, and bloom + tone
+! mapping run on the float buffer inside v3_quantize_to_fb via
+! post_v3_3d -- see there.)
 !
 ! Framebuffer (ADR-4): v3_buffer%rgb is real32 LINEAR RGB.  Values
-! stay linear through SSAA downsampling; quantisation to 0..255
-! bytes happens only in v3_quantize_to_fb at output.
+! stay linear through SSAA downsampling; the output transform
+! (bloom + tonemap, then sRGB encode + quantisation to 0..255
+! bytes) happens only in v3_quantize_to_fb at output.
 module renderer_v3_3d
     use, intrinsic :: iso_fortran_env, only: real32, int32, int64
     use math_3d
@@ -48,6 +51,8 @@ module renderer_v3_3d
     use scene_3d, only: Scene
     use renderer_3d, only: FrameBuffer
     use fragment_v3_3d, only: frag_in, frag_shade
+    use post_v3_3d, only: post_v3_apply, post_v3_linear_to_byte
+    use shadow_v3_3d, only: shadow_v3_build
     implicit none
     private
     public :: v3_buffer, v3_init, v3_free, v3_render_scene, &
@@ -270,27 +275,43 @@ contains
         call v3_free(vb)
     end subroutine v3_render_scene_fb
 
-    ! Quantise the linear buffer into the legacy framebuffer's byte
-    ! pixels (the ONLY quantisation point on the v3 path) and reset
+    ! Output transform + quantisation (v3.0 Phase 3, ADR-4): the
+    ! linear buffer is first copied and run through the post_v3_3d
+    ! float pipeline (true bloom from the scene post chain, then
+    ! exposure + tone mapping per sc%tonemap_mode), and each value
+    ! is then sRGB-encoded and rounded to a byte -- the ONLY
+    ! quantisation point on the v3 path.  Phase 2 wrote linear
+    ! values straight to bytes; the sRGB encode added here makes
+    ! mid-tones brighter across every v3 render (intended: ADR-4
+    ! puts the sRGB output transform at the end of the pipeline).
+    ! With tonemap_mode == 0 and no bloom the output is exactly
+    ! sRGB(linear): 'none' now means 'no tone curve', not 'no
+    ! transform'.  Background pixels keep the scene bg bytes
+    ! verbatim (they are already display-referred).  Also resets
     ! the legacy z-buffer (v3 keeps its own depth; post passes that
     ! read z see "infinitely far", as for a cleared buffer).
     subroutine v3_quantize_to_fb(vb, sc, fb)
         type(v3_buffer), intent(in) :: vb
         type(Scene), intent(in) :: sc
         type(FrameBuffer), intent(inout) :: fb
+        real(real32), allocatable :: lin(:, :, :)
         integer :: x, y, k
+        allocate(lin(3, vb%width, vb%height))
+        lin = vb%rgb
+        call post_v3_apply(lin, vb%width, vb%height, sc)
         do y = 1, fb%height
             do x = 1, fb%width
                 do k = 1, 3
                     if (vb%vis_tri(x, y) == 0_int32) then
                         fb%pixels(k, x, y) = sc%bg(k)
                     else
-                        fb%pixels(k, x, y) = min(255, max(0, &
-                            nint(vb%rgb(k, x, y) * 255.0_real32)))
+                        fb%pixels(k, x, y) = &
+                            post_v3_linear_to_byte(lin(k, x, y))
                     end if
                 end do
             end do
         end do
+        deallocate(lin)
         fb%z_buffer = 1.0e10_dp
     end subroutine v3_quantize_to_fb
 
@@ -327,6 +348,11 @@ contains
         call store_alloc(ts, total)
         call vertex_stage(ts, sc, models, vb%width, vb%height)
         call rasterize_vis(vb, ts)
+        ! v3.0 Phase 3: per-frame shadow maps for the fragment
+        ! stage's per-light shadow_v3_factor queries.  The build
+        ! records mode 0 (factor 1.0) when the scene disables
+        ! shadows, and reuses maps while the shape is unchanged.
+        call shadow_v3_build(sc, models)
         call shade_pass(vb, sc, ts)
         call store_free(ts)
     end subroutine render_core

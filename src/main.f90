@@ -52,6 +52,11 @@ program main
     character(len=64) :: renderer_name, arg_buf, env_val
     integer :: arg_offset, env_len, env_status
     logical :: use_v3
+    ! v3.0 Phase 3: filtered post chain for the v3 path ('bloom' is
+    ! owned by post_v3_3d on the float buffer; see the call site).
+    character(len=32) :: filt_post_names(16), post_lc
+    real(dp) :: filt_post_amounts(16)
+    integer :: filt_n_post, post_i, lc_i
     type(Scene) :: demo_sc
     type(mat4), allocatable :: demo_models(:)
 
@@ -433,9 +438,38 @@ program main
 
             ! Wave C: post-processing chain (row 30), applied last
             ! on both render paths, in .scene file order.
-            if (sc%n_post > 0) &
-                call post_apply_chain(fb, sc%post_names, &
-                                      sc%post_amounts, sc%n_post)
+            ! v3.0 Phase 3: on the v3 path 'bloom' is excluded here
+            ! -- post_v3_3d already applied true float bloom inside
+            ! v3_quantize_to_fb, and running the legacy 8-bit bloom
+            ! approximation as well would double-apply it.  The
+            ! other chain entries still run on the framebuffer.
+            if (sc%n_post > 0) then
+                if (use_v3) then
+                    filt_n_post = 0
+                    do post_i = 1, sc%n_post
+                        post_lc = sc%post_names(post_i)
+                        do lc_i = 1, len_trim(post_lc)
+                            if (post_lc(lc_i:lc_i) >= 'A' .and. &
+                                post_lc(lc_i:lc_i) <= 'Z') &
+                                post_lc(lc_i:lc_i) = &
+                                    char(ichar(post_lc(lc_i:lc_i)) + 32)
+                        end do
+                        if (trim(post_lc) == 'bloom') cycle
+                        filt_n_post = filt_n_post + 1
+                        filt_post_names(filt_n_post) = &
+                            sc%post_names(post_i)
+                        filt_post_amounts(filt_n_post) = &
+                            sc%post_amounts(post_i)
+                    end do
+                    if (filt_n_post > 0) &
+                        call post_apply_chain(fb, filt_post_names, &
+                                              filt_post_amounts, &
+                                              filt_n_post)
+                else
+                    call post_apply_chain(fb, sc%post_names, &
+                                          sc%post_amounts, sc%n_post)
+                end if
+            end if
 
             ! Frame 1 (frame 0 in t) always lands in sc%output_file.
             if (frame_i == 1) call framebuffer_save_image(fb, trim(sc%output_file))
