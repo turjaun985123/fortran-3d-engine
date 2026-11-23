@@ -54,6 +54,12 @@ module f3dc_errors
     logical :: has_source = .false.
   end type error_bag_t
 
+  !> One heap-held string, used to assemble large formatted output
+  !! without repeated self-concatenation (see error_bag_format_text).
+  type :: str_box_t
+    character(len=:), allocatable :: s
+  end type str_box_t
+
   ! ERROR_CODES: stable, append-only code -> short title (errors.py).
   integer, parameter :: N_CODES = 21
   character(len=4), parameter :: CODE_KEYS(N_CODES) = [ &
@@ -273,19 +279,34 @@ contains
   function expand_tabs(s) result(out)
     character(len=*), intent(in) :: s
     character(len=:), allocatable :: out
-    integer :: i, col, nsp
-    out = ""
+    character(len=:), allocatable :: buf
+    integer :: i, col, nsp, used
+    ! Fill a preallocated buffer by position.  The previous
+    ! char-by-char `out = out // ...` loop is not just quadratic:
+    ! flang-18 alloca's each concatenation temporary on the stack
+    ! and does not reclaim it until this function returns, so the
+    ! stack cost is the SUM of every intermediate length (~len^2/2)
+    ! and a long line can overflow the main-thread stack.
+    allocate (character(len=8 * len(s)) :: buf)
+    used = 0
     col = 0
     do i = 1, len(s)
       if (s(i:i) == achar(9)) then
         nsp = 8 - mod(col, 8)
-        out = out // repeat(" ", nsp)
+        buf(used + 1:used + nsp) = repeat(" ", nsp)
+        used = used + nsp
         col = col + nsp
       else
-        out = out // s(i:i)
+        used = used + 1
+        buf(used:used) = s(i:i)
         col = col + 1
       end if
     end do
+    if (used > 0) then
+      out = buf(1:used)
+    else
+      out = ""
+    end if
   end function expand_tabs
 
   !> Fetch 1-based line idx (0-based Python index line_no-1 handled by
@@ -364,6 +385,53 @@ contains
     have = .true.
   end subroutine snippet_lines
 
+  !> The formatted block for ONE diagnostic (header + optional
+  !! snippet/caret + optional why/help lines).  This lives in its
+  !! own subroutine on purpose: flang-18 alloca's deferred-length
+  !! concatenation temporaries on the stack and does not reclaim
+  !! them until the enclosing procedure returns, so building every
+  !! block inside error_bag_format_text's loop made the stack cost
+  !! the sum of all blocks' intermediate lengths and a flood of
+  !! diagnostics (tens of KB of output) overflowed the 8 MiB
+  !! main-thread stack -> SIGSEGV at the assembly concatenations.
+  !! Per-diagnostic temporaries are bounded by one block and are
+  !! released when this subroutine returns.
+  subroutine diag_block_text(bag, diag, colour, block_text)
+    type(error_bag_t), intent(in) :: bag
+    type(diagnostic_t), intent(in) :: diag
+    logical, intent(in) :: colour
+    character(len=:), allocatable, intent(out) :: block_text
+    character(len=:), allocatable :: header, tl, caret
+    logical :: have
+    if (diag%has_span) then
+      header = str_of(diag%span%source) // ":" // &
+               trim(fmt_int(int(diag%span%line, int64))) // ":" // &
+               trim(fmt_int(int(diag%span%col, int64))) // ": " // &
+               str_of(diag%severity) // " " // str_of(diag%code) // &
+               ": " // str_of(diag%message)
+    else
+      header = str_of(diag%severity) // " " // str_of(diag%code) // &
+               ": " // str_of(diag%message)
+    end if
+    if (colour) then
+      if (str_of(diag%severity) == "error") then
+        header = achar(27) // "[1;31m" // header // achar(27) // "[0m"
+      else
+        header = achar(27) // "[1;33m" // header // achar(27) // "[0m"
+      end if
+    end if
+    block_text = header
+    call snippet_lines(bag, diag, tl, caret, have)
+    if (have) block_text = block_text // achar(10) // tl // &
+                           achar(10) // caret
+    if (len(str_of(diag%why)) > 0) &
+      block_text = block_text // achar(10) // "  why: " // &
+                   str_of(diag%why)
+    if (len(str_of(diag%help)) > 0) &
+      block_text = block_text // achar(10) // "  help: " // &
+                   str_of(diag%help)
+  end subroutine diag_block_text
+
   !> ErrorBag.format_text(use_color): blocks joined by a single "\n",
   !! no trailing newline; "" for an empty bag.
   function error_bag_format_text(bag, use_color) result(out)
@@ -371,44 +439,38 @@ contains
     logical, intent(in), optional :: use_color
     character(len=:), allocatable :: out
     logical :: colour
-    integer :: k
-    character(len=:), allocatable :: header, tl, caret, block_text
-    logical :: have
+    integer :: k, total, pos, lb
+    type(str_box_t), allocatable :: blocks(:)
     colour = .false.
     if (present(use_color)) colour = use_color
-    out = ""
+    if (bag%n == 0) then
+      out = ""
+      return
+    end if
+    ! Build each block separately (heap-held), then assemble into a
+    ! single preallocated buffer filled by position.  The previous
+    ! `out = out // block_text` loop stack-overflowed on large
+    ! diagnostic counts (see diag_block_text): with ~105+ diagnostics
+    ! over a ~460-char line (or ~170 single-line E101s) the native
+    ! compiler died with SIGSEGV and no output at all.
+    allocate (blocks(bag%n))
+    total = bag%n - 1  ! the single-"\n" separators
     do k = 1, bag%n
-      associate (diag => bag%diags(k))
-        if (diag%has_span) then
-          header = str_of(diag%span%source) // ":" // &
-                   trim(fmt_int(int(diag%span%line, int64))) // ":" // &
-                   trim(fmt_int(int(diag%span%col, int64))) // ": " // &
-                   str_of(diag%severity) // " " // str_of(diag%code) // &
-                   ": " // str_of(diag%message)
-        else
-          header = str_of(diag%severity) // " " // str_of(diag%code) // &
-                   ": " // str_of(diag%message)
-        end if
-        if (colour) then
-          if (str_of(diag%severity) == "error") then
-            header = achar(27) // "[1;31m" // header // achar(27) // "[0m"
-          else
-            header = achar(27) // "[1;33m" // header // achar(27) // "[0m"
-          end if
-        end if
-        block_text = header
-        call snippet_lines(bag, diag, tl, caret, have)
-        if (have) block_text = block_text // achar(10) // tl // &
-                               achar(10) // caret
-        if (len(str_of(diag%why)) > 0) &
-          block_text = block_text // achar(10) // "  why: " // &
-                       str_of(diag%why)
-        if (len(str_of(diag%help)) > 0) &
-          block_text = block_text // achar(10) // "  help: " // &
-                       str_of(diag%help)
-      end associate
-      if (k > 1) out = out // achar(10)
-      out = out // block_text
+      call diag_block_text(bag, bag%diags(k), colour, blocks(k)%s)
+      total = total + len(blocks(k)%s)
+    end do
+    allocate (character(len=total) :: out)
+    pos = 1
+    do k = 1, bag%n
+      if (k > 1) then
+        out(pos:pos) = achar(10)
+        pos = pos + 1
+      end if
+      lb = len(blocks(k)%s)
+      if (lb > 0) then
+        out(pos:pos + lb - 1) = blocks(k)%s
+        pos = pos + lb
+      end if
     end do
   end function error_bag_format_text
 
@@ -438,31 +500,46 @@ contains
   function json_escape(s) result(out)
     character(len=*), intent(in) :: s
     character(len=:), allocatable :: out
-    integer :: i, b, cp, nbytes, j
-    out = ""
+    character(len=:), allocatable :: buf
+    integer :: i, b, cp, nbytes, j, used
+    ! Preallocated buffer filled by position (worst case per input
+    ! byte is one 6-char \uXXXX escape); the previous char-by-char
+    ! self-concatenation had the same stack-accumulating alloca
+    ! behaviour described in diag_block_text.
+    allocate (character(len=6 * len(s) + 6) :: buf)
+    used = 0
     i = 1
     do while (i <= len(s))
       b = iachar(s(i:i))
       if (b < 128) then
         select case (b)
         case (34)
-          out = out // '\"'
+          buf(used + 1:used + 2) = '\"'
+          used = used + 2
         case (92)
-          out = out // '\\'
+          buf(used + 1:used + 2) = '\\'
+          used = used + 2
         case (8)
-          out = out // '\b'
+          buf(used + 1:used + 2) = '\b'
+          used = used + 2
         case (12)
-          out = out // '\f'
+          buf(used + 1:used + 2) = '\f'
+          used = used + 2
         case (10)
-          out = out // '\n'
+          buf(used + 1:used + 2) = '\n'
+          used = used + 2
         case (13)
-          out = out // '\r'
+          buf(used + 1:used + 2) = '\r'
+          used = used + 2
         case (9)
-          out = out // '\t'
+          buf(used + 1:used + 2) = '\t'
+          used = used + 2
         case (0:7, 11, 14:31, 127)
-          out = out // json_u_escape(b)
+          buf(used + 1:used + 6) = json_u_escape(b)
+          used = used + 6
         case default
-          out = out // s(i:i)
+          used = used + 1
+          buf(used:used) = s(i:i)
         end select
         i = i + 1
       else
@@ -487,19 +564,26 @@ contains
           end do
         end if
         if (cp <= 65535) then
-          out = out // json_u_escape(cp)
+          buf(used + 1:used + 6) = json_u_escape(cp)
+          used = used + 6
         else
           block
             integer :: hi, lo
             hi = 55296 + (cp - 65536) / 1024
             lo = 56320 + mod(cp - 65536, 1024)
-            out = out // json_u_escape(hi)
-            out = out // json_u_escape(lo)
+            buf(used + 1:used + 6) = json_u_escape(hi)
+            buf(used + 7:used + 12) = json_u_escape(lo)
+            used = used + 12
           end block
         end if
         i = i + nbytes
       end if
     end do
+    if (used > 0) then
+      out = buf(1:used)
+    else
+      out = ""
+    end if
   end function json_escape
 
   function json_str(s) result(out)
@@ -508,60 +592,87 @@ contains
     out = '"' // json_escape(s) // '"'
   end function json_str
 
+  !> The JSON record text for ONE diagnostic, from "  {" through
+  !! the closing "  }," / "  }" line (each line NL-terminated).
+  !! Separate subroutine for the same stack reason as
+  !! diag_block_text: its concatenation temporaries are bounded by
+  !! one record and released on return.
+  subroutine json_record_text(diag, is_last, rec)
+    type(diagnostic_t), intent(in) :: diag
+    logical, intent(in) :: is_last
+    character(len=:), allocatable, intent(out) :: rec
+    character(len=*), parameter :: NL = achar(10)
+    rec = "  {" // NL
+    rec = rec // '    "code": ' // json_str(str_of(diag%code)) // &
+          "," // NL
+    rec = rec // '    "severity": ' // &
+          json_str(str_of(diag%severity)) // "," // NL
+    rec = rec // '    "message": ' // &
+          json_str(str_of(diag%message)) // "," // NL
+    if (diag%has_span) then
+      rec = rec // '    "file": ' // &
+            json_str(str_of(diag%span%source)) // "," // NL
+      rec = rec // '    "line": ' // &
+            trim(fmt_int(int(diag%span%line, int64))) // "," // NL
+      rec = rec // '    "col": ' // &
+            trim(fmt_int(int(diag%span%col, int64))) // "," // NL
+      rec = rec // '    "span": {' // NL
+      rec = rec // '      "source": ' // &
+            json_str(str_of(diag%span%source)) // "," // NL
+      rec = rec // '      "line": ' // &
+            trim(fmt_int(int(diag%span%line, int64))) // "," // NL
+      rec = rec // '      "col": ' // &
+            trim(fmt_int(int(diag%span%col, int64))) // "," // NL
+      rec = rec // '      "length": ' // &
+            trim(fmt_int(int(diag%span%length, int64))) // NL
+      rec = rec // "    }," // NL
+    else
+      rec = rec // '    "file": null,' // NL
+      rec = rec // '    "line": null,' // NL
+      rec = rec // '    "col": null,' // NL
+      rec = rec // '    "span": null,' // NL
+    end if
+    rec = rec // '    "why": ' // json_str(str_of(diag%why)) // &
+          "," // NL
+    rec = rec // '    "help": ' // json_str(str_of(diag%help)) // NL
+    if (is_last) then
+      rec = rec // "  }" // NL
+    else
+      rec = rec // "  }," // NL
+    end if
+  end subroutine json_record_text
+
   !> ErrorBag.format_json(): json.dumps(records, indent=2) exactly.
   function error_bag_format_json(bag) result(out)
     type(error_bag_t), intent(in) :: bag
     character(len=:), allocatable :: out
-    character(len=*), parameter :: NL = achar(10)
-    integer :: k
+    integer :: k, total, pos, lb
+    type(str_box_t), allocatable :: recs(:)
     if (bag%n == 0) then
       out = "[]"
       return
     end if
-    out = "[" // NL
+    ! Per-record build + preallocated assembly, as in
+    ! error_bag_format_text (the old loop self-concatenated `out`
+    ! ~20 times per diagnostic and stack-overflowed the same way).
+    allocate (recs(bag%n))
+    total = 3  ! "[" + NL, plus the closing "]"
     do k = 1, bag%n
-      associate (diag => bag%diags(k))
-        out = out // "  {" // NL
-        out = out // '    "code": ' // json_str(str_of(diag%code)) // &
-              "," // NL
-        out = out // '    "severity": ' // &
-              json_str(str_of(diag%severity)) // "," // NL
-        out = out // '    "message": ' // &
-              json_str(str_of(diag%message)) // "," // NL
-        if (diag%has_span) then
-          out = out // '    "file": ' // &
-                json_str(str_of(diag%span%source)) // "," // NL
-          out = out // '    "line": ' // &
-                trim(fmt_int(int(diag%span%line, int64))) // "," // NL
-          out = out // '    "col": ' // &
-                trim(fmt_int(int(diag%span%col, int64))) // "," // NL
-          out = out // '    "span": {' // NL
-          out = out // '      "source": ' // &
-                json_str(str_of(diag%span%source)) // "," // NL
-          out = out // '      "line": ' // &
-                trim(fmt_int(int(diag%span%line, int64))) // "," // NL
-          out = out // '      "col": ' // &
-                trim(fmt_int(int(diag%span%col, int64))) // "," // NL
-          out = out // '      "length": ' // &
-                trim(fmt_int(int(diag%span%length, int64))) // NL
-          out = out // "    }," // NL
-        else
-          out = out // '    "file": null,' // NL
-          out = out // '    "line": null,' // NL
-          out = out // '    "col": null,' // NL
-          out = out // '    "span": null,' // NL
-        end if
-        out = out // '    "why": ' // json_str(str_of(diag%why)) // &
-              "," // NL
-        out = out // '    "help": ' // json_str(str_of(diag%help)) // NL
-        if (k < bag%n) then
-          out = out // "  }," // NL
-        else
-          out = out // "  }" // NL
-        end if
-      end associate
+      call json_record_text(bag%diags(k), k == bag%n, recs(k)%s)
+      total = total + len(recs(k)%s)
     end do
-    out = out // "]"
+    allocate (character(len=total) :: out)
+    out(1:1) = "["
+    out(2:2) = achar(10)
+    pos = 3
+    do k = 1, bag%n
+      lb = len(recs(k)%s)
+      if (lb > 0) then
+        out(pos:pos + lb - 1) = recs(k)%s
+        pos = pos + lb
+      end if
+    end do
+    out(pos:pos) = "]"
   end function error_bag_format_json
 
   ! ------------------------------------------------------------------
