@@ -1,0 +1,12 @@
+# Alpha-blend sample (v3.0 Phase 4): a tinted transparent panel
+# (`alpha blend`, opacity 0.45) in front of two opaque objects.
+# Blend-mode triangles are excluded from the opaque visibility
+# pass and composited afterwards, sorted back-to-front, in
+# linear space by the v3 renderer's transparent pass.
+scene "alpha-blend" size 640 480 background black
+camera at 0 1 9 look 0 0 0 fov 60
+light directional dir -0.5 -1 -0.7 strength 1.2
+cube left red at -2 0 -2 size 3
+sphere right blue at 2 0 -2 radius 1.6
+plane panel orange at 0 0 0 size 6 alpha blend opacity 0.45
+render

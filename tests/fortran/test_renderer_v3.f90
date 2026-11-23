@@ -348,6 +348,11 @@ program test_renderer_v3
         0.5_dp, 0.0001_dp, 'mode 0 is exposure only: 0.25 * 2 = 0.5')
     call scene_free(sc)
 
+    ! ================================================================
+    ! Phase 4: alpha mask re-shade + transparent blend pass
+    ! ================================================================
+    call phase4_renderer_tests()
+
     call test_summary()
 
 contains
@@ -432,6 +437,142 @@ contains
         m%triangles(2)%uv(:, 2) = [1.0_dp, 1.0_dp]
         m%triangles(2)%uv(:, 3) = [1.0_dp, 0.0_dp]
     end function quad_mesh_z
+
+    ! Uniform-colour quad at depth z, UVs (0,0),(1,0),(1,1),(0,1)
+    ! over A(-1,-1) B(1,-1) C(1,1) D(-1,1), split A-D-C / A-C-B.
+    function quad_mesh_col(z, rgb255) result(m)
+        real(dp), intent(in) :: z
+        integer, intent(in) :: rgb255(3)
+        type(Mesh) :: m
+        type(vec3) :: a, b, c, d, n
+        a = vec3_create(-1.0_dp, -1.0_dp, z)
+        b = vec3_create(1.0_dp, -1.0_dp, z)
+        c = vec3_create(1.0_dp, 1.0_dp, z)
+        d = vec3_create(-1.0_dp, 1.0_dp, z)
+        n = vec3_create(0.0_dp, 0.0_dp, 1.0_dp)
+        allocate(m%triangles(2))
+        m%num_triangles = 2
+        m%triangles(1)%v = [a, d, c]
+        m%triangles(2)%v = [a, c, b]
+        m%triangles(1)%normal = n
+        m%triangles(2)%normal = n
+        m%triangles(1)%vn = [n, n, n]
+        m%triangles(2)%vn = [n, n, n]
+        m%triangles(1)%color = rgb255
+        m%triangles(2)%color = rgb255
+        m%triangles(1)%material_id = 1
+        m%triangles(2)%material_id = 1
+        m%triangles(1)%uv(:, 1) = [0.0_dp, 0.0_dp]
+        m%triangles(1)%uv(:, 2) = [0.0_dp, 1.0_dp]
+        m%triangles(1)%uv(:, 3) = [1.0_dp, 1.0_dp]
+        m%triangles(2)%uv(:, 1) = [0.0_dp, 0.0_dp]
+        m%triangles(2)%uv(:, 2) = [1.0_dp, 1.0_dp]
+        m%triangles(2)%uv(:, 3) = [1.0_dp, 0.0_dp]
+    end function quad_mesh_col
+
+    subroutine phase4_renderer_tests()
+        type(Scene) :: s4
+        type(v3_buffer) :: v4, v4b
+        type(mat4) :: models4(2)
+        integer :: nd
+
+        models4(1) = mat4_identity()
+        models4(2) = mat4_identity()
+
+        ! ---- Mask: front red quad (z=0) with a 2x2 alpha texture
+        ! (left column alpha 0, right column 255), alpha_mode 1,
+        ! over an opaque green quad (z=-1).  Left pixels must show
+        ! the GREEN backdrop through the cutout (discard re-shade);
+        ! right pixels stay RED.
+        call make_scene(s4, 64, 48)
+        allocate(s4%objects(2))
+        s4%n_objects = 2
+        s4%cap_objects = 2
+        s4%objects(1)%prim = 'tris'
+        s4%objects(1)%name = 'back'
+        s4%objects(1)%mesh = quad_mesh_col(-1.0_dp, [0, 255, 0])
+        s4%objects(1)%mat = material_from_name('basic', &
+            [0.0_dp, 1.0_dp, 0.0_dp], .true.)
+        s4%objects(1)%pbr = pbr_from_material(s4%objects(1)%mat, &
+                                              0.0_dp, 1.0_dp)
+        s4%objects(2)%prim = 'tris'
+        s4%objects(2)%name = 'front'
+        s4%objects(2)%mesh = quad_mesh_col(0.0_dp, [255, 0, 0])
+        s4%objects(2)%mat = material_from_name('basic', &
+            [1.0_dp, 0.0_dp, 0.0_dp], .true.)
+        s4%objects(2)%pbr = pbr_from_material(s4%objects(2)%mat, &
+                                              0.0_dp, 1.0_dp)
+        s4%objects(2)%pbr%alpha_mode = 1
+        s4%objects(2)%pbr%alpha_cutoff = 0.5_dp
+        associate (o => s4%objects(2))
+            o%tex%w = 2
+            o%tex%h = 2
+            allocate(o%tex%pixels(3, 2, 2))
+            o%tex%pixels = 255
+            allocate(o%tex%alpha(2, 2))
+            o%tex%alpha(1, :) = 0
+            o%tex%alpha(2, :) = 255
+            o%tex%has_alpha = .true.
+            o%tex%srgb = .true.
+            o%tex%loaded = .true.
+        end associate
+        call v3_init(v4, 64, 48)
+        call v3_render_scene(v4, s4, models4, 1)
+        call assert_real_close(real(v4%rgb(2, 28, 24), dp), 1.0_dp, &
+            0.02_dp, 'mask: cutout pixel shows backdrop GREEN')
+        call assert_real_close(real(v4%rgb(1, 28, 24), dp), 0.0_dp, &
+            0.02_dp, 'mask: cutout pixel has no red')
+        call assert_real_close(real(v4%rgb(1, 36, 24), dp), 1.0_dp, &
+            0.02_dp, 'mask: kept pixel is RED')
+        call assert_real_close(real(v4%rgb(2, 36, 24), dp), 0.0_dp, &
+            0.02_dp, 'mask: kept pixel has no green')
+        call scene_free(s4)
+        call v3_free(v4)
+
+        ! ---- Blend: front red quad, alpha_mode 2, opacity 0.5,
+        ! over the same green backdrop.  Centre pixel must be the
+        ! linear composite 0.5*red + 0.5*green = (0.5, 0.5, 0).
+        ! Also: threads 1 vs 8 must be identical (the blend pass
+        ! is single-threaded by design).
+        call make_scene(s4, 64, 48)
+        allocate(s4%objects(2))
+        s4%n_objects = 2
+        s4%cap_objects = 2
+        s4%objects(1)%prim = 'tris'
+        s4%objects(1)%name = 'back'
+        s4%objects(1)%mesh = quad_mesh_col(-1.0_dp, [0, 255, 0])
+        s4%objects(1)%mat = material_from_name('basic', &
+            [0.0_dp, 1.0_dp, 0.0_dp], .true.)
+        s4%objects(1)%pbr = pbr_from_material(s4%objects(1)%mat, &
+                                              0.0_dp, 1.0_dp)
+        s4%objects(2)%prim = 'tris'
+        s4%objects(2)%name = 'panel'
+        s4%objects(2)%mesh = quad_mesh_col(0.0_dp, [255, 0, 0])
+        s4%objects(2)%mat = material_from_name('basic', &
+            [1.0_dp, 0.0_dp, 0.0_dp], .true.)
+        s4%objects(2)%pbr = pbr_from_material(s4%objects(2)%mat, &
+                                              0.0_dp, 1.0_dp)
+        s4%objects(2)%pbr%alpha_mode = 2
+        s4%objects(2)%pbr%opacity = 0.5_dp
+        call v3_init(v4, 64, 48)
+        call v3_render_scene(v4, s4, models4, 1)
+        call assert_real_close(real(v4%rgb(1, 32, 24), dp), 0.5_dp, &
+            0.02_dp, 'blend: centre R == 0.5 (50% red over green)')
+        call assert_real_close(real(v4%rgb(2, 32, 24), dp), 0.5_dp, &
+            0.02_dp, 'blend: centre G == 0.5 (50% red over green)')
+        call assert_real_close(real(v4%rgb(3, 32, 24), dp), 0.0_dp, &
+            0.02_dp, 'blend: centre B == 0')
+        call assert_true(v4%shaded(32, 24) == 1, &
+            'blend: centre pixel marked shaded (quantize keeps it)')
+        call v3_init(v4b, 64, 48)
+        call v3_render_scene(v4b, s4, models4, 8)
+        nd = count(v4%rgb /= v4b%rgb)
+        call assert_int_eq(0, nd, &
+            'blend scene: threads 1 vs 8 RGB identical')
+        call scene_free(s4)
+        call v3_free(v4)
+        call v3_free(v4b)
+    end subroutine phase4_renderer_tests
 
     ! (b) Find the covered pixel where perspective-correct and affine
     ! UV differ most (computed independently here in real64 from the

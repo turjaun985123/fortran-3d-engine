@@ -275,20 +275,21 @@ program test_fragment_v3
     fin%col = [0.8_real32, 0.4_real32, 0.2_real32]
 
     ! ----------------------------------------------------------------
-    ! (c) Texture stage: checker squares replace the base colour
+    ! (c) Texture stage: checker squares tint the base colour
     ! ----------------------------------------------------------------
-    ! fin%col is grey here on purpose: the legacy env rule replaces
-    ! it with the texel.  Normal faces the light (lit factor 1.25
-    ! in Phase 3, see below).
+    ! Phase 4 SEMANTICS CHANGE (stated reason): the base colour is
+    ! now sampled through texture_sample_f (filtered, LINEAR) and
+    ! the effective albedo is material colour x sampled rgb -- the
+    ! Phase 2/3 code REPLACED fin%col with the gamma-space texel
+    ! (legacy env rule).  fin%col is grey 0.5 here, so every Phase
+    ! 2/3 expectation in this block is halved: a texel channel of
+    ! 1 comes out at 0.5 (tint) x 1.25 (Phase 3 lit factor) = 0.625.
     fin%obj_id = 2
     fin%col = [0.5_real32, 0.5_real32, 0.5_real32]
-    ! Phase 3: the fragment faces the light with an up normal, so
-    ! the lit factor is (1 + ambient) = 1.25 and a texel channel of
-    ! 1 comes out at 1.25 (Phase 2 asserted 1.0).
     fin%uv = [0.25_real32, 0.75_real32]  ! top-left: red
     call frag_shade(fin, sc_tex, rgb)
-    call assert_real_close(real(rgb(1), dp), 1.25_dp, 0.005_dp, &
-        '(c) checker TL: R == 1.25 (red texel, Phase 3 exposure)')
+    call assert_real_close(real(rgb(1), dp), 0.625_dp, 0.005_dp, &
+        '(c) checker TL: R == 0.625 (red texel x grey tint, Phase 4)')
     call assert_real_close(real(rgb(2), dp), 0.0_dp, 0.005_dp, &
         '(c) checker TL: G == 0 (red texel)')
     call assert_real_close(real(rgb(3), dp), 0.0_dp, 0.005_dp, &
@@ -297,26 +298,26 @@ program test_fragment_v3
     call frag_shade(fin, sc_tex, rgb)
     call assert_real_close(real(rgb(1), dp), 0.0_dp, 0.005_dp, &
         '(c) checker TR: R == 0 (green texel)')
-    call assert_real_close(real(rgb(2), dp), 1.25_dp, 0.005_dp, &
-        '(c) checker TR: G == 1.25 (green texel, Phase 3 exposure)')
+    call assert_real_close(real(rgb(2), dp), 0.625_dp, 0.005_dp, &
+        '(c) checker TR: G == 0.625 (green texel x tint, Phase 4)')
     fin%uv = [0.25_real32, 0.25_real32]  ! bottom-left: blue
     call frag_shade(fin, sc_tex, rgb)
-    call assert_real_close(real(rgb(3), dp), 1.25_dp, 0.005_dp, &
-        '(c) checker BL: B == 1.25 (blue texel, Phase 3 exposure)')
+    call assert_real_close(real(rgb(3), dp), 0.625_dp, 0.005_dp, &
+        '(c) checker BL: B == 0.625 (blue texel x tint, Phase 4)')
     call assert_real_close(real(rgb(1), dp), 0.0_dp, 0.005_dp, &
         '(c) checker BL: R == 0 (blue texel)')
     fin%uv = [0.75_real32, 0.25_real32]  ! bottom-right: white
     call frag_shade(fin, sc_tex, rgb)
-    call assert_true(all(rgb > 0.99_real32), &
-        '(c) checker BR: white texel on all channels')
-    call assert_real_close(real(rgb(1), dp), 1.25_dp, 0.005_dp, &
-        '(c) checker BR: R == 1.25 (white texel, Phase 3 exposure)')
+    call assert_true(all(rgb > 0.6_real32), &
+        '(c) checker BR: white texel bright on all channels')
+    call assert_real_close(real(rgb(1), dp), 0.625_dp, 0.005_dp, &
+        '(c) checker BR: R == 0.625 (white texel x tint, Phase 4)')
     ! Same UV on the untextured scene keeps the grey base: the
     ! texture (not the UV alone) drives the difference.
     fin%uv = [0.25_real32, 0.75_real32]
     call frag_shade(fin, sc, rgb_exp)
     call assert_real_close(real(rgb_exp(1), dp), 0.625_dp, 0.005_dp, &
-        '(c) control: no texture -> grey base * 1.25, not red texel')
+        '(c) control: no texture -> grey base * 1.25')
     fin%col = [0.8_real32, 0.4_real32, 0.2_real32]
     fin%uv = [0.0_real32, 0.0_real32]
 
@@ -630,9 +631,186 @@ program test_fragment_v3
     fin%obj_id = 2
     fin%wp = [0.0_real32, 0.0_real32, 0.0_real32]
 
+    ! ================================================================
+    ! Phase 4 additions: material slots, normal mapping, alpha
+    ! ================================================================
+    call phase4_tests()
+
     call test_summary()
 
 contains
+
+    ! Build a 1x1 texture with the given byte texel (and alpha).
+    subroutine make_tex1(tex, r, g, b, a, srgb_flag)
+        use texture_3d, only: TextureImage
+        type(TextureImage), intent(out) :: tex
+        integer, intent(in) :: r, g, b, a
+        logical, intent(in) :: srgb_flag
+        tex%w = 1
+        tex%h = 1
+        allocate(tex%pixels(3, 1, 1))
+        tex%pixels(:, 1, 1) = [r, g, b]
+        allocate(tex%alpha(1, 1))
+        tex%alpha(1, 1) = a
+        tex%has_alpha = .true.
+        tex%srgb = srgb_flag
+        tex%loaded = .true.
+    end subroutine make_tex1
+
+    subroutine phase4_tests()
+        type(Scene) :: s
+        type(frag_in) :: f
+        real(real32) :: out(3), ctl(3), alpha
+        logical :: discard
+
+        f%wp = [0.0_real32, 0.0_real32, 0.0_real32]
+        f%nrm = [0.0_real32, 1.0_real32, 0.0_real32]
+        f%uv = [0.0_real32, 0.0_real32]
+        f%col = [0.8_real32, 0.4_real32, 0.2_real32]
+        f%mat_id = 0
+        f%obj_id = 2
+        f%shader_id = 0
+        f%backface = .false.
+        f%wp_dx = 0.0_real32
+        f%wp_dy = 0.0_real32
+        f%uv_dx = 0.0_real32
+        f%uv_dy = 0.0_real32
+
+        ! ---- (m) Normal map: texel (255,128,128) is tangent-space
+        ! (+1, ~0, ~0): with T = +X (wp_dx along +X for uv_dx along
+        ! +u) the perturbed normal bends from +Y toward +X, so the
+        ! +Y key light's diffuse collapses and only the hemisphere
+        ! mid ambient (n.y ~ 0 -> factor 0.65 x ambient) remains.
+        call build_base_scene(s)
+        call make_tex1(s%objects(2)%tex_normal, 255, 128, 128, &
+                       255, .false.)
+        f%wp_dx = [1.0_real32, 0.0_real32, 0.0_real32]
+        f%uv_dx = [1.0_real32, 0.0_real32]
+        f%wp_dy = [0.0_real32, 0.0_real32, 1.0_real32]
+        f%uv_dy = [0.0_real32, 1.0_real32]
+        call frag_shade(f, s, out)
+        call assert_real_close(real(out(1), dp), 0.8_dp * 0.1668_dp, &
+            0.01_dp, '(m) normal map: bent normal R ~ base*0.167')
+        call frag_shade(f, sc, ctl)  ! sc: no normal map, same fin
+        call assert_true(out(1) < ctl(1) * 0.5_real32, &
+            '(m) normal map bends shading away from the +Y light')
+        ! Degenerate derivatives (all zero) -> geometric fallback:
+        ! the SAME fragment with zero derivatives shades like the
+        ! unmapped control.
+        f%wp_dx = 0.0_real32
+        f%wp_dy = 0.0_real32
+        f%uv_dx = 0.0_real32
+        f%uv_dy = 0.0_real32
+        call frag_shade(f, s, out)
+        call assert_real_close(real(out(1), dp), real(ctl(1), dp), &
+            0.005_dp, '(m) zero derivatives: geometric normal fallback')
+
+        ! ---- (n) Emissive: added unlit.  Dark scene (no light, no
+        ! ambient): the lit result is black, so the output IS the
+        ! emissive term, first without a map, then tinted by an
+        ! emissive map texel (255, 0, 255).
+        call build_base_scene(s)
+        s%light_intensity = 0.0_dp
+        s%ambient = 0.0_dp
+        s%objects(2)%pbr%emissive = [0.5_dp, 0.25_dp, 0.125_dp]
+        call frag_shade(f, s, out)
+        call assert_real_close(real(out(1), dp), 0.5_dp, 0.005_dp, &
+            '(n) emissive adds without light: R == emissive R')
+        call assert_real_close(real(out(2), dp), 0.25_dp, 0.005_dp, &
+            '(n) emissive adds without light: G == emissive G')
+        call make_tex1(s%objects(2)%tex_emissive, 255, 0, 255, &
+                       255, .true.)
+        call frag_shade(f, s, out)
+        call assert_real_close(real(out(1), dp), 0.5_dp, 0.005_dp, &
+            '(n) emissive map: R kept by 255 texel')
+        call assert_real_close(real(out(2), dp), 0.0_dp, 0.005_dp, &
+            '(n) emissive map: G killed by 0 texel')
+
+        ! ---- (o) Occlusion: black occlusion texel removes ONLY
+        ! the ambient term.  With the key light on, the result is
+        ! the direct term alone (base * 1.0); the control keeps
+        ! direct + ambient (base * 1.25).
+        call build_base_scene(s)
+        call make_tex1(s%objects(2)%tex_occl, 0, 0, 0, 255, .false.)
+        call frag_shade(f, s, out)
+        call assert_real_close(real(out(1), dp), 0.8_dp, 0.01_dp, &
+            '(o) occlusion 0: direct light unchanged, ambient gone')
+        call frag_shade(f, sc, ctl)
+        call assert_real_close(real(ctl(1), dp), 1.0_dp, 0.01_dp, &
+            '(o) control: direct + ambient == base * 1.25')
+
+        ! ---- (p) Metallic-roughness map: texel (0,128,0) scales
+        ! metalness 1 -> 0 (B = 0) and roughness 1 -> 128/255
+        ! (G).  Aligned GGX fragment (camera moved above so
+        ! n = v = L = +Y), ambient 0: expected dielectric total =
+        ! diffuse 0.5 + GGX spec ~0.158 = 0.658 (hand-computed in
+        ! the Phase 4 notes; 0.03 tol covers the 128/255 rounding).
+        call build_base_scene(s)
+        call camera_init(s%cam, vec3_create(0.0_dp, 5.0_dp, 0.0_dp), &
+                         vec3_create(0.0_dp, 0.0_dp, 0.0_dp), &
+                         60.0_dp, 1.0_dp, 0.1_dp, 100.0_dp)
+        s%ambient = 0.0_dp
+        s%objects(2)%pbr = pbr_standard([0.5_dp, 0.5_dp, 0.5_dp], &
+                                        1.0_dp, 1.0_dp)
+        call make_tex1(s%objects(2)%tex_mr, 0, 128, 0, 255, .false.)
+        f%col = [0.5_real32, 0.5_real32, 0.5_real32]
+        call frag_shade(f, s, out)
+        call assert_real_close(real(out(1), dp), 0.658_dp, 0.03_dp, &
+            '(p) MR map: metalness->0, roughness->0.502 total 0.658')
+        ! Control without the map: metal at roughness 1 has NO
+        ! diffuse and a weak broad spec (~0.125): clearly darker.
+        call build_base_scene(s)
+        call camera_init(s%cam, vec3_create(0.0_dp, 5.0_dp, 0.0_dp), &
+                         vec3_create(0.0_dp, 0.0_dp, 0.0_dp), &
+                         60.0_dp, 1.0_dp, 0.1_dp, 100.0_dp)
+        s%ambient = 0.0_dp
+        s%objects(2)%pbr = pbr_standard([0.5_dp, 0.5_dp, 0.5_dp], &
+                                        1.0_dp, 1.0_dp)
+        call frag_shade(f, s, ctl)
+        call assert_true(out(1) > ctl(1) + 0.3_real32, &
+            '(p) MR map result differs from unmapped metal control')
+        f%col = [0.8_real32, 0.4_real32, 0.2_real32]
+
+        ! ---- (q) Alpha mask discard + alpha output.
+        call build_base_scene(s)
+        s%objects(2)%pbr%alpha_mode = 1
+        s%objects(2)%pbr%alpha_cutoff = 0.5_dp
+        call make_tex1(s%objects(2)%tex, 255, 255, 255, 0, .true.)
+        call frag_shade_a(f, s, out, discard, alpha)
+        call assert_true(discard, &
+            '(q) mask: alpha 0 texel below cutoff discards')
+        call assert_real_close(real(alpha, dp), 0.0_dp, 0.001_dp, &
+            '(q) alpha out == 0 for transparent texel')
+        call make_tex1(s%objects(2)%tex, 255, 255, 255, 255, .true.)
+        call frag_shade_a(f, s, out, discard, alpha)
+        call assert_true(.not. discard, &
+            '(q) mask: alpha 255 texel above cutoff keeps')
+        call assert_real_close(real(alpha, dp), 1.0_dp, 0.001_dp, &
+            '(q) alpha out == 1 for opaque texel')
+        ! Opacity alone (no alpha map): alpha = opacity.
+        call build_base_scene(s)
+        s%objects(2)%pbr%alpha_mode = 1
+        s%objects(2)%pbr%alpha_cutoff = 0.5_dp
+        s%objects(2)%pbr%opacity = 0.3_dp
+        call frag_shade_a(f, s, out, discard, alpha)
+        call assert_true(discard, &
+            '(q) mask: opacity 0.3 below cutoff 0.5 discards')
+        s%objects(2)%pbr%opacity = 0.8_dp
+        call frag_shade_a(f, s, out, discard, alpha)
+        call assert_true(.not. discard, &
+            '(q) mask: opacity 0.8 above cutoff keeps')
+        call assert_real_close(real(alpha, dp), 0.8_dp, 0.001_dp, &
+            '(q) alpha out == opacity when no alpha map')
+        ! Blend mode never discards in the opaque entry, and its
+        ! alpha is the compositing weight (0.5 -> half blend).
+        s%objects(2)%pbr%alpha_mode = 2
+        s%objects(2)%pbr%opacity = 0.5_dp
+        call frag_shade_a(f, s, out, discard, alpha)
+        call assert_true(.not. discard, &
+            '(q) blend mode: no discard in frag_shade_a')
+        call assert_real_close(real(alpha, dp), 0.5_dp, 0.001_dp, &
+            '(q) blend alpha out == 0.5 (compositing weight)')
+    end subroutine phase4_tests
 
     ! Ground plane (object 1, white lambert) + coloured object 2
     ! (lambert, colour carried by fin%col at shade time; its PBR

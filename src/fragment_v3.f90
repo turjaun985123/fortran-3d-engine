@@ -161,6 +161,57 @@
 !
 ! Colour: inputs are linear RGB 0..1; the output is linear RGB
 ! real32, NOT clamped above (HDR, see above) and floored at 0.
+!
+! =====================================================================
+! Phase 4: textures and material slots (G3 + material slots)
+! =====================================================================
+! Base colour now samples through texture_3d's texture_sample_f
+! (filtered, mipmapped, wrap-aware, sRGB-aware, alpha returned)
+! instead of the legacy texture_sample (nearest, gamma space).
+! Effective albedo = material colour (fin%col) x sampled LINEAR
+! rgb.  SEMANTICS CHANGE vs Phase 2/3, deliberate per the Phase 4
+! brief (and the glTF convention): the Phase 2/3 code REPLACED the
+! base colour with the texel (the legacy env rule); a textured
+! white object renders identically under both rules, and tinting
+! a textured object by its material colour now works.  The Phase
+! 2/3 fragment test (c) expectations were updated by the tint
+! factor and say so in their messages.
+!
+! Texture LOD (inside fetch_rgba): the screen-space UV footprint
+!   rho_x = |(uv_dx * (tex_w, tex_h))|,  rho_y = |(uv_dy * ...)|
+!   rho   = max(rho_x, rho_y)
+!   lod   = log2(max(rho, 1))        (0 = base level, magnified)
+! and texture_sample_f selects/blends mip levels from it.
+!
+! Material slots (object PBR record, Phase 4 fields):
+!   tex_mr (metallic-roughness, glTF convention): metalness *=
+!     sample.b, roughness *= sample.g, then clamped as before.
+!   tex_occl (occlusion): the ambient/hemisphere term ONLY is
+!     multiplied by sample.r; direct light is untouched.
+!   tex_emissive: emissive term = pbr%emissive x (emissive map
+!     rgb if loaded else 1), added UNLIT after lighting, before
+!     fog.
+!   tex_normal (tangent-space normal map): the perturbed normal
+!     is built with the cotangent frame from the wp/uv screen
+!     derivatives (no per-vertex tangents):
+!       det = uv_dx.u * uv_dy.v - uv_dy.u * uv_dx.v
+!       T   = (wp_dx * uv_dy.v - wp_dy * uv_dx.v) / det
+!       B   = (wp_dy * uv_dx.u - wp_dx * uv_dy.u) / det
+!       n'  = normalize(T * ts.x + B * ts.y + N * ts.z),
+!       ts  = sample * 2 - 1
+!     Degenerate derivatives (|det| ~ 0, or a zero-length frame
+!     axis) fall back to the geometric (interpolated) normal.
+!     The frame is built around the backface-flipped normal, so
+!     two-sided lighting behaviour is unchanged.
+!
+! Alpha (frag_shade_a; frag_shade is the wrapper that drops the
+! discard flag so Phase 2/3 callers keep compiling):
+!   alpha = (base-map alpha, 1 when the map has none) x opacity
+!   alpha_mode 1 (mask): discard = alpha < alpha_cutoff.
+!   alpha_mode 0/2: discard = .false. in this (opaque) entry;
+!   mode 2 compositing is renderer_v3's sorted transparent pass,
+!   which reads the alpha through frag_shade_a's optional alpha
+!   output and honours discard the same way.
 module fragment_v3_3d
     use, intrinsic :: iso_fortran_env, only: real32
     use math_3d, only: dp, vec3, vec3_create, vec3_sub, vec3_dot, &
@@ -170,11 +221,11 @@ module fragment_v3_3d
     use lighting_3d, only: Light3, LightSet, light_attenuation, &
                            spot_factor
     use shadow_v3_3d, only: shadow_v3_factor
-    use texture_3d, only: texture_sample
+    use texture_3d, only: TextureImage, texture_sample_f
     use shader_3d, only: ShaderProg, shader_eval
     implicit none
     private
-    public :: frag_in, frag_shade
+    public :: frag_in, frag_shade, frag_shade_a
 
     type, public :: frag_in
        real(real32) :: wp(3)      ! world position
@@ -185,22 +236,50 @@ module fragment_v3_3d
        integer :: obj_id = 0      ! scene object index, 0 = none
        integer :: shader_id = 0   ! custom shader def index, 0 = none
        logical :: backface = .false.
+       ! Phase 4: screen-space derivatives (per-pixel steps to the
+       ! right / bottom neighbour on the SAME triangle; zero when
+       ! no such neighbour exists).  Filled by renderer_v3's shade
+       ! pass; unit tests may set them directly.  They drive the
+       ! texture LOD (below) and the cotangent-frame normal map.
+       real(real32) :: wp_dx(3) = 0.0_real32
+       real(real32) :: wp_dy(3) = 0.0_real32
+       real(real32) :: uv_dx(2) = 0.0_real32
+       real(real32) :: uv_dy(2) = 0.0_real32
     end type frag_in
 
     real(real32), parameter :: PI32 = 3.14159265_real32
 
 contains
 
+    ! Phase 2/3 entry point, kept as a wrapper: identical shading,
+    ! the discard flag is dropped (callers that care about alpha
+    ! cutout call frag_shade_a directly).
     subroutine frag_shade(fin, sc, rgb)
         type(frag_in), intent(in) :: fin
         type(Scene), intent(in) :: sc        ! from scene_3d (src/scene.f90)
         real(real32), intent(out) :: rgb(3)  ! linear RGB out (HDR: may exceed 1)
+        logical :: discard
+        call frag_shade_a(fin, sc, rgb, discard)
+    end subroutine frag_shade
+
+    ! Phase 4 entry point: frag_shade plus the fragment alpha and
+    ! the mask-discard flag.  alpha_out (optional) is the effective
+    ! alpha (base-map alpha x opacity, clamped 0..1) -- the blend
+    ! pass composites with it.
+    subroutine frag_shade_a(fin, sc, rgb, discard, alpha_out)
+        type(frag_in), intent(in) :: fin
+        type(Scene), intent(in) :: sc        ! from scene_3d (src/scene.f90)
+        real(real32), intent(out) :: rgb(3)  ! linear RGB out (HDR: may exceed 1)
+        logical, intent(out) :: discard
+        real(real32), intent(out), optional :: alpha_out
 
         type(vec3) :: wp, n
         real(dp) :: base01(3), out01(3)
         type(MaterialPBR) :: pbr
-        logical :: has_obj, is_env
+        logical :: has_obj
         integer :: k
+        real(real32) :: samp(4), base_alpha, occ, alpha
+        type(vec3) :: pn
 
         wp = vec3_create(real(fin%wp(1), dp), real(fin%wp(2), dp), &
                          real(fin%wp(3), dp))
@@ -216,62 +295,99 @@ contains
         has_obj = fin%obj_id >= 1 .and. allocated(sc%objects) .and. &
                   fin%obj_id <= sc%n_objects
 
+        ! The PBR record feeds every lit stage AND the alpha
+        ! fields; resolve it once, up front.  With no object,
+        ! synthesise the same PBR view as before from fin%mat_id
+        ! (legacy ids 0 lambert, 1 basic, 2 phong, 3 standard) and
+        ! fin%col (alpha defaults: opacity 1, mode opaque).
+        if (has_obj) then
+            pbr = sc%objects(fin%obj_id)%pbr
+        else
+            pbr = pbr_default()
+            pbr%color = base01
+            pbr%use_tri_color = .false.
+            if (fin%mat_id >= 0 .and. fin%mat_id <= 3) &
+                pbr%mode = fin%mat_id
+        end if
+
+        base_alpha = 1.0_real32
+        occ = 1.0_real32
+        discard = .false.
+
         ! ---- Stage dispatch: ONE entry point, three stages. ----
         if (fin%shader_id > 0) then
             call shade_shader_stage(fin, sc, wp, n, base01, out01)
         else
-            ! Env trigger (mirrors the scene_load env routing, per
-            ! object): standard PBR material or a loaded texture.
-            is_env = .false.
+            ! The Phase 2/3 env-vs-material stage distinction was
+            ! only WHICH PBR record fed shade_lit, and both stages
+            ! now resolve the same record above; the env trigger
+            ! (standard material or a loaded texture) survives as
+            ! exactly the set of objects that carry the Phase 4
+            ! slots applied below.
+            ! Phase 4 material slots (nested ifs, not .and.:
+            ! Fortran does not short-circuit and obj_id may be 0).
             if (has_obj) then
-                if (sc%objects(fin%obj_id)%pbr%mode == MAT_STANDARD &
-                    .or. sc%objects(fin%obj_id)%tex%loaded) &
-                    is_env = .true.
+                associate (o => sc%objects(fin%obj_id))
+                    if (o%tex%loaded) then
+                        ! Filtered LINEAR sample (texture_sample_f);
+                        ! albedo = material colour x sampled rgb
+                        ! (Phase 4 semantics, see header); the
+                        ! sampled alpha feeds the alpha path below.
+                        samp = fetch_rgba(o%tex, fin)
+                        do k = 1, 3
+                            base01(k) = base01(k) * &
+                                clamp01d(real(samp(k), dp))
+                        end do
+                        base_alpha = samp(4)
+                    end if
+                    if (o%tex_mr%loaded) then
+                        ! glTF metallic-roughness: B = metalness,
+                        ! G = roughness, multiplicative.
+                        samp = fetch_rgba(o%tex_mr, fin)
+                        pbr%metalness = clamp01d(pbr%metalness &
+                            * real(samp(3), dp))
+                        pbr%roughness = clamp01d(pbr%roughness &
+                            * real(samp(2), dp))
+                    end if
+                    if (o%tex_occl%loaded) then
+                        samp = fetch_rgba(o%tex_occl, fin)
+                        occ = samp(1)
+                    end if
+                    if (o%tex_normal%loaded) then
+                        samp = fetch_rgba(o%tex_normal, fin)
+                        call perturb_normal(fin, n, samp(1:3), pn)
+                        n = pn
+                    end if
+                end associate
             end if
 
-            ! Nested ifs, not .and.: Fortran does not short-circuit,
-            ! and obj_id may be 0 here (is_env is false then).
-            if (is_env) then
-                if (sc%objects(fin%obj_id)%tex%loaded) then
-                    ! Legacy env rule: a loaded texture REPLACES the
-                    ! base colour (nearest neighbour, REPEAT wrap, as
-                    ! texture_sample defines).
-                    block
-                        integer :: tex_rgb(3)
-                        tex_rgb = texture_sample( &
-                            sc%objects(fin%obj_id)%tex, &
-                            real(fin%uv(1), dp), real(fin%uv(2), dp))
+            call shade_lit(sc, base01, n, wp, pbr, occ, out01)
+
+            ! Emissive: unlit, added after lighting, before fog.
+            if (has_obj) then
+                if (any(pbr%emissive /= 0.0_dp)) then
+                    associate (o => sc%objects(fin%obj_id))
+                        samp = [1.0_real32, 1.0_real32, 1.0_real32, &
+                                1.0_real32]
+                        if (o%tex_emissive%loaded) &
+                            samp = fetch_rgba(o%tex_emissive, fin)
                         do k = 1, 3
-                            base01(k) = real(tex_rgb(k), dp) / 255.0_dp
+                            out01(k) = out01(k) + pbr%emissive(k) &
+                                * real(samp(k), dp)
                         end do
-                    end block
+                    end associate
                 end if
             end if
-
-            ! Both lit stages share shade_lit; the stage difference
-            ! is only WHICH PBR record and base colour feed it:
-            !   env stage      -> the object's full PBR record
-            !                     (metalness/roughness from objmat).
-            !   material stage -> also the object's PBR record, which
-            !                     scene_build_object_mesh derived from
-            !                     the legacy Material via
-            !                     pbr_from_material (metalness 0,
-            !                     roughness 1).
-            ! With no object, synthesise that same PBR view from
-            ! fin%mat_id (legacy material ids: 0 lambert, 1 basic,
-            ! 2 phong, 3 standard -- material_id_from_name plus
-            ! MAT_STANDARD) and fin%col.
-            if (has_obj) then
-                pbr = sc%objects(fin%obj_id)%pbr
-            else
-                pbr = pbr_default()
-                pbr%color = base01
-                pbr%use_tri_color = .false.
-                if (fin%mat_id >= 0 .and. fin%mat_id <= 3) &
-                    pbr%mode = fin%mat_id
-            end if
-            call shade_lit(sc, base01, n, wp, pbr, out01)
         end if
+
+        ! ---- Alpha / discard (Phase 4). ----
+        alpha = base_alpha
+        if (has_obj) alpha = alpha * real(clamp01d(pbr%opacity), &
+                                           real32)
+        alpha = min(1.0_real32, max(0.0_real32, alpha))
+        if (pbr%alpha_mode == 1) &
+            discard = alpha < real(pbr%alpha_cutoff, real32)
+        if (present(alpha_out)) alpha_out = alpha
 
         ! ---- Shared post-stage: fog (see header). ----
         call apply_fog(sc, wp, out01)
@@ -281,7 +397,66 @@ contains
             ! (tone mapping lives in the post pipeline).
             rgb(k) = real(max(out01(k), 0.0_dp), real32)
         end do
-    end subroutine frag_shade
+    end subroutine frag_shade_a
+
+    ! Filtered texture fetch with the derivative-based LOD from
+    ! the module header: rho = max(|uv_dx * size|, |uv_dy * size|)
+    ! (Euclidean norms of the scaled derivative vectors),
+    ! lod = log2(max(rho, 1)).
+    pure function fetch_rgba(tex, fin) result(rgba)
+        type(TextureImage), intent(in) :: tex
+        type(frag_in), intent(in) :: fin
+        real(real32) :: rgba(4)
+        real(real32) :: rho_x, rho_y, rho, lod
+        rho_x = sqrt((fin%uv_dx(1) * real(tex%w, real32)) ** 2 &
+                   + (fin%uv_dx(2) * real(tex%h, real32)) ** 2)
+        rho_y = sqrt((fin%uv_dy(1) * real(tex%w, real32)) ** 2 &
+                   + (fin%uv_dy(2) * real(tex%h, real32)) ** 2)
+        rho = max(rho_x, rho_y)
+        lod = 0.0_real32
+        if (rho > 1.0_real32) lod = log(rho) / log(2.0_real32)
+        ! texture_sample_f takes real(dp) u/v/lod (sibling API as
+        ! landed; the LOD itself is computed in real32 above).
+        rgba = texture_sample_f(tex, real(fin%uv(1), dp), &
+                                real(fin%uv(2), dp), real(lod, dp))
+    end function fetch_rgba
+
+    ! Cotangent-frame normal-map perturbation (see header for the
+    ! formula).  n is the (already backface-flipped) interpolated
+    ! normal; ts_rgb is the raw normal-map sample 0..1.  Any
+    ! degenerate input leaves n unchanged (geometric fallback).
+    subroutine perturb_normal(fin, n, ts_rgb, pn)
+        type(frag_in), intent(in) :: fin
+        type(vec3), intent(in) :: n
+        real(real32), intent(in) :: ts_rgb(3)
+        type(vec3), intent(out) :: pn
+        real(dp) :: det, ts(3), tvec(3), bvec(3), nvec(3), len
+        integer :: k
+        pn = n
+        det = real(fin%uv_dx(1), dp) * real(fin%uv_dy(2), dp) &
+            - real(fin%uv_dy(1), dp) * real(fin%uv_dx(2), dp)
+        if (abs(det) < 1.0e-12_dp) return
+        if (vec3_norm(n) < 1.0e-12_dp) return
+        nvec = [n%x, n%y, n%z] / vec3_norm(n)
+        do k = 1, 3
+            tvec(k) = (real(fin%wp_dx(k), dp) &
+                       * real(fin%uv_dy(2), dp) &
+                     - real(fin%wp_dy(k), dp) &
+                       * real(fin%uv_dx(2), dp)) / det
+            bvec(k) = (real(fin%wp_dy(k), dp) &
+                       * real(fin%uv_dx(1), dp) &
+                     - real(fin%wp_dx(k), dp) &
+                       * real(fin%uv_dy(1), dp)) / det
+        end do
+        if (sqrt(sum(tvec * tvec)) < 1.0e-12_dp) return
+        if (sqrt(sum(bvec * bvec)) < 1.0e-12_dp) return
+        ts = real(ts_rgb, dp) * 2.0_dp - 1.0_dp
+        tvec = tvec * ts(1) + bvec * ts(2) + nvec * ts(3)
+        len = sqrt(sum(tvec * tvec))
+        if (len < 1.0e-12_dp) return
+        tvec = tvec / len
+        pn = vec3_create(tvec(1), tvec(2), tvec(3))
+    end subroutine perturb_normal
 
     ! ------------------------------------------------------------------
     ! Stage 1: custom RPN shader (legacy _shader path).
@@ -361,11 +536,12 @@ contains
     ! shader stage's types); they are narrowed to real32 once here
     ! and everything below is real32.
     ! ------------------------------------------------------------------
-    subroutine shade_lit(sc, base01, n, wp, pbr, out01)
+    subroutine shade_lit(sc, base01, n, wp, pbr, occ, out01)
         type(Scene), intent(in) :: sc
         real(dp), intent(in) :: base01(3)
         type(vec3), intent(in) :: n, wp
         type(MaterialPBR), intent(in) :: pbr
+        real(real32), intent(in) :: occ  ! occlusion factor (ambient only)
         real(dp), intent(out) :: out01(3)
 
         type(LightSet) :: lights
@@ -387,7 +563,7 @@ contains
         else
             call effective_lights(sc, lights)
             call accumulate_v3(sc, lights, base, wp32, nrm32, pbr, &
-                               accum)
+                               occ, accum)
             if (allocated(lights%items)) deallocate(lights%items)
         end if
 
@@ -398,11 +574,13 @@ contains
 
     ! The Phase 3 accumulation proper.  See the module header for
     ! the equations and conventions.
-    subroutine accumulate_v3(sc, lights, base, wp, nrm, pbr, accum)
+    subroutine accumulate_v3(sc, lights, base, wp, nrm, pbr, occ, &
+                             accum)
         type(Scene), intent(in) :: sc
         type(LightSet), intent(in) :: lights
         real(real32), intent(in) :: base(3), wp(3), nrm(3)
         type(MaterialPBR), intent(in) :: pbr
+        real(real32), intent(in) :: occ
         real(real32), intent(out) :: accum(3)
 
         real(real32) :: n(3), v(3), cam(3)
@@ -423,8 +601,10 @@ contains
         end do
         hemi_t = 0.5_real32 + 0.5_real32 * n(2)
         amb = real(lights%ambient, real32)
+        ! Phase 4: the occlusion map multiplies ONLY this ambient
+        ! term; direct light below is untouched.
         do k = 1, 3
-            accum(k) = base(k) * amb * &
+            accum(k) = base(k) * amb * occ * &
                        (gnd(k) + (sky(k) - gnd(k)) * hemi_t)
         end do
 

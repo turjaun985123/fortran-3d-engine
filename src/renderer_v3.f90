@@ -29,7 +29,11 @@
 ! The buffer is cleared to 0 (w = infinity).
 !
 ! Limitations (by design, this phase): the visibility buffer holds
-! OPAQUE geometry only -- there is no transparent pass (Phase 4).
+! OPAQUE geometry only.  (v3.0 Phase 4: alpha-masked fragments
+! re-shade deeper layers inside shade_pass, and alpha-blend
+! triangles -- excluded from the visibility pass -- are drawn by
+! the sorted, single-threaded blend_pass after shading; see both
+! procedures.  The visibility buffer itself remains opaque-only.)
 ! Triangles crossing the near plane or with |NDC| > 4 are dropped
 ! rather than clipped (the legacy path keeps full homogeneous
 ! clipping; v3 clipping is later work).  Sprites / text / particles
@@ -50,7 +54,7 @@ module renderer_v3_3d
     use camera_3d, only: Camera
     use scene_3d, only: Scene
     use renderer_3d, only: FrameBuffer
-    use fragment_v3_3d, only: frag_in, frag_shade
+    use fragment_v3_3d, only: frag_in, frag_shade, frag_shade_a
     use post_v3_3d, only: post_v3_apply, post_v3_linear_to_byte
     use shadow_v3_3d, only: shadow_v3_build
     implicit none
@@ -82,6 +86,12 @@ module renderer_v3_3d
         integer, allocatable :: cover(:, :)
         real(real32), allocatable :: uv_dbg(:, :, :)  ! (2, width, height)
         real(real32), allocatable :: pos_dbg(:, :, :)  ! (3, width, height)
+        ! Phase 4: 1 where a pixel's rgb came from shading (opaque
+        ! shade pass or the transparent blend pass), 0 for pure
+        ! background.  v3_quantize_to_fb uses it so a pixel covered
+        ! ONLY by a transparent triangle (vis_tri == 0) is still
+        ! output-transformed instead of restored to the raw bg.
+        integer, allocatable :: shaded(:, :)
     end type v3_buffer
 
     ! Transformed triangle store (structure of arrays), filled by the
@@ -97,6 +107,7 @@ module renderer_v3_3d
         real(real32), allocatable :: col(:, :)    ! (3, n) base colour 0..1
         integer, allocatable :: mat_id(:)
         integer, allocatable :: obj_id(:)
+        integer, allocatable :: alpha_mode(:)  ! Phase 4: obj PBR alpha mode
         integer, allocatable :: shader_id(:)
         logical, allocatable :: backface(:)
         integer, allocatable :: bb(:, :)          ! (4, n) pixel bbox 1-based incl
@@ -117,6 +128,7 @@ contains
         allocate(vb%cover(width, height))
         allocate(vb%uv_dbg(2, width, height))
         allocate(vb%pos_dbg(3, width, height))
+        allocate(vb%shaded(width, height))
         vb%rgb = 0.0_real32
         vb%vis_tri = 0_int32
         vb%lam = 0.0_real32
@@ -124,6 +136,7 @@ contains
         vb%cover = 0
         vb%uv_dbg = 0.0_real32
         vb%pos_dbg = 0.0_real32
+        vb%shaded = 0
     end subroutine v3_init
 
     subroutine v3_free(vb)
@@ -135,6 +148,7 @@ contains
         if (allocated(vb%cover)) deallocate(vb%cover)
         if (allocated(vb%uv_dbg)) deallocate(vb%uv_dbg)
         if (allocated(vb%pos_dbg)) deallocate(vb%pos_dbg)
+        if (allocated(vb%shaded)) deallocate(vb%shaded)
         vb%width = 0
         vb%height = 0
     end subroutine v3_free
@@ -150,6 +164,7 @@ contains
         if (allocated(ts%col)) deallocate(ts%col)
         if (allocated(ts%mat_id)) deallocate(ts%mat_id)
         if (allocated(ts%obj_id)) deallocate(ts%obj_id)
+        if (allocated(ts%alpha_mode)) deallocate(ts%alpha_mode)
         if (allocated(ts%shader_id)) deallocate(ts%shader_id)
         if (allocated(ts%backface)) deallocate(ts%backface)
         if (allocated(ts%bb)) deallocate(ts%bb)
@@ -163,7 +178,8 @@ contains
         ts%n = n
         allocate(ts%fx(3, n), ts%fy(3, n), ts%invw(3, n))
         allocate(ts%wp(3, 3, n), ts%nrm(3, 3, n), ts%uv(2, 3, n))
-        allocate(ts%col(3, n), ts%mat_id(n), ts%obj_id(n))
+        allocate(ts%col(3, n), ts%mat_id(n), ts%obj_id(n), &
+                 ts%alpha_mode(n))
         allocate(ts%shader_id(n), ts%backface(n), ts%bb(4, n))
     end subroutine store_alloc
 
@@ -253,6 +269,7 @@ contains
                 vb%cover(x, y) = hi%cover((x - 1) * aa + 1, (y - 1) * aa + 1)
                 vb%uv_dbg(:, x, y) = hi%uv_dbg(:, (x - 1) * aa + 1, (y - 1) * aa + 1)
                 vb%pos_dbg(:, x, y) = hi%pos_dbg(:, (x - 1) * aa + 1, (y - 1) * aa + 1)
+                vb%shaded(x, y) = hi%shaded((x - 1) * aa + 1, (y - 1) * aa + 1)
             end do
         end do
         call v3_free(hi)
@@ -302,7 +319,13 @@ contains
         do y = 1, fb%height
             do x = 1, fb%width
                 do k = 1, 3
-                    if (vb%vis_tri(x, y) == 0_int32) then
+                    ! Background = no opaque winner AND not painted
+                    ! by the transparent pass (Phase 4).  Buffers
+                    ! built by hand in tests may not carry %shaded;
+                    ! fall back to the vis_tri test alone there.
+                    if (vb%vis_tri(x, y) == 0_int32 .and. &
+                        (.not. allocated(vb%shaded) .or. &
+                         vb%shaded(x, y) == 0)) then
                         fb%pixels(k, x, y) = sc%bg(k)
                     else
                         fb%pixels(k, x, y) = &
@@ -338,6 +361,7 @@ contains
         vb%cover = 0
         vb%uv_dbg = 0.0_real32
         vb%pos_dbg = 0.0_real32
+        vb%shaded = 0
 
         total = 0
         do oi = 1, sc%n_objects
@@ -354,6 +378,9 @@ contains
         ! shadows, and reuses maps while the shape is unchanged.
         call shadow_v3_build(sc, models)
         call shade_pass(vb, sc, ts)
+        ! Phase 4: sorted transparent pass (alpha_mode == 2),
+        ! composited over the opaque result in linear space.
+        call blend_pass(vb, sc, ts)
         call store_free(ts)
     end subroutine render_core
 
@@ -388,6 +415,7 @@ contains
                 tri = sc%objects(oi)%mesh%triangles(ti)
                 g = g + 1
                 ts%obj_id(g) = oi
+                ts%alpha_mode(g) = sc%objects(oi)%pbr%alpha_mode
                 ts%mat_id(g) = tri%material_id
                 if (sc%objects(oi)%has_shader) then
                     ts%shader_id(g) = 1
@@ -509,6 +537,10 @@ contains
             y1 = min(vb%height, y0 + V3_TILE - 1)
             do g = 1, ts%n
                 if (ts%bb(2, g) < ts%bb(1, g)) cycle  ! culled / skipped
+                ! Phase 4: transparent (blend) triangles are NOT
+                ! part of the opaque visibility pass; blend_pass
+                ! draws them afterwards, sorted back-to-front.
+                if (ts%alpha_mode(g) == 2) cycle
                 if (ts%bb(1, g) > x1 .or. ts%bb(2, g) < x0) cycle
                 if (ts%bb(3, g) > y1 .or. ts%bb(4, g) < y0) cycle
                 area = edge_fn(ts%fx(1, g), ts%fy(1, g), &
@@ -551,19 +583,119 @@ contains
         !$omp end parallel do
     end subroutine rasterize_vis
 
+    ! Reconstruct the fragment input for triangle g at a pixel
+    ! from barycentric lambdas, with perspective-correct
+    ! interpolation.  Derivatives are zeroed; callers that have
+    ! same-triangle neighbours (the opaque shade pass) fill them.
+    subroutine build_fin(ts, g, lam, fin)
+        type(tri_store), intent(in) :: ts
+        integer, intent(in) :: g
+        real(dp), intent(in) :: lam(3)
+        type(frag_in), intent(out) :: fin
+        integer :: k
+        do k = 1, 3
+            fin%wp(k) = real(v3_perspective_interp( &
+                lam, ts%wp(k, :, g), ts%invw(:, g)), real32)
+            fin%nrm(k) = real(v3_perspective_interp( &
+                lam, ts%nrm(k, :, g), ts%invw(:, g)), real32)
+        end do
+        do k = 1, 2
+            fin%uv(k) = real(v3_perspective_interp( &
+                lam, ts%uv(k, :, g), ts%invw(:, g)), real32)
+        end do
+        fin%col = ts%col(:, g)
+        fin%mat_id = ts%mat_id(g)
+        fin%obj_id = ts%obj_id(g)
+        fin%shader_id = ts%shader_id(g)
+        fin%backface = ts%backface(g)
+        fin%wp_dx = 0.0_real32
+        fin%wp_dy = 0.0_real32
+        fin%uv_dx = 0.0_real32
+        fin%uv_dy = 0.0_real32
+    end subroutine build_fin
+
+    ! Pixel-level coverage of triangle g at pixel (x, y): the same
+    ! edge functions + top-left fill rule as rasterize_vis.
+    ! On cover, returns the barycentrics and interpolated 1/w.
+    subroutine pixel_cover(ts, g, x, y, covered, lam, invw_i)
+        type(tri_store), intent(in) :: ts
+        integer, intent(in) :: g, x, y
+        logical, intent(out) :: covered
+        real(dp), intent(out) :: lam(3), invw_i
+        integer(int64) :: e0, e1, e2, area, pxf, pyf
+        logical :: tl0, tl1, tl2
+        covered = .false.
+        lam = 0.0_dp
+        invw_i = 0.0_dp
+        if (ts%bb(2, g) < ts%bb(1, g)) return
+        if (x < ts%bb(1, g) .or. x > ts%bb(2, g)) return
+        if (y < ts%bb(3, g) .or. y > ts%bb(4, g)) return
+        area = edge_fn(ts%fx(1, g), ts%fy(1, g), ts%fx(2, g), &
+                       ts%fy(2, g), ts%fx(3, g), ts%fy(3, g))
+        if (area <= 0_int64) return
+        pxf = int(x - 1, int64) * FP_ONE + FP_ONE / 2_int64
+        pyf = int(y - 1, int64) * FP_ONE + FP_ONE / 2_int64
+        e0 = edge_fn(ts%fx(2, g), ts%fy(2, g), ts%fx(3, g), &
+                     ts%fy(3, g), pxf, pyf)
+        e1 = edge_fn(ts%fx(3, g), ts%fy(3, g), ts%fx(1, g), &
+                     ts%fy(1, g), pxf, pyf)
+        e2 = edge_fn(ts%fx(1, g), ts%fy(1, g), ts%fx(2, g), &
+                     ts%fy(2, g), pxf, pyf)
+        tl0 = is_top_left(ts%fx(2, g), ts%fy(2, g), ts%fx(3, g), &
+                          ts%fy(3, g))
+        tl1 = is_top_left(ts%fx(3, g), ts%fy(3, g), ts%fx(1, g), &
+                          ts%fy(1, g))
+        tl2 = is_top_left(ts%fx(1, g), ts%fy(1, g), ts%fx(2, g), &
+                          ts%fy(2, g))
+        covered = (e0 > 0_int64 .or. (e0 == 0_int64 .and. tl0)) &
+            .and. (e1 > 0_int64 .or. (e1 == 0_int64 .and. tl1)) &
+            .and. (e2 > 0_int64 .or. (e2 == 0_int64 .and. tl2))
+        if (.not. covered) return
+        lam(1) = real(e0, dp) / real(area, dp)
+        lam(2) = real(e1, dp) / real(area, dp)
+        lam(3) = real(e2, dp) / real(area, dp)
+        invw_i = lam(1) * ts%invw(1, g) + lam(2) * ts%invw(2, g) &
+               + lam(3) * ts%invw(3, g)
+    end subroutine pixel_cover
+
     ! Pass 2: one walk over pixels; reconstruct the fragment input
     ! from the winning triangle with perspective-correct
     ! interpolation and shade it through fragment_v3_3d.
+    !
+    ! Phase 4 changes:
+    !  * Reconstruction happens in a FIRST walk that fills the
+    !    pos_dbg / uv_dbg buffers for every covered pixel; the
+    !    shade walk then computes the screen-space derivatives
+    !    (fin%wp_dx etc.) by finite differences against the
+    !    right / bottom neighbour when that neighbour's winning
+    !    triangle is the same (vis_tri equal), else zero.
+    !  * Shading goes through frag_shade_a.  On a mask DISCARD the
+    !    pixel is re-shaded with the next covering triangle: the
+    !    covering triangle (per pixel_cover) with the largest 1/w
+    !    strictly below the discarded hit's, repeated up to 8
+    !    layers; if none covers, the pixel falls back to the
+    !    background.  Cost: only discarded pixels pay the
+    !    O(triangles) search; all other pixels are untouched.
+    !    Re-shaded fragments carry zero derivatives (their
+    !    same-triangle neighbours are not tracked), so their
+    !    texture LOD is the base level and normal maps fall back
+    !    to the geometric normal there -- documented trade-off.
+    !  * vis_tri / depth / lam keep describing the FIRST (nearest)
+    !    hit even when a deeper layer was shaded, so downstream
+    !    consumers (quantize background test, SSAA hooks) keep
+    !    their Phase 2/3 meaning; %shaded marks the pixel painted.
     subroutine shade_pass(vb, sc, ts)
         type(v3_buffer), intent(inout) :: vb
         type(Scene), intent(in) :: sc
         type(tri_store), intent(in) :: ts
-        integer :: x, y, g, k
+        integer :: x, y, g
         real(dp) :: lam(3)
         type(frag_in) :: fin
-        real(real32) :: rgb(3)
+        real(real32) :: rgb(3), alpha
+        logical :: discard
 
-        !$omp parallel do schedule(static) private(x, y, g, k, lam, fin, rgb)
+        ! Walk 1: reconstruct wp/uv for every covered pixel.
+        !$omp parallel do schedule(static) private(x, y, g, lam, fin, rgb)
         do y = 1, vb%height
             do x = 1, vb%width
                 g = int(vb%vis_tri(x, y))
@@ -571,28 +703,187 @@ contains
                 lam(2) = real(vb%lam(1, x, y), dp)
                 lam(3) = real(vb%lam(2, x, y), dp)
                 lam(1) = 1.0_dp - lam(2) - lam(3)
-                do k = 1, 3
-                    fin%wp(k) = real(v3_perspective_interp( &
-                        lam, ts%wp(k, :, g), ts%invw(:, g)), real32)
-                    fin%nrm(k) = real(v3_perspective_interp( &
-                        lam, ts%nrm(k, :, g), ts%invw(:, g)), real32)
-                end do
-                do k = 1, 2
-                    fin%uv(k) = real(v3_perspective_interp( &
-                        lam, ts%uv(k, :, g), ts%invw(:, g)), real32)
-                end do
-                fin%col = ts%col(:, g)
-                fin%mat_id = ts%mat_id(g)
-                fin%obj_id = ts%obj_id(g)
-                fin%shader_id = ts%shader_id(g)
-                fin%backface = ts%backface(g)
-                call frag_shade(fin, sc, rgb)
-                vb%rgb(:, x, y) = rgb
+                call build_fin(ts, g, lam, fin)
                 vb%uv_dbg(:, x, y) = fin%uv
                 vb%pos_dbg(:, x, y) = fin%wp
             end do
         end do
         !$omp end parallel do
+
+        ! Walk 2: derivatives + shade (with mask-discard re-shade).
+        !$omp parallel do schedule(static) private(x, y, g, lam, fin, &
+        !$omp& rgb, alpha, discard)
+        do y = 1, vb%height
+            do x = 1, vb%width
+                g = int(vb%vis_tri(x, y))
+                if (g <= 0) cycle
+                lam(2) = real(vb%lam(1, x, y), dp)
+                lam(3) = real(vb%lam(2, x, y), dp)
+                lam(1) = 1.0_dp - lam(2) - lam(3)
+                call build_fin(ts, g, lam, fin)
+                if (x < vb%width) then
+                    if (vb%vis_tri(x + 1, y) == vb%vis_tri(x, y)) then
+                        fin%wp_dx = vb%pos_dbg(:, x + 1, y) - fin%wp
+                        fin%uv_dx = vb%uv_dbg(:, x + 1, y) - fin%uv
+                    end if
+                end if
+                if (y < vb%height) then
+                    if (vb%vis_tri(x, y + 1) == vb%vis_tri(x, y)) then
+                        fin%wp_dy = vb%pos_dbg(:, x, y + 1) - fin%wp
+                        fin%uv_dy = vb%uv_dbg(:, x, y + 1) - fin%uv
+                    end if
+                end if
+                call frag_shade_a(fin, sc, rgb, discard, alpha)
+                if (discard) then
+                    call reshade_below(vb, sc, ts, x, y, rgb, discard)
+                end if
+                if (discard) then
+                    ! No layer below survived: background.
+                    vb%rgb(1, x, y) = real(sc%bg(1), real32) &
+                        / 255.0_real32
+                    vb%rgb(2, x, y) = real(sc%bg(2), real32) &
+                        / 255.0_real32
+                    vb%rgb(3, x, y) = real(sc%bg(3), real32) &
+                        / 255.0_real32
+                else
+                    vb%rgb(:, x, y) = rgb
+                    vb%shaded(x, y) = 1
+                end if
+            end do
+        end do
+        !$omp end parallel do
     end subroutine shade_pass
+
+    ! Mask-discard re-shade: starting from the pixel's winning
+    ! (discarded) hit, repeatedly find the covering opaque
+    ! triangle with the largest 1/w strictly below the current
+    ! layer's and shade it, up to 8 layers.  On exit discard is
+    ! .false. and rgb holds the surviving layer's colour, or
+    ! discard stays .true. when no layer below survives (the
+    ! caller then writes the background).  Only called for
+    ! discarded pixels, so its O(8 * triangles) cost is paid
+    ! nowhere else.
+    subroutine reshade_below(vb, sc, ts, x, y, rgb, discard)
+        type(v3_buffer), intent(in) :: vb
+        type(Scene), intent(in) :: sc
+        type(tri_store), intent(in) :: ts
+        integer, intent(in) :: x, y
+        real(real32), intent(out) :: rgb(3)
+        logical, intent(inout) :: discard
+        integer :: layer, g2, best_g
+        real(dp) :: lam(3), invw_i, cur_invw, best_invw
+        logical :: covered
+        type(frag_in) :: fin
+        real(real32) :: alpha
+
+        cur_invw = real(vb%depth(x, y), dp)
+        do layer = 1, 8
+            best_g = 0
+            best_invw = 0.0_dp
+            do g2 = 1, ts%n
+                if (ts%alpha_mode(g2) == 2) cycle  ! opaque layers only
+                call pixel_cover(ts, g2, x, y, covered, lam, invw_i)
+                if (.not. covered) cycle
+                if (invw_i < cur_invw - 1.0e-12_dp .and. &
+                    invw_i > best_invw) then
+                    best_g = g2
+                    best_invw = invw_i
+                end if
+            end do
+            if (best_g == 0) return  ! nothing below: discard stands
+            call pixel_cover(ts, best_g, x, y, covered, lam, invw_i)
+            call build_fin(ts, best_g, lam, fin)
+            call frag_shade_a(fin, sc, rgb, discard, alpha)
+            if (.not. discard) return
+            cur_invw = best_invw
+        end do
+    end subroutine reshade_below
+
+    ! Phase 4 transparent pass (alpha_mode == 2 objects).
+    !
+    ! Runs AFTER the opaque shade pass.  Transparent triangles
+    ! are gathered and sorted back-to-front by their centroid
+    ! depth key (mean corner 1/w; SMALLER 1/w = farther, drawn
+    ! first).  Ties break on the global triangle index, so the
+    ! order is total and deterministic.  Each covered pixel
+    ! (pixel_cover: the same edge-function fill rule) is
+    ! depth-tested against the OPAQUE 1/w buffer only -- the
+    ! fragment is drawn iff it lies in front of the opaque
+    ! surface (invw > depth) -- shaded via frag_shade_a
+    ! (discard honoured: skipped), and composited in LINEAR
+    ! space: rgb = src.rgb * src.a + dst.rgb * (1 - src.a).
+    ! No depth writes.
+    !
+    ! Threading choice: this pass is SINGLE-THREADED, on
+    ! purpose.  Compositing is order-dependent, and per-pixel
+    ! order is the global sort order; running it serially makes
+    ! the result trivially thread-count invariant (the opaque
+    ! passes keep their tile/row parallelism).  Transparent
+    ! geometry is a small fraction of a typical scene; the cost
+    ! is documented rather than optimised away.
+    subroutine blend_pass(vb, sc, ts)
+        type(v3_buffer), intent(inout) :: vb
+        type(Scene), intent(in) :: sc
+        type(tri_store), intent(in) :: ts
+        integer, allocatable :: order(:)
+        real(dp), allocatable :: key(:)
+        integer :: n_tr, i, j, g, x, y, tmpi
+        real(dp) :: lam(3), invw_i, tmpk
+        logical :: covered, discard
+        type(frag_in) :: fin
+        real(real32) :: rgb(3), alpha
+
+        n_tr = 0
+        do g = 1, ts%n
+            if (ts%alpha_mode(g) == 2 .and. &
+                ts%bb(2, g) >= ts%bb(1, g)) n_tr = n_tr + 1
+        end do
+        if (n_tr == 0) return
+        allocate(order(n_tr), key(n_tr))
+        i = 0
+        do g = 1, ts%n
+            if (ts%alpha_mode(g) /= 2) cycle
+            if (ts%bb(2, g) < ts%bb(1, g)) cycle
+            i = i + 1
+            order(i) = g
+            key(i) = sum(ts%invw(:, g)) / 3.0_dp
+        end do
+        ! Insertion sort, ascending key (far = small 1/w first);
+        ! ties on triangle index make the order total.
+        do i = 2, n_tr
+            tmpi = order(i)
+            tmpk = key(i)
+            j = i - 1
+            do while (j >= 1)
+                if (key(j) < tmpk) exit
+                if (key(j) == tmpk .and. order(j) < tmpi) exit
+                order(j + 1) = order(j)
+                key(j + 1) = key(j)
+                j = j - 1
+            end do
+            order(j + 1) = tmpi
+            key(j + 1) = tmpk
+        end do
+
+        do i = 1, n_tr
+            g = order(i)
+            do y = ts%bb(3, g), ts%bb(4, g)
+                do x = ts%bb(1, g), ts%bb(2, g)
+                    call pixel_cover(ts, g, x, y, covered, lam, &
+                                     invw_i)
+                    if (.not. covered) cycle
+                    ! In front of the opaque surface only.
+                    if (real(invw_i, real32) <= vb%depth(x, y)) cycle
+                    call build_fin(ts, g, lam, fin)
+                    call frag_shade_a(fin, sc, rgb, discard, alpha)
+                    if (discard) cycle
+                    vb%rgb(:, x, y) = rgb * alpha &
+                        + vb%rgb(:, x, y) * (1.0_real32 - alpha)
+                    vb%shaded(x, y) = 1
+                end do
+            end do
+        end do
+        deallocate(order, key)
+    end subroutine blend_pass
 
 end module renderer_v3_3d
