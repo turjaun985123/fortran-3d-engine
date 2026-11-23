@@ -4,7 +4,20 @@
 !
 ! Public API (exact Python names, dyn representation):
 !   build_tracks(headers, keys, tracks)
-!       headers: dyn dict  target -> {"duration": dyn, "loop": dyn}
+!       headers: dyn dict  target -> {"duration": dyn, "loop": dyn,
+!                "fps": dyn (optional, v3.0 Phase 5)}
+!       v3.0 Phase 5 (additive): a header may carry "fps"; when it
+!       does, the built track dict carries "fps" too and
+!       track_lines appends " fps <fps>" to the .scene 'keys' line
+!       (the v1 reader parses that optional 6th/7th token pair;
+!       key times/duration are then FRAME NUMBERS, see
+!       keyframe_3d).  Headers without "fps" produce byte-identical
+!       track dicts and .scene lines to the pre-Phase-5 compiler.
+!       validate_tracks also accepts the Phase 5 ease names
+!       cubic-in / cubic-out / cubic-in-out (ease_value in
+!       animation_3d); 'bezier(...)' cannot be written in the .f3d
+!       key grammar (the parser reads a bare ease identifier), so
+!       it is not accepted here.
 !       keys:    dyn list of raw key dicts
 !       tracks:  dyn dict out, {target: {"duration": real, "loop":
 !                str, "keys": [normalised key dicts sorted by time]}}
@@ -553,18 +566,29 @@ contains
   end function normalise_key
 
   !> _header_fields(header): (duration, loop) with defaults.
-  subroutine header_fields(header, duration, loop)
+  !! Phase 5: also (fps, has_fps); fps is present only when the
+  !! header carries a numeric "fps" entry.
+  subroutine header_fields(header, duration, loop, fps, has_fps)
     type(dyn), intent(in) :: header
     real(real64), intent(out) :: duration
     character(len=:), allocatable, intent(out) :: loop
+    real(real64), intent(out) :: fps
+    logical, intent(out) :: has_fps
     real(real64) :: x
     logical :: has
     duration = 0.0_real64
     loop = DEFAULT_LOOP
+    fps = 0.0_real64
+    has_fps = .false.
     if (header%kind /= DYN_K_DICT) return
     call num_none(dget(header, "duration"), x, has)
     if (has) duration = x
     loop = word_default(dget(header, "loop"), DEFAULT_LOOP)
+    call num_none(dget(header, "fps"), x, has)
+    if (has) then
+      fps = x
+      has_fps = .true.
+    end if
   end subroutine header_fields
 
   !> build_tracks(headers, keys) -> tracks dict.
@@ -573,7 +597,8 @@ contains
     type(dyn), intent(out) :: tracks
     type(dyn) :: header, track, key, sorted, item
     character(len=:), allocatable :: name, loop
-    real(real64) :: duration
+    real(real64) :: duration, fps
+    logical :: has_fps
     integer :: k, i, j, n
     tracks = dyn_dict()
     if (headers%kind == DYN_K_DICT) then
@@ -581,11 +606,12 @@ contains
         name = strip_ws(dyn_dict_key_at(headers, k))
         if (len(name) == 0) cycle
         header = dyn_dict_value_at(headers, k)
-        call header_fields(header, duration, loop)
+        call header_fields(header, duration, loop, fps, has_fps)
         track = dyn_dict()
         call dyn_dict_set(track, "duration", dyn_real(duration))
         call dyn_dict_set(track, "loop", dyn_str(loop))
         call dyn_dict_set(track, "keys", dyn_list())
+        if (has_fps) call dyn_dict_set(track, "fps", dyn_real(fps))
         call dyn_dict_set(tracks, name, track)
       end do
     end if
@@ -691,6 +717,22 @@ contains
              " has duration " // py_repr(dget(track, "duration")) // &
              ": 'duration' must be finite")
       end if
+      block
+        real(real64) :: fps_v
+        logical :: has_fps_v
+        call num_none(dget(track, "fps"), fps_v, has_fps_v)
+        if (has_fps_v) then
+          if (.not. ieee_is_finite(fps_v)) then
+            call char_list_append(errors, "track " // repr_str(name) // &
+                 " has fps " // py_repr(dget(track, "fps")) // &
+                 ": 'fps' must be finite")
+          else if (fps_v <= 0.0_real64) then
+            call char_list_append(errors, "track " // repr_str(name) // &
+                 " has fps " // fmt_g6(fps_v) // &
+                 ": 'fps' must be greater than 0")
+          end if
+        end if
+      end block
       keys_list = dget(track, "keys")
       if (keys_list%kind /= DYN_K_LIST .or. &
           dyn_list_len(keys_list) == 0) then
@@ -792,11 +834,14 @@ contains
         end if
         easew = word_default(dget(key, "ease"), DEFAULT_EASE)
         if (.not. (easew == "linear" .or. easew == "smooth" .or. &
-                   easew == "in" .or. easew == "out")) then
+                   easew == "in" .or. easew == "out" .or. &
+                   easew == "cubic-in" .or. easew == "cubic-out" .or. &
+                   easew == "cubic-in-out")) then
           call char_list_append(errors, "track " // repr_str(name) // &
                " has a key at time " // when_s // " with ease " // &
                py_repr(dget(key, "ease")) // &
-               ": 'ease' must be one of linear, smooth, in, out")
+               ": 'ease' must be one of linear, smooth, in, out, " // &
+               "cubic-in, cubic-out, cubic-in-out")
         end if
       end do
       if (has_dur .and. ieee_is_finite(duration) .and. &
@@ -820,23 +865,35 @@ contains
     type(char_list), intent(inout) :: lines
     type(dyn) :: keys_list, key
     character(len=:), allocatable :: loopw, line
-    real(real64) :: duration, pv(3), rv(3)
-    logical :: has_dur
+    real(real64) :: duration, pv(3), rv(3), fps_v
+    logical :: has_dur, has_fps_v
     integer :: i
+    fps_v = 0.0_real64
+    has_fps_v = .false.
     if (track%kind == DYN_K_DICT) then
       call num_none(dget(track, "duration"), duration, has_dur)
       if (.not. has_dur) duration = 0.0_real64
       loopw = word_default(dget(track, "loop"), DEFAULT_LOOP)
       keys_list = dget(track, "keys")
+      call num_none(dget(track, "fps"), fps_v, has_fps_v)
     else
       duration = 0.0_real64
       loopw = DEFAULT_LOOP
       keys_list = dyn_null()
     end if
     if (keys_list%kind /= DYN_K_LIST) keys_list = dyn_list()
-    call char_list_append(lines, "keys " // target // " " // &
-         fmt_g6(duration) // " " // loopw // " " // &
-         fmt_int(int(dyn_list_len(keys_list), int64)))
+    ! Phase 5: optional trailing " fps <fps>" token pair, emitted
+    ! only when the track carries fps (zero drift otherwise).
+    if (has_fps_v) then
+      call char_list_append(lines, "keys " // target // " " // &
+           fmt_g6(duration) // " " // loopw // " " // &
+           fmt_int(int(dyn_list_len(keys_list), int64)) // &
+           " fps " // fmt_g6(fps_v))
+    else
+      call char_list_append(lines, "keys " // target // " " // &
+           fmt_g6(duration) // " " // loopw // " " // &
+           fmt_int(int(dyn_list_len(keys_list), int64)))
+    end if
     do i = 1, dyn_list_len(keys_list)
       key = dyn_list_at(keys_list, i)
       if (key%kind /= DYN_K_DICT) key = dyn_dict()

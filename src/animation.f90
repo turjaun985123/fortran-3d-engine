@@ -24,24 +24,262 @@ contains
     !   'linear' -> p                 'smooth' -> p*p*(3-2p)
     !   'in'     -> p*p               'out'    -> 1-(1-p)^2
     ! Unknown names fall back to linear.
+    !
+    ! v3.0 Phase 5 (additive; the names above are unchanged):
+    !   'cubic-in'     -> p^3
+    !   'cubic-out'    -> 1-(1-p)^3
+    !   'cubic-in-out' -> 4p^3 for p < 0.5, else 1-(-2p+2)^3/2
+    !   'bezier(x1,y1,x2,y2)' -> cubic Bezier easing with control
+    !       points (0,0), (x1,y1), (x2,y2), (1,1): solve x(t) = p
+    !       for t (Newton with a bisection fallback), return y(t).
+    !       x1/x2 are clamped to [0,1]; a malformed bezier string
+    !       falls back to linear, like any unknown name.
     pure function ease_value(name, p) result(e)
         character(*), intent(in) :: name
         real(dp), intent(in) :: p
         real(dp) :: e
         real(dp) :: u
+        character(len=64) :: nm
+        real(dp) :: bx1, by1, bx2, by2
+        logical :: bez_ok
 
         u = max(0.0_dp, min(1.0_dp, p))
-        select case (trim(name))
+        nm = trim(name)
+        if (len_trim(nm) >= 7 .and. nm(1:7) == 'bezier(') then
+            call parse_bezier_args(nm, bx1, by1, bx2, by2, bez_ok)
+            if (bez_ok) then
+                e = bezier_ease(bx1, by1, bx2, by2, u)
+            else
+                e = u  ! malformed -> linear
+            end if
+            return
+        end if
+        select case (trim(nm))
         case ('smooth')
             e = u * u * (3.0_dp - 2.0_dp * u)
         case ('in')
             e = u * u
         case ('out')
             e = 1.0_dp - (1.0_dp - u) * (1.0_dp - u)
+        case ('cubic-in')
+            e = u * u * u
+        case ('cubic-out')
+            e = 1.0_dp - (1.0_dp - u) * (1.0_dp - u) * (1.0_dp - u)
+        case ('cubic-in-out')
+            if (u < 0.5_dp) then
+                e = 4.0_dp * u * u * u
+            else
+                e = 1.0_dp - ((-2.0_dp * u + 2.0_dp) ** 3) / 2.0_dp
+            end if
         case default  ! 'linear' and anything unknown
             e = u
         end select
     end function ease_value
+
+    ! Parse the argument list of 'bezier(x1,y1,x2,y2)' (s is the
+    ! already-trimmed ease name, known to start with 'bezier(').
+    ! ok=.false. on any malformation: missing ')', wrong argument
+    ! count, or a non-numeric argument.  Control x values are
+    ! clamped to [0,1] here; y values are unrestricted.
+    pure subroutine parse_bezier_args(s, x1, y1, x2, y2, ok)
+        character(*), intent(in) :: s
+        real(dp), intent(out) :: x1, y1, x2, y2
+        logical, intent(out) :: ok
+        integer :: i, n, ncomma, close_pos
+        real(dp) :: vals(4)
+        integer :: start, idx
+        logical :: num_ok
+
+        ok = .false.
+        x1 = 0.0_dp; y1 = 0.0_dp; x2 = 0.0_dp; y2 = 0.0_dp
+        n = len_trim(s)
+        close_pos = 0
+        ncomma = 0
+        do i = 1, n
+            if (s(i:i) == ')') close_pos = i
+            if (s(i:i) == ',') ncomma = ncomma + 1
+        end do
+        if (close_pos /= n .or. ncomma /= 3) return
+        ! Split s(8:close_pos-1) on commas into exactly 4 numbers.
+        start = 8
+        idx = 0
+        do i = 8, close_pos
+            if (i == close_pos .or. s(i:i) == ',') then
+                idx = idx + 1
+                if (idx > 4) return
+                call parse_decimal(s(start:i - 1), vals(idx), num_ok)
+                if (.not. num_ok) return
+                start = i + 1
+            end if
+        end do
+        if (idx /= 4) return
+        x1 = max(0.0_dp, min(1.0_dp, vals(1)))
+        y1 = vals(2)
+        x2 = max(0.0_dp, min(1.0_dp, vals(3)))
+        y2 = vals(4)
+        ok = .true.
+    end subroutine parse_bezier_args
+
+    ! Strict decimal parser (no I/O, so ease_value stays pure):
+    ! [+-] digits [. digits] [(e|E) [+-] digits]; at least one digit
+    ! in the mantissa.  Surrounding spaces are allowed.
+    pure subroutine parse_decimal(s, x, ok)
+        character(*), intent(in) :: s
+        real(dp), intent(out) :: x
+        logical, intent(out) :: ok
+        integer :: n
+        ! Work on a blank-padded copy: Fortran does not guarantee
+        ! short-circuit .and., so s(i:i) must never be evaluated
+        ! with i > len(s); the 512-char buffer makes every access
+        ! in parse_decimal_buf in-bounds (positions past the text
+        ! read as blanks).
+        character(len=512) :: buf
+
+        ok = .false.
+        x = 0.0_dp
+        if (len(s) > 500) return
+        buf = s
+        n = len_trim(buf)
+        call parse_decimal_buf(buf, n, x, ok)
+    end subroutine parse_decimal
+
+    pure subroutine parse_decimal_buf(s, n, x, ok)
+        character(*), intent(in) :: s
+        integer, intent(in) :: n
+        real(dp), intent(out) :: x
+        logical, intent(out) :: ok
+        integer :: i, ndig
+        real(dp) :: mant, frac, expo, sign
+        logical :: seen_dot, seen_exp, exp_neg
+
+        ok = .false.
+        x = 0.0_dp
+        i = 1
+        do while (i <= n .and. s(i:i) == ' ')
+            i = i + 1
+        end do
+        sign = 1.0_dp
+        if (i <= n .and. (s(i:i) == '-' .or. s(i:i) == '+')) then
+            if (s(i:i) == '-') sign = -1.0_dp
+            i = i + 1
+        end if
+        mant = 0.0_dp
+        frac = 0.1_dp
+        ndig = 0
+        seen_dot = .false.
+        do while (i <= n)
+            if (s(i:i) >= '0' .and. s(i:i) <= '9') then
+                ndig = ndig + 1
+                if (seen_dot) then
+                    mant = mant + real(iachar(s(i:i)) - iachar('0'), dp) * frac
+                    frac = frac * 0.1_dp
+                else
+                    mant = mant * 10.0_dp + &
+                           real(iachar(s(i:i)) - iachar('0'), dp)
+                end if
+                i = i + 1
+            else if (s(i:i) == '.' .and. .not. seen_dot) then
+                seen_dot = .true.
+                i = i + 1
+            else
+                exit
+            end if
+        end do
+        if (ndig == 0) return
+        expo = 0.0_dp
+        seen_exp = .false.
+        exp_neg = .false.
+        if (i <= n .and. (s(i:i) == 'e' .or. s(i:i) == 'E')) then
+            seen_exp = .true.
+            i = i + 1
+            if (i <= n .and. (s(i:i) == '-' .or. s(i:i) == '+')) then
+                exp_neg = (s(i:i) == '-')
+                i = i + 1
+            end if
+            if (i > n) return
+            if (s(i:i) < '0' .or. s(i:i) > '9') return
+            do while (i <= n .and. s(i:i) >= '0' .and. s(i:i) <= '9')
+                expo = expo * 10.0_dp + &
+                       real(iachar(s(i:i)) - iachar('0'), dp)
+                i = i + 1
+            end do
+        end if
+        do while (i <= n .and. s(i:i) == ' ')
+            i = i + 1
+        end do
+        if (i <= n) return
+        if (seen_exp) then
+            if (exp_neg) expo = -expo
+            mant = mant * (10.0_dp ** expo)
+        end if
+        x = sign * mant
+        ok = .true.
+    end subroutine parse_decimal_buf
+
+    ! One coordinate of the cubic Bezier with endpoints 0 and 1 and
+    ! control values c1, c2, at parameter t.
+    pure function bezier_coord(c1, c2, t) result(v)
+        real(dp), intent(in) :: c1, c2, t
+        real(dp) :: v
+        real(dp) :: mt
+        mt = 1.0_dp - t
+        v = 3.0_dp * mt * mt * t * c1 + 3.0_dp * mt * t * t * c2 + t * t * t
+    end function bezier_coord
+
+    ! Derivative of bezier_coord with respect to t.
+    pure function bezier_coord_dt(c1, c2, t) result(v)
+        real(dp), intent(in) :: c1, c2, t
+        real(dp) :: v
+        real(dp) :: mt
+        mt = 1.0_dp - t
+        v = 3.0_dp * mt * mt * c1 + 6.0_dp * mt * t * (c2 - c1) + &
+            3.0_dp * t * t * (1.0_dp - c2)
+    end function bezier_coord_dt
+
+    ! Cubic-bezier easing: solve x(t) = p for t, return y(t).
+    ! Newton from t = p; if it stalls or leaves [0,1], fall back to
+    ! bisection (x(t) is monotonic for control x in [0,1]).
+    pure function bezier_ease(x1, y1, x2, y2, p) result(e)
+        real(dp), intent(in) :: x1, y1, x2, y2, p
+        real(dp) :: e
+        real(dp) :: t, err, der, lo, hi
+        integer :: i
+
+        if (p <= 0.0_dp) then
+            e = 0.0_dp
+            return
+        end if
+        if (p >= 1.0_dp) then
+            e = 1.0_dp
+            return
+        end if
+        t = p
+        do i = 1, 8
+            err = bezier_coord(x1, x2, t) - p
+            if (abs(err) < 1.0e-12_dp) exit
+            der = bezier_coord_dt(x1, x2, t)
+            if (abs(der) < 1.0e-9_dp) exit
+            t = t - err / der
+            if (t < 0.0_dp .or. t > 1.0_dp) exit
+        end do
+        if (t < 0.0_dp .or. t > 1.0_dp .or. &
+            abs(bezier_coord(x1, x2, t) - p) >= 1.0e-9_dp) then
+            lo = 0.0_dp
+            hi = 1.0_dp
+            t = p
+            do i = 1, 40
+                err = bezier_coord(x1, x2, t) - p
+                if (abs(err) < 1.0e-12_dp) exit
+                if (err > 0.0_dp) then
+                    hi = t
+                else
+                    lo = t
+                end if
+                t = 0.5_dp * (lo + hi)
+            end do
+        end if
+        e = bezier_coord(y1, y2, t)
+    end function bezier_ease
 
     ! Map an axis name to a component index; 'y' is the default.
     pure function axis_index(axis) result(idx)
