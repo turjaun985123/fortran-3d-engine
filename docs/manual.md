@@ -310,8 +310,10 @@ f3dc <file.f3d>            # bare file = run; with no file, a single
 ```
 
 Inputs to `check`/`build`/`run`/`fmt` may be `.f3d`, legacy `.json`, or
-`.obj` files. `NO_COLOR` and `--json` (on `check`) control diagnostic
-formatting; `F3DC_DEBUG` enables tracebacks for internal errors.
+`.obj` files. `--json` (on `check`) prints diagnostics as JSON instead
+of the default text form. (The Python compiler's `NO_COLOR` and
+`F3DC_DEBUG` environment variables are not read by the native binary;
+see `compiler/REPLACEMENT.md`.)
 
 | Command | Usage | Does |
 |---|---|---|

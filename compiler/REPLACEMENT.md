@@ -128,6 +128,21 @@ step that builds `bin/f3dc` via `make f3dc` when missing):
   constant in every deleted file was extracted and filtered by the
   project's own lexer heuristic).
 
+## Post-commit addendum (same day)
+
+- **Environment variables:** the native binary reads neither
+  `NO_COLOR` nor `F3DC_DEBUG` (verified: no
+  `get_environment_variable` call for them anywhere in
+  `compiler/src/`; the Python compiler honored both). The color
+  machinery itself is ported in `f3dc_errors.f90`, but nothing wires
+  the env vars to it, and there is no traceback mode behind
+  `F3DC_DEBUG`. This is a real, if minor, behavioral divergence from
+  the deleted compiler that the parity sweeps did not exercise (all
+  comparisons ran with piped output). The manual's §3 wording was
+  corrected accordingly. The `E9000` message text still mentions
+  `F3DC_DEBUG` — that string is byte-parity with the oracle's message
+  and was left as-is.
+
 ## Verification (first-hand, post-deletion tree)
 
 - `make -C compiler clean && make f3dc` from scratch: builds in ~1
