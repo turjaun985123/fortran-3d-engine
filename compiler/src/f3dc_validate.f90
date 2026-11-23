@@ -1649,14 +1649,15 @@ contains
     type(dyn), intent(in) :: node
     type(dyn) :: props, v, sizev
     integer :: k
-    character(12) :: env_keys(3)
+    character(12) :: env_keys(4)
     integer(int64) :: w, h
     logical :: has_w, has_h
     integer :: rgb(3)
     logical :: has_rgb
     props = props_of(node)
-    env_keys = [character(12) :: "fog", "tonemap", "shadow"]
-    do k = 1, 3
+    env_keys = [character(12) :: "fog", "tonemap", "shadow", &
+                "antialias"]
+    do k = 1, 4
       call vfield(node, props, [character(12) :: env_keys(k)], v)
       if (v%kind /= DYN_K_NULL) then
         call dyn_dict_set(vs%env_props, trim(env_keys(k)), v)
@@ -2739,7 +2740,8 @@ contains
                 rest = strip_ws(t(sp:))
               end if
               if (in_words(to_lower(first), [character(12) :: &
-                   "fog", "tonemap", "tone", "shadow"])) then
+                   "fog", "tonemap", "tone", "shadow", &
+                   "antialias"])) then
                 ev = dyn_str(rest)
               end if
             end block

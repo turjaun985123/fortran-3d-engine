@@ -175,9 +175,9 @@ module f3dc_parser
   character(16), parameter :: AXES(3) = [character(16) :: "x", "y", "z"]
   character(16), parameter :: LOOP_WORDS(3) = [character(16) :: &
     "once", "forever", "pingpong"]
-  character(16), parameter :: SCENE_CLAUSES(10) = [character(16) :: &
+  character(16), parameter :: SCENE_CLAUSES(11) = [character(16) :: &
     "size", "bg", "background", "colour", "color", "fog", "tonemap", &
-    "tone", "shadow", "shading"]
+    "tone", "shadow", "shading", "antialias"]
 
 contains
 
@@ -1738,8 +1738,8 @@ contains
     type(dyn), intent(out) :: stmt
     logical, intent(out) :: has_stmt
     character(:), allocatable :: w, w2, s, key, parts
-    character(16) :: env_keys(3)
-    character(8192) :: env_vals(3)  ! clause text (lexer caps lines at 4096)
+    character(16) :: env_keys(4)
+    character(8192) :: env_vals(4)  ! clause text (lexer caps lines at 4096)
     type(dyn) :: name, bg, props, node
     type(str_set) :: seen
     integer(int64) :: sw, sh
@@ -1786,9 +1786,11 @@ contains
           has_shading = .true.
         end if
       else if (hasw .and. (w == "fog" .or. w == "tonemap" &
-               .or. w == "tone" .or. w == "shadow")) then
+               .or. w == "tone" .or. w == "shadow" &
+               .or. w == "antialias")) then
         ! Wave A environment clause: tokens up to the next clause
-        ! keyword; ext_lights_env owns the semantics.
+        ! keyword; ext_lights_env owns the semantics.  (v3.0 Phase 2:
+        ! "antialias" rides the same clause path.)
         if (w == "tonemap" .or. w == "tone") then
           key = "tonemap"
         else
@@ -1891,12 +1893,13 @@ contains
       call dset(node, "colour", dyn_null())
       call dset(node, "color", dyn_null())
     end if
-    ! fog / tonemap / shadow fields (null when the clause is absent)
+    ! fog / tonemap / shadow / antialias fields (null when absent)
     block
-      character(16) :: want(3)
+      character(16) :: want(4)
       integer :: k
-      want = [character(16) :: "fog", "tonemap", "shadow"]
-      do k = 1, 3
+      want = [character(16) :: "fog", "tonemap", "shadow", &
+              "antialias"]
+      do k = 1, 4
         dupf = .false.
         do i = 1, nenv
           if (env_keys(i) == trim(want(k))) then

@@ -60,7 +60,7 @@ jobs:
       - name: G3a - Legacy render anchor (pinned sha256)
         run: |
           work="$(mktemp -d)"
-          (cd "$work" && "$GITHUB_WORKSPACE/bin/engine3d")
+          (cd "$work" && "$GITHUB_WORKSPACE/bin/engine3d" --renderer legacy)
           hash="$(sha256sum "$work/output_render.ppm" | awk '{print $1}')"
           echo "legacy render sha256: $hash"
           test "$hash" = "28b6a81dd052a740f3a395ea41b3e0dd37e02eeff585a56fa90e05ac7697cec1"
@@ -75,10 +75,41 @@ jobs:
           test -f build/hello-cube.scene
           work="$(mktemp -d)"
           cp build/hello-cube.scene "$work/"
-          (cd "$work" && "$GITHUB_WORKSPACE/bin/engine3d" hello-cube.scene)
+          (cd "$work" && "$GITHUB_WORKSPACE/bin/engine3d" --renderer legacy hello-cube.scene)
           hash="$(sha256sum "$work/output_render.ppm" | awk '{print $1}')"
           echo "compiled-scene render sha256: $hash"
           test "$hash" = "090fa22a7faa670ef98dc16858006d6f0babb243a26e0f77dce471564942d19d"
+
+      # G3c (v3.0 Phase 2, ADR-1): the NEW v3 renderer (the engine
+      # default) must be DETERMINISTIC: the same .scene rendered
+      # under FORGE3D_THREADS=1 and FORGE3D_THREADS=8 must produce
+      # byte-identical output, AND the output is pinned to the
+      # Phase 2 golden recorded in docs/V3-GOLDENS.md (verified
+      # from the integrated tree at Phase 2 close).
+      - name: G3c - v3 render determinism + pin (threads 1 vs 8)
+        run: |
+          bin/f3dc build examples/hello-cube.f3d
+          test -f build/hello-cube.scene
+          work1="$(mktemp -d)"
+          work8="$(mktemp -d)"
+          cp build/hello-cube.scene "$work1/"
+          cp build/hello-cube.scene "$work8/"
+          (cd "$work1" && FORGE3D_THREADS=1 "$GITHUB_WORKSPACE/bin/engine3d" hello-cube.scene)
+          (cd "$work8" && FORGE3D_THREADS=8 "$GITHUB_WORKSPACE/bin/engine3d" hello-cube.scene)
+          hash1="$(sha256sum "$work1/output_render.ppm" | awk '{print $1}')"
+          hash8="$(sha256sum "$work8/output_render.ppm" | awk '{print $1}')"
+          echo "v3 hello-cube sha256: $hash1"
+          echo "v3 threads=1: $hash1"
+          echo "v3 threads=8: $hash8"
+          {
+            echo "## G3c - v3 determinism"
+            echo ""
+            echo "- v3 hello-cube sha256: $hash1"
+            echo "- FORGE3D_THREADS=1: $hash1"
+            echo "- FORGE3D_THREADS=8: $hash8"
+          } >> "$GITHUB_STEP_SUMMARY"
+          test "$hash1" = "$hash8"
+          test "$hash1" = "2907f60a0ea5e5c02512cb270e416778c0c11a4c082d156f32d1f4c070e16239"
 
       # Determinism: the same .f3d compiled twice must emit identical
       # .scene bytes -- a drifting compiler breaks goldens and user

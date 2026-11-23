@@ -1216,6 +1216,41 @@ contains
     call dyn_dict_set(sh, "size", dyn_int(int(size, int64)))
   end subroutine extract_shadow
 
+  !> v3.0 Phase 2: the scene `antialias N` clause (SSAA factor).
+  !! The env payload carries the "antialias" key ONLY when the
+  !! clause was written in the source, so scenes without it keep
+  !! byte-identical artifacts.  A parseable integer is normalised
+  !! to dyn_int; anything else is stored raw so validate_env can
+  !! quote it in its E302 message.
+  subroutine extract_antialias(props, env)
+    type(dyn), intent(in) :: props
+    type(dyn), intent(inout) :: env
+    type(dyn) :: raw
+    character(len=:), allocatable :: t
+    integer :: ios
+    integer(int64) :: n
+    raw = dyn_dict_get(props, "antialias")
+    if (raw%kind == DYN_K_NULL) return
+    select case (raw%kind)
+    case (DYN_K_INT)
+      call dyn_dict_set(env, "antialias", dyn_int(raw%i))
+    case (DYN_K_STR)
+      if (allocated(raw%s)) then
+        t = strip_ws(raw%s)
+        if (is_int_token(t)) then
+          read (t, *, iostat=ios) n
+          if (ios == 0) then
+            call dyn_dict_set(env, "antialias", dyn_int(n))
+            return
+          end if
+        end if
+      end if
+      call dyn_dict_set(env, "antialias", raw)
+    case default
+      call dyn_dict_set(env, "antialias", raw)
+    end select
+  end subroutine extract_antialias
+
   !> extract_env(props) -> normalised environment dict.
   subroutine extract_env(props_in, env)
     type(dyn), intent(in) :: props_in
@@ -1229,6 +1264,7 @@ contains
     call dyn_dict_set(env, "tonemap", part)
     call extract_shadow(props, part)
     call dyn_dict_set(env, "shadow", part)
+    call extract_antialias(props, env)
   end subroutine extract_env
 
   !> validate_env(env) -> list of error message strings.
@@ -1303,6 +1339,24 @@ contains
           "must be a power of two between 64 and 4096")
       end if
     end if
+    if (dyn_dict_has(env_in, "antialias")) then
+      raw = dyn_dict_get(env_in, "antialias")
+      if (raw%kind /= DYN_K_NULL) then
+        call num_or(raw, has, x)
+        bad = .not. has
+        if (has) then
+          if (x /= floor(x)) then
+            bad = .true.
+          else if (x /= 1.0_real64 .and. x /= 2.0_real64 .and. &
+                   x /= 4.0_real64 .and. x /= 8.0_real64) then
+            bad = .true.
+          end if
+        end if
+        if (bad) call char_list_append(msgs, &
+          "antialias is " // py_str_of(raw) // ", but " // &
+          "'antialias' must be one of 1, 2, 4 or 8")
+      end if
+    end if
   end subroutine validate_env
 
   !> env_lines(env) -> .scene lines for non-default entries only.
@@ -1359,6 +1413,19 @@ contains
           "shadow " // mode // " " // &
           trim(fmt_int(int(size, int64))))
       end if
+    end if
+    ! v3.0 Phase 2: emitted whenever the clause was set in the
+    ! source (the key exists only then), even for antialias 1.
+    if (dyn_dict_has(env_in, "antialias")) then
+      block
+        type(dyn) :: raw
+        real(real64) :: n
+        logical :: has_n
+        raw = dyn_dict_get(env_in, "antialias")
+        call num_or(raw, has_n, n)
+        if (has_n) call char_list_append(lines, &
+          "antialias " // trim(fmt_int(int(n, int64))))
+      end block
     end if
   end subroutine env_lines
 

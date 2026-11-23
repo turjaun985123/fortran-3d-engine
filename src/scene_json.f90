@@ -1323,6 +1323,12 @@ contains
                                          sc%shadow_size)
             if (sc%shadow_mode /= 0) sc%has_env = .true.
         end if
+
+        ! v3.0 Phase 2: SSAA factor; the emitter carries the key
+        ! only when the .f3d source set `antialias`, so an absent
+        ! key keeps the Scene default of 1.
+        sc%antialias = j_int_field(doc, env, 'antialias', &
+                                   sc%antialias)
     end subroutine j_load_env
 
     ! ------------------------------------------------------------------
