@@ -416,6 +416,22 @@ contains
   ! format_json (ErrorBag.format_json == json.dumps(records, indent=2))
   ! ------------------------------------------------------------------
 
+  !> "\uXXXX" for a code point < 65536, with LOWERCASE hex digits
+  !! (Python json.dumps style).  Fortran's Z edit descriptor emits
+  !! UPPERCASE hex, so the digits are built by hand here.
+  function json_u_escape(cp) result(out)
+    integer, intent(in) :: cp
+    character(len=6) :: out
+    character(len=*), parameter :: HEXD = "0123456789abcdef"
+    integer :: n, d
+    n = cp
+    out(1:2) = "\u"
+    do d = 6, 3, -1
+      out(d:d) = HEXD(mod(n, 16) + 1:mod(n, 16) + 1)
+      n = n / 16
+    end do
+  end function json_u_escape
+
   !> JSON string escaping, json.dumps defaults (ensure_ascii=True):
   !! \" \\ \b \f \n \r \t, other control chars as \u00xx, and
   !! non-ASCII (UTF-8 decoded) as \uXXXX with surrogate pairs.
@@ -423,7 +439,6 @@ contains
     character(len=*), intent(in) :: s
     character(len=:), allocatable :: out
     integer :: i, b, cp, nbytes, j
-    character(len=8) :: hexbuf
     out = ""
     i = 1
     do while (i <= len(s))
@@ -445,8 +460,7 @@ contains
         case (9)
           out = out // '\t'
         case (0:7, 11, 14:31, 127)
-          write (hexbuf, "(A,Z4.4)") "\u", b
-          out = out // trim(hexbuf)
+          out = out // json_u_escape(b)
         case default
           out = out // s(i:i)
         end select
@@ -473,17 +487,14 @@ contains
           end do
         end if
         if (cp <= 65535) then
-          write (hexbuf, "(A,Z4.4)") "\u", cp
-          out = out // trim(hexbuf)
+          out = out // json_u_escape(cp)
         else
           block
             integer :: hi, lo
             hi = 55296 + (cp - 65536) / 1024
             lo = 56320 + mod(cp - 65536, 1024)
-            write (hexbuf, "(A,Z4.4)") "\u", hi
-            out = out // trim(hexbuf)
-            write (hexbuf, "(A,Z4.4)") "\u", lo
-            out = out // trim(hexbuf)
+            out = out // json_u_escape(hi)
+            out = out // json_u_escape(lo)
           end block
         end if
         i = i + nbytes
