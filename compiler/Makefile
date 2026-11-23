@@ -56,6 +56,11 @@ ORDERED_SRC = src/f3dc_str.f90 \
               src/f3dc_emit_html.f90 \
               src/f3dc_emit_fortran.f90
 
+# f3dc_preview USEs the emitters/validate/optimize/compat/ir modules
+# above (but not f3dc_driver), so it slots in after them and before
+# the driver + CLI main, which USE it.
+PREVIEW_SRC = src/f3dc_preview.f90
+
 DRIVER_SRC = src/f3dc_driver.f90
 MAIN_SRC   = src/f3dc_cli.f90
 
@@ -70,10 +75,10 @@ EXT_SRC := $(filter-out $(CORE_SRC),$(sort $(wildcard src/f3dc_ext_*.f90)))
 # Any other .f90 that appears in src/ without an ORDERED_SRC entry
 # is still compiled (just before the driver/main) so a forgotten
 # list update does not silently drop a module; fix the list anyway.
-EXTRA_SRC := $(filter-out $(CORE_SRC) $(EXT_SRC) $(DRIVER_SRC) $(MAIN_SRC),\
+EXTRA_SRC := $(filter-out $(CORE_SRC) $(EXT_SRC) $(PREVIEW_SRC) $(DRIVER_SRC) $(MAIN_SRC),\
                $(sort $(wildcard src/*.f90)))
 
-SRC := $(CORE_SRC) $(EXT_SRC) $(EXTRA_SRC) \
+SRC := $(CORE_SRC) $(EXT_SRC) $(EXTRA_SRC) $(wildcard $(PREVIEW_SRC)) \
        $(wildcard $(DRIVER_SRC)) $(wildcard $(MAIN_SRC))
 
 OBJS = $(patsubst src/%.f90,$(BUILD_DIR)/%.o,$(SRC))

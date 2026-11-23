@@ -31,11 +31,10 @@
 !   f3dc_emit_html    :: subroutine emit_html(ir, runtime_js,
 !                        scene_js, template_arg, repo_root, text)
 !                        subroutine emit_html_runtime_js(root, text)
-!   f3dc_preview  :: ABSENT (also no compiler/preview_http.c yet):
-!                    `preview` therefore reports the exact surface
-!                    cli.py produces when its preview module is
-!                    missing: "error E9000: preview module
-!                    unavailable" on stderr, exit 70.  FLAGGED stub.
+!   f3dc_preview  :: subroutine preview_serve(scene_path, port,
+!                        open_browser, code) -- native port of
+!                    preview.py serve(), with compiler/preview_http.c
+!                    as its socket helper.
 !
 ! IR / AST values are dyn dicts (DESIGN.md): IR keys mirror the
 ! ir_nodes dataclass fields (name, width, height, bg, camera,
@@ -82,6 +81,7 @@ program f3dc
        driver_ensure_engine, driver_run_engine, driver_run_capture, &
        driver_quote, driver_cwd, driver_file_exists, driver_is_dir, &
        driver_abs_path
+  use f3dc_preview, only: preview_serve
   implicit none
 
   character(len=*), parameter :: VERSION = "0.1.0"
@@ -2307,19 +2307,13 @@ contains
 
   ! ------------------------------------------------------------------
   ! preview (cli.py: _import_sibling("preview") -> serve(...)).
-  ! STUB, FLAGGED: neither f3dc_preview nor compiler/preview_http.c
-  ! exists yet, so this reproduces exactly the surface cli.py
-  ! produces when its preview module cannot be imported.
   ! ------------------------------------------------------------------
   subroutine do_preview(file, port, no_browser, code)
     character(len=*), intent(in) :: file
     integer, intent(in) :: port
     logical, intent(in) :: no_browser
     integer, intent(out) :: code
-    call err_line("error E9000: preview module unavailable")
-    code = 70
-    ! file/port/no_browser are parsed exactly as cli.py parses them;
-    ! serve() would consume them once f3dc_preview lands.
+    call preview_serve(file, port, .not. no_browser, code)
   end subroutine do_preview
 
   ! ------------------------------------------------------------------
