@@ -90,14 +90,15 @@ program f3dc
   use f3dc_driver, only: driver_repo_root, driver_find_tool, &
        driver_ensure_engine, driver_run_engine, driver_run_capture, &
        driver_quote, driver_cwd, driver_file_exists, driver_is_dir, &
-       driver_abs_path, driver_manifest_check, driver_manifest_write
+       driver_abs_path, driver_manifest_check, driver_manifest_write, &
+       driver_timing_reset, driver_timing_mark, driver_timing_ms
   use f3dc_preview, only: preview_serve
   implicit none
 
   character(len=*), parameter :: VERSION = "2.0.0"
   ! _COMMANDS in cli.py, in cli.py's order (used in the error text).
   character(len=*), parameter :: COMMAND_LIST = &
-       "run, build, check, new, fmt, doctor, preview, bench"
+       "run, build, check, new, fmt, doctor, preview, bench, profile"
 
   ! _LAST in cli.py: state from the most recent compile_pipeline().
   type(dyn) :: last_program
@@ -168,12 +169,12 @@ contains
   ! ------------------------------------------------------------------
   subroutine print_help(unit)
     integer, intent(in) :: unit
-    write (unit, '(A)') "usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor,bench} ..."
+    write (unit, '(A)') "usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor,bench,profile} ..."
     write (unit, '(A)') ""
     write (unit, '(A)') "Forge3D compiler -- compile and run .f3d scenes, the easy way"
     write (unit, '(A)') ""
     write (unit, '(A)') "positional arguments:"
-    write (unit, '(A)') "  {run,build,check,new,preview,fmt,doctor,bench}"
+    write (unit, '(A)') "  {run,build,check,new,preview,fmt,doctor,bench,profile}"
     write (unit, '(A)') "    run                 build, compile the engine and render"
     write (unit, '(A)') "    build               compile to build/ (Fortran + JSON + JS + HTML)"
     write (unit, '(A)') "    check               validate only -- no files written"
@@ -184,6 +185,8 @@ contains
     write (unit, '(A)') "    doctor              check gfortran / make / cc and print fixes"
     write (unit, '(A)') "    bench               run the engine frame-time benchmarks (repo"
     write (unit, '(A)') "                        scenes under docs/bench/)"
+    write (unit, '(A)') "    profile             build a scene and print per-stage compile"
+    write (unit, '(A)') "                        timings (parse, desugar, validate, emit, write)"
     write (unit, '(A)') ""
     write (unit, '(A)') "options:"
     write (unit, '(A)') "  -h, --help            show this help message and exit"
@@ -261,6 +264,15 @@ contains
        call out_line("  -h, --help  show this help message and exit")
        call out_line("  --runs N    timed runs per scene (default 3, median reported)")
        call out_line("  --json      print results as JSON")
+    case ("profile")
+       call out_line("usage: f3dc profile [-h] [-o OUT] file")
+       call out_line("")
+       call out_line("positional arguments:")
+       call out_line("  file               scene file (.f3d, .json or .obj)")
+       call out_line("")
+       call out_line("options:")
+       call out_line("  -h, --help         show this help message and exit")
+       call out_line("  -o OUT, --out OUT  output directory (default: build/)")
     end select
   end subroutine print_sub_help
 
@@ -276,7 +288,8 @@ contains
     case ("fmt");    out = "usage: f3dc fmt [-h] file"
     case ("doctor"); out = "usage: f3dc doctor [-h]"
     case ("bench");  out = "usage: f3dc bench [-h] [--runs N] [--json]"
-    case default;    out = "usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor,bench} ..."
+    case ("profile"); out = "usage: f3dc profile [-h] [-o OUT] file"
+    case default;    out = "usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor,bench,profile} ..."
     end select
   end function sub_usage
 
@@ -285,7 +298,7 @@ contains
   ! parser): main usage + "f3dc: error: ..." on stderr, exit 2.
   subroutine usage_error_main(msg)
     character(len=*), intent(in) :: msg
-    call err_line("usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor,bench} ...")
+    call err_line("usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor,bench,profile} ...")
     call err_line("f3dc: error: "//msg)
     call finish(2)
   end subroutine usage_error_main
@@ -697,13 +710,20 @@ contains
     type(dyn), intent(out) :: prog
     type(ast_program) :: prog_ast, desugared_ast
     logical :: ast_ok
+    ! v3.0 Phase 8 (profile): the two halves ARE separable here, so
+    ! "parse" marks the end of parse_program_ast and "desugar" the
+    ! end of desugar_program_ast; the single ast_program_to_dyn
+    ! conversion is counted in the desugar half.  On a parse error
+    ! desugar is skipped and no "desugar" mark is made.
     call parse_program_ast(text, source_name, bag, prog_ast, ast_ok)
+    call driver_timing_mark("parse")
     if (error_bag_has_errors(bag)) then
        call dyn_assign(prog, ast_program_to_dyn(prog_ast))
     else
        call desugar_program_ast(prog_ast, bag, base_dir, &
                                 desugared_ast, ast_ok)
        call dyn_assign(prog, ast_program_to_dyn(desugared_ast))
+       call driver_timing_mark("desugar")
     end if
   end subroutine compile_typed_to_dyn
 
@@ -721,6 +741,10 @@ contains
     ir = dyn_null()
     ok = .false.
     last_program_set = .false.
+    ! v3.0 Phase 8 (profile): every compile starts a fresh timing
+    ! registry; the marks below are clock reads only, so all other
+    ! commands pay nothing beyond those reads.
+    call driver_timing_reset()
     if (.not. file_exists(path)) then
        stem = path_stem(path)
        call error_bag_add(bag, make_diagnostic_span( &
@@ -745,6 +769,10 @@ contains
     ext = suffix_lower(path)
     if (ext == ".obj") then
        call ast_from_obj(text, bag, prog)
+       ! Approximation: the compat loaders parse and desugar in a
+       ! single step, so "parse" and "desugar" both mark here.
+       call driver_timing_mark("parse")
+       call driver_timing_mark("desugar")
     else if (ext == ".json") then
        if (.not. is_legacy_json(text)) then
           ! A v2 IR dump (has "ir_version"): load directly, still
@@ -754,15 +782,25 @@ contains
              call ir_from_json(text, ir, j_ok)
              if (j_ok) then
                 if (error_bag_has_errors(bag)) return
+                ! Approximation: an IR dump has no parse/desugar/
+                ! validate stages; "parse" and "desugar" mark the
+                ! load, and "validate" marks the optimize below.
+                call driver_timing_mark("parse")
+                call driver_timing_mark("desugar")
                 last_program_set = .false.
                 call optimize(ir, bag, 1, ir_opt)
                 ir = dyn_copy(ir_opt)
+                call driver_timing_mark("validate")
                 ok = .true.
                 return
              end if
           end if
        end if
        call ast_from_legacy_json(text, bag, prog)
+       ! Approximation: as for .obj above, the legacy-JSON loader
+       ! parses and desugars in a single step.
+       call driver_timing_mark("parse")
+       call driver_timing_mark("desugar")
     else
        ! .f3d: typed pipeline -- parse_program_ast, then
        ! desugar_program_ast, then ONE ast_program_to_dyn
@@ -777,6 +815,7 @@ contains
     ! the emitters still consume dyn by design (C1 remainder), so
     ! this call and everything downstream are unchanged.
     call validate_program(prog, bag, path_dirname(path), ir, vok)
+    call driver_timing_mark("validate")
     if (.not. vok .or. error_bag_has_errors(bag)) return
     call optimize(ir, bag, 1, ir_opt)
     ir = dyn_copy(ir_opt)
@@ -2076,6 +2115,8 @@ contains
     call js_text(ir, c_js)
     call html_text(ir, stem, c_html)
     call fortran_program_text(ir, stem, c_f90)
+    ! v3.0 Phase 8 (profile): all six emitters have run.
+    call driver_timing_mark("emit")
     ! Protected repo-root scene.json / viewer.html (E502).
     call driver_repo_root(root)
     do k = 1, 6
@@ -2107,6 +2148,8 @@ contains
           return
        end if
     end do
+    ! v3.0 Phase 8 (profile): all six outputs are on disk.
+    call driver_timing_mark("write")
     ! v3.0 Phase 6 (Seat X): record the incremental manifest for
     ! the next build.  Best effort and silent: a failed manifest
     ! write changes nothing about this build's outputs or exit
@@ -2126,8 +2169,57 @@ contains
     do k = 1, 6
        call out_line(out_dir//"/"//trim(names(k)))
     end do
+    ! v3.0 Phase 8 (profile): end of the whole build path, from
+    ! the driver_timing_reset at the top of compile_pipeline.
+    call driver_timing_mark("total")
     code = 0
   end subroutine do_build
+
+  ! ------------------------------------------------------------------
+  ! profile (v3.0 Phase 8): build exactly as `build` does -- with
+  ! force=.true., so the incremental cache can never serve a
+  ! profiled build stale output and skip the work being timed --
+  ! then print one line per compile stage from the timing
+  ! registry f3dc_driver collected during that build.  A failed
+  ! build prints no timings: do_build has already reported the
+  ! diagnostics and its code is propagated unchanged.  For a
+  ! multi-scene file the registry holds the LAST chunk's timings
+  ! (each chunk's compile_pipeline resets it).
+  ! ------------------------------------------------------------------
+  subroutine do_profile(path, out_dir_in, has_out, code)
+    character(len=*), intent(in) :: path, out_dir_in
+    logical, intent(in) :: has_out
+    integer, intent(out) :: code
+    character(len=:), allocatable :: od, st
+    type(dyn) :: ir
+    integer :: i
+    character(len=*), parameter :: PROFILE_STAGES(6) = &
+         [character(len=8) :: "parse", "desugar", "validate", &
+         "emit", "write", "total"]
+    call do_build(path, out_dir_in, has_out, .false., .true., "", &
+                  .false., code, od, ir, st)
+    if (code /= 0) return
+    do i = 1, size(PROFILE_STAGES)
+       call profile_print_stage(trim(PROFILE_STAGES(i)))
+    end do
+  end subroutine do_profile
+
+  ! One profile line, e.g. "  parse      12.3 ms"; a stage the
+  ! registry does not know (driver_timing_ms < 0) prints "- ms".
+  subroutine profile_print_stage(stage)
+    character(len=*), intent(in) :: stage
+    real(real64) :: ms
+    character(len=32) :: num
+    character(len=11) :: field
+    ms = driver_timing_ms(stage)
+    field = stage
+    if (ms < 0.0_real64) then
+       call out_line("  "//field//"- ms")
+    else
+       write (num, '(F0.1)') ms
+       call out_line("  "//field//trim(num)//" ms")
+    end if
+  end subroutine profile_print_stage
 
   ! ------------------------------------------------------------------
   ! Incremental-build dependency collection (v3.0 Phase 6, Seat X)
@@ -3197,6 +3289,11 @@ contains
     case ("bench")
        call parse_bench_args(bench_runs, bench_json)
        call do_bench(bench_runs, bench_json, code)
+    case ("profile")
+       call parse_file_args("profile", .true., .false., .false., &
+                            .false., file, out_dir, has_out, &
+                            explain, as_json, force)
+       call do_profile(file, out_dir, has_out, code)
     case default
        if (starts_with(a1, "-")) then
           call usage_error_main("unrecognized arguments: "// &

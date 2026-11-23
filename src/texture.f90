@@ -86,8 +86,14 @@
 !     unfiltering (None/Sub/Up/Average/Paeth).  Colour types 0 (grey),
 !     2 (RGB), 3 (palette via PLTE), 4 (grey+alpha), 6 (RGBA);
 !     bit depth 8, plus 16-bit samples reduced to the high byte.
-!     Chunk CRCs are IGNORED (documented choice): chunk lengths and
-!     the zlib FCHECK are validated structurally instead.
+!     Chunk CRCs are IGNORED by default (documented choice): chunk
+!     lengths and the zlib FCHECK are validated structurally instead.
+!     Phase 8: png_decode() gains an OPTIONAL crc_check argument
+!     (default .false., so every existing call and the default decode
+!     semantics are unchanged); when crc_check = .true. each chunk's
+!     CRC-32 is verified with the table-driven crc32 below and any
+!     mismatch rejects the file (ok = .false.) exactly like the other
+!     structural failures.
 !     LIMIT: Adam7-interlaced PNGs are REJECTED (ok = .false.);
 !     palette bit depths below 8 and other bit depths (1/2/4) are
 !     also rejected.
@@ -100,7 +106,7 @@
 !     (0 repeat, 1 clamp, 2 mirror), with the same v convention as
 !     texture_sample (v = 1 is the TOP row).  u/v/lod are real(dp).
 module texture_3d
-    use, intrinsic :: iso_fortran_env, only: int8, real32
+    use, intrinsic :: iso_fortran_env, only: int8, int64, real32
     use math_3d, only: dp, vec3, PI
     implicit none
     private
@@ -122,11 +128,35 @@ module texture_3d
         integer :: bitpos = 0    ! 0..7, LSB first
     end type BitReader
 
+    ! Phase 8: Huffman fast-path width.  Codes of at most this many
+    ! bits are resolved by one peek-bits table lookup in huff_decode;
+    ! longer codes fall back to the original bit-at-a-time walk, so
+    ! every acceptance/rejection decision is unchanged.  9 bits cover
+    ! the whole fixed literal/length alphabet's common codes and the
+    ! bulk of dynamic codes in real PNG streams.
+    integer, parameter :: HUFF_FAST_BITS = 9
+    integer, parameter :: HUFF_FAST_SIZE = 512  ! 2**HUFF_FAST_BITS
+
     type :: HuffTable
         integer :: counts(0:15) = 0
         integer, allocatable :: symbols(:)
         integer :: maxbits = 0
+        ! Phase 8 fast path: indexed by the next HUFF_FAST_BITS bits
+        ! of the stream, first-read bit in the least significant
+        ! position (see huff_build_fast / br_peekbits).  fast_len = 0
+        ! means "no code of <= HUFF_FAST_BITS bits matches here: use
+        ! the slow path" (a longer code, or an invalid prefix).
+        integer :: fast_sym(0:HUFF_FAST_SIZE - 1) = -1
+        integer :: fast_len(0:HUFF_FAST_SIZE - 1) = 0
     end type HuffTable
+
+    ! Phase 8: table-driven CRC-32 (PNG/zlib polynomial 0xEDB88320,
+    ! reflected).  Values are held in int64 so the unsigned 32-bit
+    ! range needs no sign tricks.  The 256-entry table is built ONCE,
+    ! lazily, on the first crc_check decode (crc32_ensure); with
+    ! crc_check off (the default) it is never built or consulted.
+    integer(int64) :: crc32_table(0:255)
+    logical :: crc32_ready = .false.
 
     type :: TextureImage
         integer :: w = 0
@@ -634,20 +664,91 @@ contains
             + ubyte(bytes(pos + 2)) * 256 + ubyte(bytes(pos + 3))
     end function be32
 
+    ! =================================================================
+    ! Phase 8: table-driven CRC-32 (PNG chunk checksums)
+    ! =================================================================
+
+    ! Build crc32_table once; later calls are a no-op.  Not pure: it
+    ! writes the module-level table (the reason png_decode is a
+    ! subroutine, not a pure procedure, and crc32_of below only READS
+    ! the table).  Reflected algorithm: for each byte value, shift
+    ! right 8 times, XOR-ing the reflected polynomial whenever the
+    ! bit shifted out was set.
+    subroutine crc32_ensure()
+        integer(int64) :: c
+        integer :: n, k
+        integer(int64), parameter :: poly = 3988292384_int64  ! 0xEDB88320
+        if (crc32_ready) return
+        do n = 0, 255
+            c = int(n, int64)
+            do k = 1, 8
+                if (iand(c, 1_int64) /= 0_int64) then
+                    c = ieor(ishft(c, -1), poly)
+                else
+                    c = ishft(c, -1)
+                end if
+            end do
+            crc32_table(n) = c
+        end do
+        crc32_ready = .true.
+    end subroutine crc32_ensure
+
+    ! CRC-32 of a byte string (initial value and final XOR are the
+    ! PNG/zlib all-ones convention).  Assumes crc32_ensure has run;
+    ! png_decode is the only caller and ensures it first whenever
+    ! crc_check is on.  One table lookup per byte replaces the
+    ! bit-at-a-time form: crc = table[(crc xor byte) mod 256] xor
+    ! (crc shifted right 8).  Kept non-pure only because it reads
+    ! module state; it modifies nothing.
+    function crc32_of(data) result(crc)
+        integer(int8), intent(in) :: data(:)
+        integer(int64) :: crc
+        integer :: i, idx
+        crc = 4294967295_int64  ! 0xFFFFFFFF
+        do i = 1, size(data)
+            idx = int(iand(ieor(crc, int(ubyte(data(i)), int64)), &
+                           255_int64))
+            crc = ieor(crc32_table(idx), ishft(crc, -8))
+        end do
+        crc = ieor(crc, 4294967295_int64)
+    end function crc32_of
+
+    ! A stored chunk CRC read as an UNSIGNED 32-bit value (be32
+    ! returns a signed integer, so negatives are unwrapped here).
+    pure function crc32_stored(bytes, pos) result(v)
+        integer(int8), intent(in) :: bytes(:)
+        integer, intent(in) :: pos
+        integer(int64) :: v
+        v = int(be32(bytes, pos), int64)
+        if (v < 0_int64) v = v + 4294967296_int64
+    end function crc32_stored
+
     ! Decode a complete PNG file held in memory.  See the module
     ! header for supported features and the Adam7 limit.  On failure
     ! ok=.false. and tex is left unloaded.
-    subroutine png_decode(bytes, tex, ok)
+    !
+    ! crc_check (Phase 8, OPTIONAL, default .false.): when .true.,
+    ! every chunk's stored CRC-32 is verified (table-driven, over the
+    ! chunk type bytes + chunk data) before the chunk is acted on,
+    ! and a mismatch rejects the whole file.  When absent or .false.
+    ! the CRC bytes are skipped unread, exactly as before.
+    subroutine png_decode(bytes, tex, ok, crc_check)
         integer(int8), intent(in) :: bytes(:)
         type(TextureImage), intent(out) :: tex
         logical, intent(out) :: ok
+        logical, optional, intent(in) :: crc_check
         integer :: pos, n, clen, w, h, bitdepth, ctype, interlace
         integer :: channels, bps, stride, i
         integer(int8), allocatable :: plte(:), idat(:), raw(:), recon(:)
         logical :: have_ihdr, have_plte, good
+        logical :: want_crc, crc_bad
         character(len=4) :: ctype_str
 
         ok = .false.
+        want_crc = .false.
+        if (present(crc_check)) want_crc = crc_check
+        crc_bad = .false.
+        if (want_crc) call crc32_ensure()
         tex%w = 0; tex%h = 0; tex%loaded = .false.
         n = size(bytes)
         if (n < 8) return
@@ -666,6 +767,19 @@ contains
             do i = 1, 4
                 ctype_str(i:i) = char(ubyte(bytes(pos + 3 + i)))
             end do
+            if (want_crc) then
+                ! The bounds check above guarantees the type, data
+                ! and stored-CRC bytes are all in range, so these
+                ! slices/reads need no further guarding.  A mismatch
+                ! rejects the file: stop the chunk walk here and let
+                ! the crc_bad check after the loop return failure
+                ! without acting on this (or any later) chunk.
+                if (crc32_of(bytes(pos + 4:pos + 7 + clen)) /= &
+                    crc32_stored(bytes, pos + 8 + clen)) then
+                    crc_bad = .true.
+                    exit
+                end if
+            end if
             select case (ctype_str)
             case ('IHDR')
                 if (clen < 13) exit
@@ -699,6 +813,9 @@ contains
             pos = pos + 12 + clen
         end do
 
+        if (crc_bad) then
+            deallocate(plte, idat); return
+        end if
         if (.not. have_ihdr) then
             deallocate(plte, idat); return
         end if
@@ -850,30 +967,110 @@ contains
     end subroutine png_unfilter
     ! =================================================================
     ! DEFLATE / inflate (RFC 1951) + zlib wrapper (RFC 1950)
+    !
+    ! Phase 8 performance polish (semantics unchanged): Huffman
+    ! decoding is table-driven -- huff_build precomputes a
+    ! HUFF_FAST_BITS-wide peek table for EVERY table (fixed literal/
+    ! length, fixed distance, dynamic literal/length, dynamic
+    ! distance and the dynamic code-length table alike, since all go
+    ! through huff_build), huff_decode resolves codes that fit with
+    ! one lookup, and codes longer than the table width use the
+    ! original bit-at-a-time walk as fallback.  br_getbits consumes
+    ! byte fragments instead of single bits for the remaining reads
+    ! (block headers, extra bits, dynamic-table fields).
     ! =================================================================
 
+    ! Read nbits bits, LSB-first (the first bit read lands in the
+    ! least significant result position), exactly as the original
+    ! bit-at-a-time loop did.  Phase 8: consume a whole byte-fragment
+    ! per iteration instead of one bit -- same bits, same order, same
+    ! end-of-data failure (ok = .false., reader position after the
+    ! failure is unspecified, as before: every caller abandons the
+    ! stream on failure).  nbits = 0 still yields val = 0.
     subroutine br_getbits(br, nbits, val, ok)
         type(BitReader), intent(inout) :: br
         integer, intent(in) :: nbits
         integer, intent(out) :: val
         logical, intent(inout) :: ok
-        integer :: i, bit
+        integer :: remaining, shift, avail, take, chunk
         val = 0
         if (.not. ok) return
-        do i = 0, nbits - 1
+        remaining = nbits
+        shift = 0
+        do while (remaining > 0)
             if (br%bytepos > size(br%data)) then
                 ok = .false.
                 return
             end if
-            bit = iand(ishft(ubyte(br%data(br%bytepos)), -br%bitpos), 1)
-            val = val + ishft(bit, i)
-            br%bitpos = br%bitpos + 1
+            avail = 8 - br%bitpos
+            take = min(avail, remaining)
+            chunk = iand(ishft(ubyte(br%data(br%bytepos)), &
+                               -br%bitpos), ishft(1, take) - 1)
+            val = val + ishft(chunk, shift)
+            shift = shift + take
+            remaining = remaining - take
+            br%bitpos = br%bitpos + take
             if (br%bitpos == 8) then
                 br%bitpos = 0
                 br%bytepos = br%bytepos + 1
             end if
         end do
     end subroutine br_getbits
+
+    ! Phase 8: look at the next nbits bits WITHOUT consuming them.
+    ! val carries the first-read bit in its least significant
+    ! position (the br_getbits order), zero-padded past the end of
+    ! the data; navail counts how many of the bits are real.  All
+    ! indexing is guarded by nested ifs (never .and./.or., which do
+    ! not short-circuit) before any br%data access.
+    subroutine br_peekbits(br, nbits, val, navail)
+        type(BitReader), intent(in) :: br
+        integer, intent(in) :: nbits
+        integer, intent(out) :: val, navail
+        integer :: bp, bt, i
+        val = 0
+        navail = 0
+        bp = br%bytepos
+        bt = br%bitpos
+        do i = 0, nbits - 1
+            if (bp > size(br%data)) exit
+            if (bp < 1) exit
+            if (iand(ishft(ubyte(br%data(bp)), -bt), 1) == 1) &
+                val = ior(val, ishft(1, i))
+            navail = navail + 1
+            bt = bt + 1
+            if (bt == 8) then
+                bt = 0
+                bp = bp + 1
+            end if
+        end do
+    end subroutine br_peekbits
+
+    ! Phase 8: consume nbits bits the caller has already peeked (so
+    ! they are known to exist).  Pure position arithmetic: no reads,
+    ! hence no failure mode.
+    subroutine br_skipbits(br, nbits)
+        type(BitReader), intent(inout) :: br
+        integer, intent(in) :: nbits
+        integer :: total
+        total = br%bitpos + nbits
+        br%bytepos = br%bytepos + total / 8
+        br%bitpos = mod(total, 8)
+    end subroutine br_skipbits
+
+    ! Reverse the low `len` bits of code (Huffman codes are read
+    ! most-significant-bit first, the peek index holds the first-read
+    ! bit least-significant, so a code is stored in the fast table
+    ! under its bit-reversal).
+    pure function bit_reverse(code, len) result(rev)
+        integer, intent(in) :: code, len
+        integer :: rev, i
+        rev = 0
+        do i = 0, len - 1
+            ! Bit i of rev is bit (len-1-i) of code.
+            rev = rev + ishft(iand(ishft(code, i - (len - 1)), 1), i)
+        end do
+    end function bit_reverse
 
     subroutine huff_build(lengths, table, ok)
         integer, intent(in) :: lengths(0:)
@@ -883,6 +1080,8 @@ contains
         ok = .false.
         table%counts = 0
         table%maxbits = 0
+        table%fast_sym = -1
+        table%fast_len = 0
         do i = 0, size(lengths) - 1
             len = lengths(i)
             if (len < 0 .or. len > 15) return
@@ -904,8 +1103,54 @@ contains
                 table%symbols(offs(len)) = i
             end if
         end do
+        call huff_build_fast(table)
         ok = .true.
     end subroutine huff_build
+
+    ! Phase 8: fill a built table's fast path.  table%symbols is in
+    ! canonical order (by code length, then symbol), so walking it
+    ! while running the canonical code counter (increment within a
+    ! length, shift left between lengths -- the same arithmetic
+    ! huff_decode's slow path walks with first/index) recovers every
+    ! symbol's code.  A code of length L <= HUFF_FAST_BITS claims
+    ! every fast-table index whose low L bits are the bit-reversed
+    ! code: the bits above L are bits read AFTER this code, which do
+    ! not affect its decoding.  Prefix-freedom guarantees no two
+    ! codes claim the same index and no longer code hides under a
+    ! shorter one's entries.  Codes longer than HUFF_FAST_BITS get
+    ! no entry and are decoded by the slow path, unchanged.
+    subroutine huff_build_fast(table)
+        type(HuffTable), intent(inout) :: table
+        integer :: len, k, code, next, sym, rev, fill, step, nfill
+        code = 0
+        next = 1
+        do len = 1, 15
+            do k = 1, table%counts(len)
+                if (next > size(table%symbols)) return
+                sym = table%symbols(next)
+                next = next + 1
+                if (len <= HUFF_FAST_BITS) then
+                    rev = bit_reverse(code, len)
+                    step = ishft(1, len)
+                    nfill = ishft(1, HUFF_FAST_BITS - len)
+                    do fill = 0, nfill - 1
+                        ! First claim wins: entries are filled in
+                        ! canonical order, which is the order the
+                        ! slow path matches in, so never overwriting
+                        ! keeps even an over-subscribed (malformed)
+                        ! table decoding exactly as the slow path
+                        ! would -- the earliest code keeps its index.
+                        if (table%fast_len(rev + fill * step) == 0) then
+                            table%fast_sym(rev + fill * step) = sym
+                            table%fast_len(rev + fill * step) = len
+                        end if
+                    end do
+                end if
+                code = code + 1
+            end do
+            code = ishft(code, 1)
+        end do
+    end subroutine huff_build_fast
 
     subroutine huff_decode(br, table, sym, ok)
         type(BitReader), intent(inout) :: br
@@ -913,8 +1158,30 @@ contains
         integer, intent(out) :: sym
         logical, intent(inout) :: ok
         integer :: code, first, index, len, bit
+        integer :: peek, navail, flen
         sym = -1
         if (.not. ok) return
+        ! Phase 8 fast path: peek HUFF_FAST_BITS bits and resolve any
+        ! code that fits in them with one lookup, consuming exactly
+        ! the code's own length.  Nested ifs only (no .and./.or.
+        ! guarding the table index): peek is < HUFF_FAST_SIZE by
+        ! construction, and a hit is trusted only when the entry's
+        ! length is covered by real (not zero-padded) peeked bits.
+        ! Anything else -- a longer code, an invalid prefix, or too
+        ! few bits left in the stream -- falls through to the
+        ! original slow walk below, bit for bit, including its
+        ! end-of-data and no-match failures.
+        call br_peekbits(br, HUFF_FAST_BITS, peek, navail)
+        if (navail > 0) then
+            flen = table%fast_len(peek)
+            if (flen > 0) then
+                if (flen <= navail) then
+                    sym = table%fast_sym(peek)
+                    call br_skipbits(br, flen)
+                    return
+                end if
+            end if
+        end if
         code = 0; first = 0; index = 0
         do len = 1, table%maxbits
             call br_getbits(br, 1, bit, ok)

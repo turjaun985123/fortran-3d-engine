@@ -113,3 +113,48 @@ bin/f3dc build /tmp/oracle-p6/examples/hello-cube.f3d -o /tmp/out-native
 
 The oracle checkout and all benchmark scratch used for this document
 were removed after the measurements were taken.
+
+## Update — 2026-11-23: Phase 6 compiler timings
+
+**Recorded:** 2026-11-23, on the build VM.
+
+> **Note on all figures in the dated updates below:** all figures are
+> build-VM measurements (1.5 shared vCPUs) and are regression
+> references, not absolute performance claims. Absolute numbers will
+> differ on dedicated or target hardware.
+
+| Measurement | Phase 6 (2026-11-23) | Phase 5 baseline | Notes |
+|---|---:|---:|---|
+| Clean compiler build | 95.6 s | 81.29 s | Slower because of 16 added compilation units from the validator split + typed-IR growth |
+| `f3dc check` ×5 on `lighting-showcase` | 0.039 s | 0.04 s | Unchanged |
+| Per-example build | ~130 ms | ~27 ms implied by the Phase 5 0.40 s / 15 baseline | See below |
+
+The per-example build delta is the C5 manifest SHA-256 over all
+dependencies, including the 3.8 MB `f3dc` binary: ~100 ms, from a
+byte-wise implementation. A block-wise rewrite of that hashing is
+Phase 8 work.
+
+## Update — 2026-11-23: Phase 7 runtime sizes
+
+**Recorded:** 2026-11-23, on the build VM (see the note above: these
+figures are regression references, not absolute performance claims).
+
+| Measurement | Size (bytes) | Notes |
+|---|---:|---|
+| Total runtime, unminified | 139,928 | Across all 15 runtime files |
+| Total runtime budget | 143,872 | Total in `runtime/module-budgets.json` |
+| Minified core `f3d.min.js` | 15,335 | Core only — not the whole runtime |
+
+The minified figure is for the core file alone and is labelled as
+such; it must not be read as the size of the full runtime, which is
+the 139,928-byte unminified total across all 15 runtime files above.
+
+## Engine frame-time baselines (reference)
+
+Engine frame-time baselines live in `docs/bench/BASELINES.md` and are
+not duplicated here. That document records the Phase 0 baselines for
+the legacy renderer at 640×480 (`hello-cube`, `objects-100`,
+`textured-plane`, and `shadowed`, in ms/frame). Refer to that file
+for the recorded values and their method; like the figures above,
+they are build-VM regression references, not absolute performance
+claims.

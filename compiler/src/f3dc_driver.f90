@@ -40,15 +40,23 @@
 ! (exit 124 == timed out; a child that exits 124 by itself would be
 ! misread as a timeout -- documented approximation).  Without
 ! `timeout`, commands run unbounded.
+!
+! Stage timing (v3.0 Phase 8): driver_timing_reset / _mark / _ms
+! below are a pure-bookkeeping stage-timing registry (no I/O, no
+! effect on any existing driver procedure).  Consumers are the
+! `f3dc profile` command and the preview toolbar, which read the
+! accumulated per-stage milliseconds for the stage names "parse",
+! "desugar", "validate", "emit", "write" and "total"; the
+! registry itself accepts any stage name.
 module f3dc_driver
-  use, intrinsic :: iso_fortran_env, only: int64
+  use, intrinsic :: iso_fortran_env, only: int64, real64
   use, intrinsic :: iso_c_binding, only: c_int, c_char, c_null_char
   use f3dc_str, only: str_builder, sb_init, sb_add, sb_text, sb_len
   ! v3.0 Phase 6 (Seat X): the compiler already has a pure-Fortran
   ! SHA-256 (f3dc_emit_common, FIPS 180-4, used for the emitter
   ! header stamps); the incremental-build manifest reuses it rather
   ! than growing a second, weaker hash in the driver.
-  use f3dc_emit_common, only: sha256_hex
+  use f3dc_emit_common, only: sha256_hex, sha256_file_hex
   implicit none
   private
 
@@ -58,10 +66,26 @@ module f3dc_driver
   public :: driver_file_exists, driver_is_dir, driver_abs_path
   public :: driver_file_sha256
   public :: driver_manifest_check, driver_manifest_write
+  public :: driver_timing_reset, driver_timing_mark
+  public :: driver_timing_ms
 
   ! _TAIL_CHARS / _TAIL_LINES in driver.py.
   integer, parameter :: TAIL_CHARS = 2000
   integer, parameter :: TAIL_LINES = 30
+
+  ! Stage-timing registry (see the header note): fixed-size
+  ! module-level tables, no allocation and no I/O.  Stage names
+  ! are stored in fixed-length entries, so a name longer than
+  ! TIMING_NAME_LEN is truncated when it is recorded.
+  integer, parameter :: TIMING_MAX_STAGES = 32
+  integer, parameter :: TIMING_NAME_LEN = 32
+  character(len=TIMING_NAME_LEN) :: timing_names(TIMING_MAX_STAGES)
+  real(real64) :: timing_totals(TIMING_MAX_STAGES) = 0.0_real64
+  integer :: timing_n = 0
+  integer(int64) :: timing_last = 0_int64
+  integer(int64) :: timing_rate = 0_int64
+  integer(int64) :: timing_max = 0_int64
+  logical :: timing_started = .false.
 
   interface
      function c_getcwd(buf, size) bind(C, name="getcwd") result(res)
@@ -621,33 +645,22 @@ contains
   ! ------------------------------------------------------------------
 
   !> SHA-256 hex digest of a file's bytes; OK=.false. when the
-  !! file does not exist or cannot be read.  NOTE: this cannot
-  !! use read_all above -- that helper opens without ACTION=,
-  !! gfortran then opens read-write, and the kernel refuses a
-  !! read-write open of a RUNNING executable (ETXTBSY), which
-  !! would silently hash "" for the f3dc binary itself (one of
-  !! the manifest's dependencies).  Open read-only here.
+  !! file does not exist or cannot be read.  NOTE: the file must
+  !! be opened read-only (as sha256_file_hex does) -- a helper
+  !! that opens without ACTION= makes gfortran open read-write,
+  !! and the kernel refuses a read-write open of a RUNNING
+  !! executable (ETXTBSY), which would silently hash "" for the
+  !! f3dc binary itself (one of the manifest's dependencies).
   subroutine driver_file_sha256(path, hex, ok)
     character(len=*), intent(in) :: path
     character(len=:), allocatable, intent(out) :: hex
     logical, intent(out) :: ok
-    character(len=:), allocatable :: data
-    integer :: unit, ios, sz
-    logical :: there
-    ok = .false.
+    ! Phase 8: delegate to the streaming file hasher in
+    ! f3dc_emit_common (64 KiB chunks through the block-wise
+    ! context API; the file is never held whole).  Digests are
+    ! bit-identical to the sha256_hex path this replaces.
     hex = ""
-    inquire (file=path, exist=there, size=sz)
-    if (.not. there) return
-    open (newunit=unit, file=path, access="stream", &
-          form="unformatted", status="old", action="read", &
-          iostat=ios)
-    if (ios /= 0) return
-    allocate (character(len=max(sz, 0)) :: data)
-    if (sz > 0) read (unit, iostat=ios) data
-    close (unit)
-    if (ios /= 0) return
-    call sha256_hex(data, hex)
-    ok = .true.
+    call sha256_file_hex(path, hex, ok)
   end subroutine driver_file_sha256
 
   subroutine driver_file_size(path, sz, ok)
@@ -802,5 +815,96 @@ contains
     if (len(prefix) > len(s)) return
     starts_with_str = (s(1:len(prefix)) == prefix)
   end function starts_with_str
+
+  ! ------------------------------------------------------------------
+  ! Stage timing (v3.0 Phase 8)
+  !
+  ! Pure bookkeeping for `f3dc profile` and the preview toolbar:
+  ! no I/O and no behaviour change to any procedure above.
+  !
+  !   driver_timing_reset()   clears all recorded stages and
+  !                           restarts the master clock.
+  !   driver_timing_mark(s)   records the elapsed milliseconds
+  !                           since the previous mark (or since
+  !                           reset, for the first mark) under the
+  !                           stage name S; repeated marks for the
+  !                           same stage accumulate.
+  !   driver_timing_ms(s)     accumulated milliseconds for S, or
+  !                           -1.0_real64 when S was never marked.
+  !
+  ! The clock is system_clock (real64 milliseconds).  COUNT_RATE
+  ! and COUNT_MAX are read once, at reset; a mark made without a
+  ! preceding reset implicitly starts the clock and records zero
+  ! elapsed time for that mark.  Wraparound is handled by counting
+  ! through COUNT_MAX back to zero.  At most TIMING_MAX_STAGES
+  ! distinct stages are kept; marks for a new stage beyond that
+  ! cap are dropped (the master clock still advances, so later
+  ! marks for known stages are not charged for the dropped time).
+  ! ------------------------------------------------------------------
+
+  subroutine driver_timing_reset()
+    integer(int64) :: now_count, rate, max_count
+    call system_clock(count=now_count, count_rate=rate, &
+                      count_max=max_count)
+    timing_names = ""
+    timing_totals = 0.0_real64
+    timing_n = 0
+    timing_last = now_count
+    timing_rate = rate
+    timing_max = max_count
+    timing_started = .true.
+  end subroutine driver_timing_reset
+
+  subroutine driver_timing_mark(stage)
+    character(len=*), intent(in) :: stage
+    integer(int64) :: now_count, delta
+    real(real64) :: elapsed_ms
+    integer :: i, idx
+    if (.not. timing_started) call driver_timing_reset()
+    call system_clock(count=now_count)
+    if (now_count >= timing_last) then
+       delta = now_count - timing_last
+    else if (timing_max > 0_int64) then
+       ! Wrapped: ticks left before the wrap, plus the tick that
+       ! lands on zero, plus the ticks already past zero.
+       delta = (timing_max - timing_last) + now_count + 1_int64
+    else
+       delta = 0_int64
+    end if
+    timing_last = now_count
+    elapsed_ms = 0.0_real64
+    if (timing_rate > 0_int64) then
+       elapsed_ms = real(delta, real64) * 1000.0_real64 / &
+                    real(timing_rate, real64)
+    end if
+    idx = 0
+    do i = 1, timing_n
+       if (timing_names(i) == stage) then
+          idx = i
+          exit
+       end if
+    end do
+    if (idx == 0) then
+       if (timing_n >= TIMING_MAX_STAGES) return
+       timing_n = timing_n + 1
+       idx = timing_n
+       timing_names(idx) = stage
+       timing_totals(idx) = 0.0_real64
+    end if
+    timing_totals(idx) = timing_totals(idx) + elapsed_ms
+  end subroutine driver_timing_mark
+
+  function driver_timing_ms(stage) result(ms)
+    character(len=*), intent(in) :: stage
+    real(real64) :: ms
+    integer :: i
+    ms = -1.0_real64
+    do i = 1, timing_n
+       if (timing_names(i) == stage) then
+          ms = timing_totals(i)
+          return
+       end if
+    end do
+  end function driver_timing_ms
 
 end module f3dc_driver

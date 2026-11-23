@@ -17,6 +17,26 @@
 !   ierr code (0 ok, 1 = ValueError, 2 = TypeError) and yield "".
 ! * source_hash needs SHA-256 (Python hashlib): implemented below
 !   in pure Fortran (no stdlib equivalent exists).
+! * SHA-256 streaming API (Phase 8 performance refactor; digests
+!   are bit-identical to the original one-shot implementation --
+!   this is a pure speed change to a pinned-correctness function):
+!     type(sha256_ctx) :: ctx
+!     call sha256_init(ctx)              ! reset state
+!     call sha256_update(ctx, bytes)     ! any number of times, any
+!                                        ! chunk sizes; only full
+!                                        ! 64-byte blocks are fed to
+!                                        ! the compressor, the tail
+!                                        ! is buffered in the ctx
+!     call sha256_final(ctx, hex)        ! padding + lowercase hex
+!   sha256_hex(bytes, out) keeps its original signature and is now
+!   a thin init/update/final wrapper.  sha256_file_hex(path, out,
+!   ok) hashes a file WITHOUT slurping it whole: it streams the
+!   file through sha256_update in SHA256_CHUNK_BYTES (64 KiB)
+!   reads, so hashing the ~3.8 MB f3dc binary for the incremental
+!   manifest costs one small buffer instead of a whole-file string
+!   plus a per-byte padded_byte() call per input byte (the old
+!   code's actual bottleneck: padded_byte recomputed the padded
+!   message length, with divisions, on every one of ~3.8M calls).
 module f3dc_emit_common
   use, intrinsic :: iso_fortran_env, only: int64, real64
   use f3dc_str, only: fmt_int, fmt_real, to_lower, &
@@ -29,6 +49,8 @@ module f3dc_emit_common
   public :: fmt_vec_dyn, fmt_vec_reals
   public :: json_dumps, js_json, canonical_json
   public :: source_hash, sha256_hex
+  public :: sha256_ctx, sha256_init, sha256_update, sha256_final
+  public :: sha256_file_hex, SHA256_CHUNK_BYTES
   public :: header_stamp, header_stamp_digest
   public :: clamp255_real, clamp255_dyn, clamp255_vec_dyn
   public :: html_escape
@@ -37,6 +59,26 @@ module f3dc_emit_common
   public :: NL
 
   character(len=*), parameter :: NL = achar(10)
+
+  ! Read chunk for sha256_file_hex: the file is streamed through
+  ! sha256_update in pieces of this size (the SHA-256 compressor
+  ! itself still works on 64-byte blocks; see the SHA-256 section).
+  integer, parameter :: SHA256_CHUNK_BYTES = 65536
+
+  !> Streaming SHA-256 state (see the header notes and the SHA-256
+  !! section).  H holds the eight 32-bit state words (kept in int64
+  !! lanes, masked to 32 bits, exactly as the original one-shot
+  !! code did); TOTAL_LEN is the number of message bytes fed so
+  !! far (the final padding encodes TOTAL_LEN*8 as the bit
+  !! length); BUF/BUFLEN hold the pending partial block as raw
+  !! byte values 0..255, with the invariant BUFLEN < 64 between
+  !! sha256_update calls.  Always start with sha256_init.
+  type :: sha256_ctx
+    integer(int64) :: h(8) = 0_int64
+    integer(int64) :: total_len = 0_int64
+    integer :: buf(64) = 0
+    integer :: buflen = 0
+  end type sha256_ctx
 
   ! NAMED_COLORS from ir_nodes.py (frozen).
   integer, parameter :: N_NAMED = 13
@@ -520,6 +562,32 @@ contains
 
   ! ------------------------------------------------------------------
   ! SHA-256 (Python hashlib.sha256) -- pure Fortran implementation
+  !
+  ! Streaming context API (Phase 8; see the header notes):
+  !   sha256_init(ctx) / sha256_update(ctx, bytes) (repeatable, any
+  !   chunk sizes) / sha256_final(ctx, hex).  The compressor works
+  !   on 64-byte blocks with the standard 64-word message schedule;
+  !   update buffers only the trailing partial block, so a caller
+  !   feeding 64 KiB file chunks (sha256_file_hex) never holds more
+  !   than one chunk plus 64 bytes.  Padding lives in sha256_final
+  !   alone: 0x80, zeros up to offset 56 of the final block, then
+  !   the 8-byte big-endian bit length of the ORIGINAL message --
+  !   exactly the padded message the old padded_byte() construction
+  !   produced, so every digest is bit-identical to the original
+  !   implementation for every input (including the 55/56/64-byte
+  !   boundary lengths, where the padding spills into a second
+  !   block: buflen > 56 after the 0x80 flushes one block first).
+  !
+  ! What the old code cost: it was NOT the compressor and NOT the
+  ! file read (the driver slurps the whole file in one stream
+  ! read).  It was the byte-at-a-time message construction: for
+  ! every input byte, sha256_hex called padded_byte(), which
+  ! recomputed len(bytes) and the padded total ((n+9+63)/64)*64
+  ! -- with integer divisions -- and branched per byte.  Hashing
+  ! the ~3.8 MB f3dc binary for the manifest therefore made ~3.8M
+  ! such calls (~100 ms per build).  The context code below reads
+  ! each byte exactly once with a plain iachar in the block-fill
+  ! loop and never recomputes any length.
   ! ------------------------------------------------------------------
 
   pure integer(int64) function rotr32(x, n)
@@ -530,10 +598,24 @@ contains
     rotr32 = iand(rotr32, int(z'FFFFFFFF', int64))
   end function rotr32
 
-  !> sha256 hex digest (lowercase) of the bytes of `bytes`.
-  subroutine sha256_hex(bytes, out)
-    character(len=*), intent(in) :: bytes
-    character(len=:), allocatable, intent(out) :: out
+  !> Reset CTX to the SHA-256 initial state.
+  subroutine sha256_init(ctx)
+    type(sha256_ctx), intent(out) :: ctx
+    ctx%h = [int(z'6a09e667', int64), int(z'bb67ae85', int64), &
+             int(z'3c6ef372', int64), int(z'a54ff53a', int64), &
+             int(z'510e527f', int64), int(z'9b05688c', int64), &
+             int(z'1f83d9ab', int64), int(z'5be0cd19', int64)]
+    ctx%total_len = 0_int64
+    ctx%buf = 0
+    ctx%buflen = 0
+  end subroutine sha256_init
+
+  !> Compress one 64-byte block (given as byte values 0..255) into
+  !! CTX%H.  The message schedule and the 64 rounds are the
+  !! original implementation's arithmetic, moved verbatim.
+  subroutine sha256_compress(ctx, blockb)
+    type(sha256_ctx), intent(inout) :: ctx
+    integer, intent(in) :: blockb(64)
     integer(int64), parameter :: MASK = int(z'FFFFFFFF', int64)
     integer(int64), parameter :: K(64) = [ &
       int(z'428a2f98', int64), int(z'71374491', int64), &
@@ -568,90 +650,199 @@ contains
       int(z'84c87814', int64), int(z'8cc70208', int64), &
       int(z'90befffa', int64), int(z'a4506ceb', int64), &
       int(z'bef9a3f7', int64), int(z'c67178f2', int64)]
-    integer(int64) :: h(8), w(64), a, b, c, d, e, f, g, hh
-    integer(int64) :: s0, s1, ch, maj, t1, t2, bitlen
-    integer :: total, blk, nblk, i, t, off, byte
-    character(len=1) :: msg_byte
+    integer(int64) :: w(64), a, b, c, d, e, f, g, hh
+    integer(int64) :: s0, s1, ch, maj, t1, t2
+    integer :: i, t
+
+    do t = 0, 63
+      if (t < 16) then
+        w(t + 1) = 0_int64
+        do i = 0, 3
+          w(t + 1) = ior(ishft(w(t + 1), 8), &
+                         int(blockb(t * 4 + i + 1), int64))
+        end do
+      else
+        s0 = ieor(ieor(rotr32(w(t - 14), 7_int64), &
+                       rotr32(w(t - 14), 18_int64)), &
+                  ishft(w(t - 14), -3))
+        s1 = ieor(ieor(rotr32(w(t - 1), 17_int64), &
+                       rotr32(w(t - 1), 19_int64)), &
+                  ishft(w(t - 1), -10))
+        w(t + 1) = iand(w(t - 15) + s0 + w(t - 6) + s1, MASK)
+      end if
+    end do
+    a = ctx%h(1); b = ctx%h(2); c = ctx%h(3); d = ctx%h(4)
+    e = ctx%h(5); f = ctx%h(6); g = ctx%h(7); hh = ctx%h(8)
+    do t = 0, 63
+      s1 = ieor(ieor(rotr32(e, 6_int64), rotr32(e, 11_int64)), &
+                rotr32(e, 25_int64))
+      ch = ieor(iand(e, f), iand(not(e), g))
+      ch = iand(ch, MASK)
+      t1 = iand(hh + s1 + ch + K(t + 1) + w(t + 1), MASK)
+      s0 = ieor(ieor(rotr32(a, 2_int64), rotr32(a, 13_int64)), &
+                rotr32(a, 22_int64))
+      maj = ieor(ieor(iand(a, b), iand(a, c)), iand(b, c))
+      maj = iand(maj, MASK)
+      t2 = iand(s0 + maj, MASK)
+      hh = g; g = f; f = e
+      e = iand(d + t1, MASK)
+      d = c; c = b; b = a
+      a = iand(t1 + t2, MASK)
+    end do
+    ctx%h(1) = iand(ctx%h(1) + a, MASK)
+    ctx%h(2) = iand(ctx%h(2) + b, MASK)
+    ctx%h(3) = iand(ctx%h(3) + c, MASK)
+    ctx%h(4) = iand(ctx%h(4) + d, MASK)
+    ctx%h(5) = iand(ctx%h(5) + e, MASK)
+    ctx%h(6) = iand(ctx%h(6) + f, MASK)
+    ctx%h(7) = iand(ctx%h(7) + g, MASK)
+    ctx%h(8) = iand(ctx%h(8) + hh, MASK)
+  end subroutine sha256_compress
+
+  !> Feed BYTES into CTX.  May be called any number of times with
+  !! any chunk sizes (including 0 and sizes spanning many blocks);
+  !! the digest depends only on the concatenation of all bytes
+  !! fed since sha256_init.  Full 64-byte blocks are compressed
+  !! straight out of BYTES; only the trailing partial block is
+  !! buffered in CTX.  (Conditions are kept separate throughout:
+  !! .and./.or. do not short-circuit in Fortran.)
+  subroutine sha256_update(ctx, bytes)
+    type(sha256_ctx), intent(inout) :: ctx
+    character(len=*), intent(in) :: bytes
+    integer :: blockb(64)
+    integer :: n, pos, take, i
+
+    n = len(bytes)
+    if (n == 0) return
+    ctx%total_len = ctx%total_len + int(n, int64)
+    pos = 1
+    if (ctx%buflen > 0) then
+      take = min(64 - ctx%buflen, n)
+      do i = 1, take
+        ctx%buf(ctx%buflen + i) = iachar(bytes(i:i))
+      end do
+      ctx%buflen = ctx%buflen + take
+      pos = pos + take
+      if (ctx%buflen == 64) then
+        call sha256_compress(ctx, ctx%buf)
+        ctx%buflen = 0
+      end if
+      if (pos > n) return
+    end if
+    do while (n - pos + 1 >= 64)
+      do i = 1, 64
+        blockb(i) = iachar(bytes(pos + i - 1:pos + i - 1))
+      end do
+      call sha256_compress(ctx, blockb)
+      pos = pos + 64
+    end do
+    if (pos <= n) then
+      ctx%buflen = n - pos + 1
+      do i = 1, ctx%buflen
+        ctx%buf(i) = iachar(bytes(pos + i - 1:pos + i - 1))
+      end do
+    end if
+  end subroutine sha256_update
+
+  !> Apply the SHA-256 padding to CTX and yield the lowercase hex
+  !! digest of every byte fed since sha256_init.  CTX is left in a
+  !! finished state; call sha256_init before reusing it.
+  subroutine sha256_final(ctx, out)
+    type(sha256_ctx), intent(inout) :: ctx
+    character(len=:), allocatable, intent(out) :: out
+    integer(int64) :: bitlen
+    integer :: i, sh
     type(str_builder) :: sb
 
-    h = [int(z'6a09e667', int64), int(z'bb67ae85', int64), &
-         int(z'3c6ef372', int64), int(z'a54ff53a', int64), &
-         int(z'510e527f', int64), int(z'9b05688c', int64), &
-         int(z'1f83d9ab', int64), int(z'5be0cd19', int64)]
-    bitlen = int(len(bytes), int64) * 8_int64
-    total = ((len(bytes) + 9 + 63) / 64) * 64
-    nblk = total / 64
-    do blk = 0, nblk - 1
-      do t = 0, 63
-        if (t < 16) then
-          w(t + 1) = 0_int64
-          do i = 0, 3
-            off = blk * 64 + t * 4 + i
-            byte = padded_byte(bytes, off, bitlen)
-            w(t + 1) = ior(ishft(w(t + 1), 8), int(byte, int64))
-          end do
-        else
-          s0 = ieor(ieor(rotr32(w(t - 14), 7_int64), &
-                         rotr32(w(t - 14), 18_int64)), &
-                    ishft(w(t - 14), -3))
-          s1 = ieor(ieor(rotr32(w(t - 1), 17_int64), &
-                         rotr32(w(t - 1), 19_int64)), &
-                    ishft(w(t - 1), -10))
-          w(t + 1) = iand(w(t - 15) + s0 + w(t - 6) + s1, MASK)
-        end if
+    bitlen = ctx%total_len * 8_int64
+    ctx%buflen = ctx%buflen + 1
+    ctx%buf(ctx%buflen) = 128
+    if (ctx%buflen > 56) then
+      do while (ctx%buflen < 64)
+        ctx%buflen = ctx%buflen + 1
+        ctx%buf(ctx%buflen) = 0
       end do
-      a = h(1); b = h(2); c = h(3); d = h(4)
-      e = h(5); f = h(6); g = h(7); hh = h(8)
-      do t = 0, 63
-        s1 = ieor(ieor(rotr32(e, 6_int64), rotr32(e, 11_int64)), &
-                  rotr32(e, 25_int64))
-        ch = ieor(iand(e, f), iand(not(e), g))
-        ch = iand(ch, MASK)
-        t1 = iand(hh + s1 + ch + K(t + 1) + w(t + 1), MASK)
-        s0 = ieor(ieor(rotr32(a, 2_int64), rotr32(a, 13_int64)), &
-                  rotr32(a, 22_int64))
-        maj = ieor(ieor(iand(a, b), iand(a, c)), iand(b, c))
-        maj = iand(maj, MASK)
-        t2 = iand(s0 + maj, MASK)
-        hh = g; g = f; f = e
-        e = iand(d + t1, MASK)
-        d = c; c = b; b = a
-        a = iand(t1 + t2, MASK)
-      end do
-      h(1) = iand(h(1) + a, MASK); h(2) = iand(h(2) + b, MASK)
-      h(3) = iand(h(3) + c, MASK); h(4) = iand(h(4) + d, MASK)
-      h(5) = iand(h(5) + e, MASK); h(6) = iand(h(6) + f, MASK)
-      h(7) = iand(h(7) + g, MASK); h(8) = iand(h(8) + hh, MASK)
+      call sha256_compress(ctx, ctx%buf)
+      ctx%buflen = 0
+    end if
+    do while (ctx%buflen < 56)
+      ctx%buflen = ctx%buflen + 1
+      ctx%buf(ctx%buflen) = 0
     end do
+    do i = 0, 7
+      sh = (7 - i) * 8
+      ctx%buflen = ctx%buflen + 1
+      ctx%buf(ctx%buflen) = &
+        int(iand(ishft(bitlen, -sh), 255_int64))
+    end do
+    call sha256_compress(ctx, ctx%buf)
+    ctx%buflen = 0
     call sb_init(sb)
     do i = 1, 8
-      call sb_add(sb, hex8(h(i)))
+      call sb_add(sb, hex8(ctx%h(i)))
     end do
     out = sb_text(sb)
-    msg_byte = " "  ! silence unused warnings on some compilers
+  end subroutine sha256_final
+
+  !> sha256 hex digest (lowercase) of the bytes of `bytes`.
+  !! Original signature kept; now a thin wrapper over the
+  !! streaming context API above.
+  subroutine sha256_hex(bytes, out)
+    character(len=*), intent(in) :: bytes
+    character(len=:), allocatable, intent(out) :: out
+    type(sha256_ctx) :: ctx
+    call sha256_init(ctx)
+    call sha256_update(ctx, bytes)
+    call sha256_final(ctx, out)
   end subroutine sha256_hex
 
-  !> Byte `off` (0-based) of the padded SHA-256 message.
-  pure integer function padded_byte(bytes, off, bitlen)
-    character(len=*), intent(in) :: bytes
-    integer, intent(in) :: off
-    integer(int64), intent(in) :: bitlen
-    integer :: n
-    n = len(bytes)
-    if (off < n) then
-      padded_byte = iachar(bytes(off + 1:off + 1))
-    else if (off == n) then
-      padded_byte = 128
-    else if (off >= ((n + 9 + 63) / 64) * 64 - 8) then
-      block
-        integer :: sh
-        sh = (((n + 9 + 63) / 64) * 64 - 1 - off) * 8
-        padded_byte = int(iand(ishft(bitlen, -sh), 255_int64))
-      end block
-    else
-      padded_byte = 0
-    end if
-  end function padded_byte
+  !> SHA-256 hex digest of a file's bytes, streamed through
+  !! sha256_update in SHA256_CHUNK_BYTES (64 KiB) reads -- the
+  !! file is never held whole in memory.  OK=.false. when the
+  !! file does not exist, has no determinable size, or cannot be
+  !! read.  The file is opened read-only (a read-write open of a
+  !! running executable is refused with ETXTBSY, which would
+  !! silently hash "" for the f3dc binary itself -- the very file
+  !! the incremental manifest hashes; see driver_file_sha256 in
+  !! f3dc_driver, which can now delegate to this procedure).
+  subroutine sha256_file_hex(path, out, ok)
+    character(len=*), intent(in) :: path
+    character(len=:), allocatable, intent(out) :: out
+    logical, intent(out) :: ok
+    type(sha256_ctx) :: ctx
+    character(len=:), allocatable :: chunk
+    integer(int64) :: fsize, remaining
+    integer :: unit, ios, want
+    logical :: there
+
+    ok = .false.
+    out = ""
+    inquire (file=path, exist=there, size=fsize)
+    if (.not. there) return
+    if (fsize < 0_int64) return
+    open (newunit=unit, file=path, access="stream", &
+          form="unformatted", status="old", action="read", &
+          iostat=ios)
+    if (ios /= 0) return
+    call sha256_init(ctx)
+    remaining = fsize
+    do while (remaining > 0_int64)
+      want = int(min(remaining, int(SHA256_CHUNK_BYTES, int64)))
+      allocate (character(len=want) :: chunk)
+      read (unit, iostat=ios) chunk
+      if (ios /= 0) then
+        deallocate (chunk)
+        close (unit)
+        return
+      end if
+      call sha256_update(ctx, chunk)
+      deallocate (chunk)
+      remaining = remaining - int(want, int64)
+    end do
+    close (unit)
+    call sha256_final(ctx, out)
+    ok = .true.
+  end subroutine sha256_file_hex
 
   function hex8(x) result(out)
     integer(int64), intent(in) :: x

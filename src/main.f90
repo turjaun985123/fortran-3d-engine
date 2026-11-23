@@ -60,6 +60,20 @@ program main
     integer :: filt_n_post, post_i, lc_i
     type(Scene) :: demo_sc
     type(mat4), allocatable :: demo_models(:)
+    ! v3.0 Phase 8: binary PPM (P6) output state.  The flag wins
+    ! over the FORGE3D_BINARY_PPM environment variable, which wins
+    ! over the default (.false. = the historic P3 ASCII PPM).
+    logical :: binary_ppm
+    character(len=64) :: bin_env_val
+    integer :: bin_env_len, bin_env_status
+    ! v3.0 Phase 8: '--video <file.mp4>' state (scene mode only;
+    ! single-image renders are unaffected).
+    logical :: has_video
+    character(len=1024) :: video_file, video_pattern
+    character(len=2048) :: video_cmd
+    character(len=1024) :: arg_token
+    integer :: scan_i, scene_arg_idx, ff_status, ff_cmdstat, fps_int
+    logical :: ff_failed
 
     nargs = command_argument_count()
 
@@ -96,7 +110,60 @@ program main
         stop 2
     end select
 
-    if (nargs - arg_offset == 0) then
+    ! Binary PPM selection: same flag > env > default pattern as
+    ! the renderer above.  Accepted env values are 1/true/yes/on
+    ! and 0/false/no/off (lower or upper case for the words).
+    binary_ppm = .false.
+    bin_env_val = ''
+    call get_environment_variable('FORGE3D_BINARY_PPM', bin_env_val, &
+                                  length=bin_env_len, &
+                                  status=bin_env_status)
+    if (bin_env_status == 0) then
+        if (bin_env_len > 0) then
+            select case (trim(bin_env_val(1:min(bin_env_len, 64))))
+            case ('1', 'true', 'TRUE', 'yes', 'YES', 'on', 'ON')
+                binary_ppm = .true.
+            case ('0', 'false', 'FALSE', 'no', 'NO', 'off', 'OFF')
+                binary_ppm = .false.
+            case default
+                write(error_unit, '(A)') &
+                    'error: unknown FORGE3D_BINARY_PPM value "' &
+                    // trim(bin_env_val(1:min(bin_env_len, 64))) &
+                    // '" (expected 1/0, true/false, yes/no, on/off)'
+                stop 2
+            end select
+        end if
+    end if
+
+    ! Scan the remaining arguments for '--binary-ppm' and
+    ! '--video <file>' (either may appear before or after the
+    ! scene path); the first non-flag argument is the scene path.
+    ! Note: .and./.or. do not short-circuit, so bounds are tested
+    ! with nested ifs, never combined with an indexed access.
+    has_video = .false.
+    video_file = ''
+    scene_arg_idx = 0
+    scan_i = arg_offset + 1
+    do while (scan_i <= nargs)
+        call get_command_argument(scan_i, arg_token)
+        if (trim(arg_token) == '--binary-ppm') then
+            binary_ppm = .true.
+        else if (trim(arg_token) == '--video') then
+            if (scan_i == nargs) then
+                write(error_unit, '(A)') &
+                    'error: --video requires a value (file.mp4)'
+                stop 2
+            end if
+            call get_command_argument(scan_i + 1, video_file)
+            has_video = .true.
+            scan_i = scan_i + 1
+        else
+            if (scene_arg_idx == 0) scene_arg_idx = scan_i
+        end if
+        scan_i = scan_i + 1
+    end do
+
+    if (scene_arg_idx == 0) then
         ! ================================================================
         ! Legacy demo: no command argument.
         ! This path is the byte-for-byte regression anchor -- do not
@@ -168,9 +235,15 @@ program main
             call framebuffer_render_mesh(fb, cube, model_matrix, cam, light_dir)
         end if
 
-        ! 7. Save output PPM image
+        ! 7. Save output PPM image (P6 instead of P3 only when
+        ! --binary-ppm / FORGE3D_BINARY_PPM selected it; the
+        ! default call below is the unchanged regression anchor)
         print *, '[+] Writing image to ', trim(output_file), '...'
-        call framebuffer_save_ppm(fb, output_file)
+        if (binary_ppm) then
+            call save_ppm_binary(fb, output_file)
+        else
+            call framebuffer_save_ppm(fb, output_file)
+        end if
 
         ! 8. Export 3D Mesh for Interactive Web / 3D Viewers
         print *, '[+] Exporting scene.json and model.obj...'
@@ -188,7 +261,7 @@ program main
         ! ================================================================
         ! Scene mode: one argument = path to a .scene file.
         ! ================================================================
-        call get_command_argument(1 + arg_offset, scene_path)
+        call get_command_argument(scene_arg_idx, scene_path)
 
         call scene_load(trim(scene_path), sc, ok, errmsg)
         if (.not. ok) then
@@ -481,7 +554,7 @@ program main
             end if
 
             ! Frame 1 (frame 0 in t) always lands in sc%output_file.
-            if (frame_i == 1) call framebuffer_save_image(fb, trim(sc%output_file))
+            if (frame_i == 1) call save_frame_image(fb, trim(sc%output_file))
 
             ! Multi-frame renders also write every frame, frame 1 included,
             ! as '<base>_0001.ppm', '<base>_0002.ppm', ... (P03 pattern).
@@ -496,9 +569,68 @@ program main
                 end if
                 write(numbered_file, '(A, A, I4.4, A)') trim(base_name), '_', &
                     frame_i, trim(ext_name)
-                call framebuffer_save_image(fb, trim(numbered_file))
+                call save_frame_image(fb, trim(numbered_file))
             end if
         end do
+
+        ! v3.0 Phase 8: '--video <file.mp4>' -- assemble the
+        ! numbered frame files just written into a video with
+        ! ffmpeg (image2 demuxer over '<base>_%04d<ext>' at the
+        ! scene fps, libx264 / yuv420p).  Only multi-frame renders
+        ! reach here; single-image renders are unaffected.  A
+        ! missing or failing ffmpeg is a note on stderr, never a
+        ! change of exit code, and the frame files are kept.
+        if (has_video) then
+            if (n_frames > 1) then
+                dot_pos = index(trim(sc%output_file), '.', &
+                                back=.true.)
+                if (dot_pos > 1) then
+                    base_name = sc%output_file(1:dot_pos - 1)
+                    ext_name = sc%output_file(dot_pos:)
+                else
+                    base_name = trim(sc%output_file)
+                    ext_name = ''
+                end if
+                write(video_pattern, '(A, A, A)') trim(base_name), &
+                    '_%04d', trim(ext_name)
+                ff_status = 0
+                ff_cmdstat = 0
+                call execute_command_line( &
+                    'ffmpeg -version > /dev/null 2>&1', &
+                    wait=.true., exitstat=ff_status, &
+                    cmdstat=ff_cmdstat)
+                ff_failed = .false.
+                if (ff_cmdstat /= 0) ff_failed = .true.
+                if (ff_status /= 0) ff_failed = .true.
+                if (ff_failed) then
+                    write(error_unit, '(A)') &
+                        'note: --video: ffmpeg not found; frame ' &
+                        // 'files kept, no video written to "' &
+                        // trim(video_file) // '"'
+                else
+                    fps_int = max(1, nint(fps_r))
+                    write(video_cmd, '(A, I0, A, A, A, A, A)') &
+                        'ffmpeg -y -framerate ', fps_int, &
+                        ' -f image2 -i ''', trim(video_pattern), &
+                        ''' -c:v libx264 -pix_fmt yuv420p ''', &
+                        trim(video_file), ''''
+                    ff_status = 0
+                    ff_cmdstat = 0
+                    call execute_command_line(trim(video_cmd), &
+                        wait=.true., exitstat=ff_status, &
+                        cmdstat=ff_cmdstat)
+                    ff_failed = .false.
+                    if (ff_cmdstat /= 0) ff_failed = .true.
+                    if (ff_status /= 0) ff_failed = .true.
+                    if (ff_failed) then
+                        write(error_unit, '(A)') &
+                            'note: --video: ffmpeg failed; frame ' &
+                            // 'files kept, no video written to "' &
+                            // trim(video_file) // '"'
+                    end if
+                end if
+            end if
+        end if
 
         print *, '============================================'
         print *, ' Scene rendering completed!'
@@ -510,6 +642,85 @@ program main
     end if
 
 contains
+
+    ! v3.0 Phase 8: binary PPM (P6) writer.  The shared PPM write
+    ! point in renderer_3d (framebuffer_save_ppm, reached via
+    ! framebuffer_save_image) writes P3 ASCII only and is outside
+    ! this slice, so main routes .ppm writes here instead when
+    ! binary_ppm is set: header "P6\n<w> <h>\n255\n" followed by
+    ! the raw RGB bytes, written with access='stream' so no
+    ! record markers intervene.
+    subroutine save_ppm_binary(fb_arg, filename)
+        type(FrameBuffer), intent(in) :: fb_arg
+        character(len=*), intent(in) :: filename
+        integer :: u, x, y, ios
+        character(len=32) :: dim_buf
+
+        open(newunit=u, file=filename, status='replace', &
+             action='write', access='stream', form='unformatted', &
+             iostat=ios)
+        if (ios /= 0) then
+            write(error_unit, '(A)') 'error: cannot open "' &
+                // trim(filename) // '" for binary PPM writing'
+            return
+        end if
+        write(u) 'P6' // char(10)
+        write(dim_buf, '(I0, 1X, I0)') fb_arg%width, fb_arg%height
+        write(u) trim(dim_buf) // char(10)
+        write(u) '255' // char(10)
+        do y = 1, fb_arg%height
+            do x = 1, fb_arg%width
+                write(u) char(min(255, max(0, &
+                    fb_arg%pixels(1, x, y))))
+                write(u) char(min(255, max(0, &
+                    fb_arg%pixels(2, x, y))))
+                write(u) char(min(255, max(0, &
+                    fb_arg%pixels(3, x, y))))
+            end do
+        end do
+        close(u)
+    end subroutine save_ppm_binary
+
+    ! True when filename ends in '.png' (case-insensitive), the
+    ! same dispatch rule framebuffer_save_image uses.  The length
+    ! test and the substring access are nested, not combined:
+    ! .and. does not short-circuit.
+    function is_png_filename(filename) result(is_png)
+        character(len=*), intent(in) :: filename
+        logical :: is_png
+        integer :: n, i, c
+        character(len=4) :: ext
+
+        is_png = .false.
+        n = len_trim(filename)
+        if (n >= 4) then
+            ext = filename(n - 3:n)
+            do i = 1, 4
+                c = ichar(ext(i:i))
+                if (c >= ichar('A') .and. c <= ichar('Z')) &
+                    ext(i:i) = char(c - ichar('A') + ichar('a'))
+            end do
+            if (ext == '.png') is_png = .true.
+        end if
+    end function is_png_filename
+
+    ! Frame-write dispatch for the scene paths: PNG outputs are
+    ! unaffected by --binary-ppm and always go to the shared
+    ! framebuffer_save_image; .ppm outputs go to the P6 writer
+    ! when binary_ppm is set, else to the same shared writer
+    ! (which writes the historic P3 for them).
+    subroutine save_frame_image(fb_arg, filename)
+        type(FrameBuffer), intent(in) :: fb_arg
+        character(len=*), intent(in) :: filename
+
+        if (binary_ppm) then
+            if (.not. is_png_filename(filename)) then
+                call save_ppm_binary(fb_arg, filename)
+                return
+            end if
+        end if
+        call framebuffer_save_image(fb_arg, filename)
+    end subroutine save_frame_image
 
     ! Wave B entities (coordinator integration): build each sprite /
     ! text / particle mesh for this frame (billboards face the scene

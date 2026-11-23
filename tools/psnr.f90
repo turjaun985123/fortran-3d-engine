@@ -1,21 +1,32 @@
 ! psnr.f90 -- Forge3D v3.0 Phase 2 (ADR-1): standalone PPM
 ! comparison tool for the v3 golden registry (docs/V3-GOLDENS.md).
 !
-!   psnr <a.ppm> <b.ppm> [--threshold DB]
+!   psnr <a.ppm> <b.ppm> [--threshold DB] [--ssim-threshold S]
 !
 ! Reads P3 (ASCII) and P6 (binary) PPMs -- the engine writes P3;
 ! both are accepted so goldens can be compared against renders
 ! from any source.  The two images must have identical dimensions.
 !
 ! Prints exactly one line:
-!   PSNR: <db> dB  MAXDIFF: <n>
+!   PSNR: <db> dB  SSIM: <s>  MAXDIFF: <n>
 ! with <db> rendered as "inf" when the images are identical.
 ! PSNR uses each file's samples as stored and file A's maxval as
 ! the peak.  MAXDIFF is the largest absolute per-sample difference.
 !
-! Exit status: 0 when PSNR >= threshold (or the images are
-! identical, or no threshold was given), 1 when PSNR is below the
-! threshold, 2 on usage / IO / format errors.
+! SSIM variant: single-scale GLOBAL SSIM.  One mean, variance and
+! covariance per channel is taken over the WHOLE image (no sliding
+! 8x8 window), the per-channel SSIMs are averaged, and the standard
+! constants C1 = (0.01*255)^2 and C2 = (0.03*255)^2 are used (the
+! engine's PPMs are 8-bit, maxval 255).  Whole-image statistics are
+! a deliberate simplification: this tool is a regression alarm for
+! golden renders, not a perceptual-quality metric, and global SSIM
+! still drops sharply on structural changes (shifts, swapped
+! regions, lost detail) that a bare PSNR can understate.
+!
+! Exit status: 0 when PSNR >= threshold and SSIM >= ssim-threshold
+! (or the images are identical, or no threshold was given), 1 when
+! PSNR is below the threshold or SSIM is below the ssim-threshold,
+! 2 on usage / IO / format errors.
 !
 ! Build: gfortran -O2 tools/psnr.f90 -o psnr
 program psnr
@@ -23,8 +34,8 @@ program psnr
   implicit none
 
   character(len=1024) :: path_a, path_b, arg
-  real(real64) :: threshold
-  logical :: has_threshold
+  real(real64) :: threshold, ssim_threshold
+  logical :: has_threshold, has_ssim_threshold
   integer :: nargs, i
   integer, allocatable :: img_a(:), img_b(:)
   integer :: wa, ha, maxa, wb, hb, maxb
@@ -32,7 +43,15 @@ program psnr
   character(len=256) :: errmsg
   real(real64) :: mse, psnr_db, sumsq
   integer(int64) :: maxdiff, d, k, nsamp
-  character(len=32) :: db_str
+  character(len=32) :: db_str, ssim_str
+  ! Global-SSIM accumulators (see header for the variant chosen).
+  real(real64), parameter :: ssim_c1 = (0.01_real64 * 255.0_real64)**2
+  real(real64), parameter :: ssim_c2 = (0.03_real64 * 255.0_real64)**2
+  real(real64) :: ssim, ssim_ch, xa, xb
+  real(real64) :: sum_a, sum_b, sum_aa, sum_bb, sum_ab
+  real(real64) :: mu_a, mu_b, var_a, var_b, cov_ab
+  integer(int64) :: npix, idx
+  integer :: ch
 
   nargs = command_argument_count()
   if (nargs < 2) call usage_error('expected two PPM paths')
@@ -40,6 +59,8 @@ program psnr
   call get_command_argument(2, path_b)
   has_threshold = .false.
   threshold = 0.0_real64
+  has_ssim_threshold = .false.
+  ssim_threshold = 0.0_real64
   i = 3
   do while (i <= nargs)
     call get_command_argument(i, arg)
@@ -52,6 +73,16 @@ program psnr
         if (ios /= 0) call usage_error('bad --threshold value')
       end block
       has_threshold = .true.
+      i = i + 2
+    else if (trim(arg) == '--ssim-threshold') then
+      if (i + 1 > nargs) call usage_error('--ssim-threshold needs a value')
+      call get_command_argument(i + 1, arg)
+      block
+        integer :: ios
+        read (arg, *, iostat=ios) ssim_threshold
+        if (ios /= 0) call usage_error('bad --ssim-threshold value')
+      end block
+      has_ssim_threshold = .true.
       i = i + 2
     else
       call usage_error('unknown argument: ' // trim(arg))
@@ -83,15 +114,58 @@ program psnr
     sumsq = sumsq + real(d * d, real64)
   end do
 
+  ! Global SSIM: per-channel whole-image means / variances /
+  ! covariance from one pass over each channel's samples (the
+  ! raster is interleaved RGB, so channel ch sits at stride 3).
+  npix = int(wa, int64) * int(ha, int64)
+  ssim = 0.0_real64
+  do ch = 0, 2
+    sum_a = 0.0_real64
+    sum_b = 0.0_real64
+    sum_aa = 0.0_real64
+    sum_bb = 0.0_real64
+    sum_ab = 0.0_real64
+    do k = 1, npix
+      idx = (k - 1_int64) * 3_int64 + int(ch, int64) + 1_int64
+      xa = real(img_a(idx), real64)
+      xb = real(img_b(idx), real64)
+      sum_a = sum_a + xa
+      sum_b = sum_b + xb
+      sum_aa = sum_aa + xa * xa
+      sum_bb = sum_bb + xb * xb
+      sum_ab = sum_ab + xa * xb
+    end do
+    mu_a = sum_a / real(npix, real64)
+    mu_b = sum_b / real(npix, real64)
+    var_a = sum_aa / real(npix, real64) - mu_a * mu_a
+    var_b = sum_bb / real(npix, real64) - mu_b * mu_b
+    cov_ab = sum_ab / real(npix, real64) - mu_a * mu_b
+    ! Variances can go epsilon-negative from rounding on flat
+    ! channels; clamp those, leave the covariance as computed.
+    if (var_a < 0.0_real64) var_a = 0.0_real64
+    if (var_b < 0.0_real64) var_b = 0.0_real64
+    ssim_ch = ((2.0_real64 * mu_a * mu_b + ssim_c1) * &
+               (2.0_real64 * cov_ab + ssim_c2)) / &
+              ((mu_a * mu_a + mu_b * mu_b + ssim_c1) * &
+               (var_a + var_b + ssim_c2))
+    ssim = ssim + ssim_ch
+  end do
+  ssim = ssim / 3.0_real64
+  write (ssim_str, '(F0.4)') ssim
+
   if (maxdiff == 0_int64) then
-    print '(A,I0)', 'PSNR: inf dB  MAXDIFF: ', maxdiff
+    print '(A,A,A,I0)', 'PSNR: inf dB  SSIM: ', trim(ssim_str), &
+      '  MAXDIFF: ', maxdiff
+    if (has_ssim_threshold .and. ssim < ssim_threshold) call exit(1)
     call exit(0)
   end if
   mse = sumsq / real(nsamp, real64)
   psnr_db = 10.0_real64 * log10(real(maxa, real64)**2 / mse)
   write (db_str, '(F0.2)') psnr_db
-  print '(A,A,A,I0)', 'PSNR: ', trim(db_str), ' dB  MAXDIFF: ', maxdiff
+  print '(A,A,A,A,A,I0)', 'PSNR: ', trim(db_str), ' dB  SSIM: ', &
+    trim(ssim_str), '  MAXDIFF: ', maxdiff
   if (has_threshold .and. psnr_db < threshold) call exit(1)
+  if (has_ssim_threshold .and. ssim < ssim_threshold) call exit(1)
   call exit(0)
 
 contains
@@ -99,7 +173,8 @@ contains
   subroutine usage_error(msg)
     character(len=*), intent(in) :: msg
     write (0, '(A)') 'psnr: ' // msg
-    write (0, '(A)') 'usage: psnr <a.ppm> <b.ppm> [--threshold DB]'
+    write (0, '(A)') 'usage: psnr <a.ppm> <b.ppm> [--threshold DB] ' // &
+      '[--ssim-threshold S]'
     call exit(2)
   end subroutine usage_error
 

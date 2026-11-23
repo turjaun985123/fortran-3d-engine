@@ -64,8 +64,15 @@
 ! successful compile; on a failed compile the previous set stays in
 ! force (its stored mtimes are refreshed to the values just seen,
 ! so a broken dep does not retrigger a compile every tick).
+!
+! v3.0 Phase 8: the toolbar shows the most recent compile's stage
+! timings ("compile N ms (parse .. validate .. emit ..)") read
+! from the f3dc_driver timing registry; pv_compile_pipeline
+! resets/marks it and pv_compile_now marks the emit stage.  See
+! the timing note on pv_compile_pipeline for the stage-mapping
+! approximations.
 module f3dc_preview
-  use, intrinsic :: iso_fortran_env, only: output_unit, int64
+  use, intrinsic :: iso_fortran_env, only: output_unit, int64, real64
   use, intrinsic :: iso_c_binding, only: c_char, c_int, c_int64_t, &
        c_ptr, c_funptr, c_funloc, c_f_pointer, c_associated, &
        c_null_char, c_null_ptr
@@ -86,6 +93,8 @@ module f3dc_preview
   use f3dc_ir, only: ir_from_json
   use f3dc_emit_js, only: emit_js
   use f3dc_emit_html, only: emit_html, emit_html_runtime_js
+  use f3dc_driver, only: driver_timing_reset, driver_timing_mark, &
+       driver_timing_ms
   implicit none
   private
 
@@ -219,6 +228,7 @@ contains
       '  <span id="f3d-pill" style="color:#4ade80">'// &
       achar(226)//achar(151)//achar(143)//" LIVE</span>"//NL// &
       '  <span id="f3d-fps" style="color:#9ca3af"></span>'//NL// &
+      '  <span id="f3d-timings" style="color:#9ca3af">__TIMINGS__</span>'//NL// &
       '  <span style="margin-left:auto;color:#9ca3af">edit &amp; save '// &
       achar(226)//achar(128)//achar(148)// &
       " the preview reloads itself "//achar(194)//achar(183)// &
@@ -234,9 +244,68 @@ contains
     character(len=:), allocatable :: client
     client = str_replace(client_js(), "__VERSION__", &
                          trim(fmt_int(int(p_version, int64))))
-    out = str_replace(str_replace(toolbar(), "__STEM__", p_stem), &
+    out = str_replace(str_replace(str_replace(toolbar(), "__STEM__", &
+                      p_stem), "__TIMINGS__", pv_timings_text()), &
                       "__CLIENT__", client)
   end function make_bar
+
+  ! ------------------------------------------------------------------
+  ! v3.0 Phase 8: compact compile-stage timings for the toolbar,
+  ! e.g. "compile 84 ms (parse 3 <dot> validate 41 <dot> emit 31)"
+  ! where <dot> is the same U+00B7 middle dot the toolbar uses.
+  ! Reads the f3dc_driver timing registry, which the most recent
+  ! compile filled in (see the timing note on pv_compile_pipeline).
+  ! A stage the registry has no entry for (driver_timing_ms < 0)
+  ! is omitted, never shown as -1; when nothing was recorded the
+  ! readout is empty and the toolbar span stays blank.  The
+  ! headline number is the registry's "total" when present, else
+  ! the sum of the shown stages (the marks are sequential, so the
+  ! stage intervals add up to the timed span).  Values are rounded
+  ! to whole milliseconds.  The text is only stage names and
+  ! digits, so no HTML escaping is needed.
+  ! ------------------------------------------------------------------
+  subroutine pv_timing_add(sb, shown, total, name)
+    type(str_builder), intent(inout) :: sb
+    integer, intent(inout) :: shown
+    real(real64), intent(inout) :: total
+    character(len=*), intent(in) :: name
+    real(real64) :: ms
+    ms = driver_timing_ms(name)
+    if (ms < 0.0_real64) return
+    if (shown > 0) call sb_add(sb, " "//achar(194)//achar(183)//" ")
+    call sb_add(sb, name)
+    call sb_add(sb, " ")
+    call sb_add(sb, trim(fmt_int(int(nint(ms), int64))))
+    total = total + ms
+    shown = shown + 1
+  end subroutine pv_timing_add
+
+  function pv_timings_text() result(out)
+    character(len=:), allocatable :: out
+    type(str_builder) :: sb, sb_stages
+    real(real64) :: total, total_reg
+    integer :: shown
+    call sb_init(sb_stages)
+    total = 0.0_real64
+    shown = 0
+    call pv_timing_add(sb_stages, shown, total, "parse")
+    call pv_timing_add(sb_stages, shown, total, "desugar")
+    call pv_timing_add(sb_stages, shown, total, "validate")
+    call pv_timing_add(sb_stages, shown, total, "emit")
+    if (shown == 0) then
+       out = ""
+       return
+    end if
+    total_reg = driver_timing_ms("total")
+    if (total_reg >= 0.0_real64) total = total_reg
+    call sb_init(sb)
+    call sb_add(sb, "compile ")
+    call sb_add(sb, trim(fmt_int(int(nint(total), int64))))
+    call sb_add(sb, " ms (")
+    call sb_add(sb, sb_text(sb_stages))
+    call sb_add(sb, ")")
+    out = sb_text(sb)
+  end function pv_timings_text
 
   ! ------------------------------------------------------------------
   ! File helpers (mirrors of the CLI's private ones)
@@ -301,6 +370,22 @@ contains
   ! ------------------------------------------------------------------
   ! The compile pipeline: statement-for-statement mirror of
   ! f3dc_cli.f90's compile_pipeline (cli.py compile_pipeline).
+  !
+  ! v3.0 Phase 8 timing: the pipeline resets the f3dc_driver
+  ! timing registry on entry and marks stages as it goes --
+  ! "parse" after the source dispatch below, "desugar" just
+  ! before validate_program and "validate" just after it.
+  ! Approximations, named: the preview's dyn pipeline has no
+  ! standalone desugar step -- desugar runs as the first step
+  ! INSIDE validate_program (see f3dc_validate) -- so the two
+  ! cannot be timed apart from here: "desugar" records only the
+  ! near-zero lead-in and the combined desugar+validate interval
+  ! lands under "validate".  "emit" is marked by pv_compile_now
+  ! around pv_html_text, the preview's actual emit step, so the
+  ! optimize call at the end of this pipeline (and dep
+  ! collection) lands inside the "emit" interval.  "write" is
+  ! not marked (the preview writes no file) and neither is
+  ! "total" (the toolbar sums the stage intervals instead).
   ! ------------------------------------------------------------------
   subroutine pv_compile_pipeline(path, bag, ir, ok)
     character(len=*), intent(in) :: path
@@ -312,6 +397,7 @@ contains
     logical :: rok, vok, j_ok
     ir = dyn_null()
     ok = .false.
+    call driver_timing_reset()
     if (.not. pv_exists(path)) then
        stem = path_stem(path)
        call error_bag_add(bag, make_diagnostic_span( &
@@ -340,6 +426,8 @@ contains
              call ir_from_json(text, ir, j_ok)
              if (j_ok) then
                 if (error_bag_has_errors(bag)) return
+                ! The IR load replaces parse/desugar/validate.
+                call driver_timing_mark("parse")
                 call optimize(ir, bag, 1, ir_opt)
                 ir = dyn_copy(ir_opt)
                 ok = .true.
@@ -351,8 +439,13 @@ contains
     else
        call f3dc_parse(text, path, bag, prog)
     end if
+    call driver_timing_mark("parse")
     if (error_bag_has_errors(bag)) return
+    ! See the timing note above: desugar runs inside
+    ! validate_program, so this mark only closes the lead-in.
+    call driver_timing_mark("desugar")
     call validate_program(prog, bag, path_dirname(path), ir, vok)
+    call driver_timing_mark("validate")
     if (.not. vok .or. error_bag_has_errors(bag)) return
     call optimize(ir, bag, 1, ir_opt)
     ir = dyn_copy(ir_opt)
@@ -522,7 +615,11 @@ contains
        ! compile.  On failure the previous set is kept (see the
        ! module header note).
        call pv_collect_deps(ir)
+       ! v3.0 Phase 8: pv_html_text is the preview's emit stage
+       ! (emit_js + emit_html); see the timing note on
+       ! pv_compile_pipeline.
        call pv_html_text(ir, p_html)
+       call driver_timing_mark("emit")
        p_has_html = .true.
     else
        p_has_html = .false.

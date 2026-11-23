@@ -25,8 +25,29 @@
 # rebuilds more); both Makefiles keep a from-clean CI build that
 # would catch a missing edge immediately.
 #
-# Zero-Python: POSIX sh + awk only.  The file list is fed to awk
-# twice: pass 1 maps modules to files, pass 2 collects USEs.
+# Zero-Python: POSIX sh + awk only (plus the standard file
+# utilities dirname/mktemp/find/mv for the direct-output mode
+# below).  The file list is fed to awk twice: pass 1 maps modules
+# to files, pass 2 collects USEs.
+#
+# Output modes:
+#   * Default: rules are written to stdout; the caller redirects.
+#   * Direct (FORTRAN_DEPS_OUTPUT=<path> in the environment): the
+#     rules are written to <path> INCREMENTALLY and ATOMICALLY --
+#       - skip: if <path> exists and no input (this script or any
+#         source) is newer than it (find -newer timestamp check),
+#         exit 0 without touching it, so no-op builds stay fast
+#         and make does not re-exec itself over an unchanged
+#         included makefile;
+#       - per-invocation temp: generation goes to a UNIQUE temp
+#         file created by mktemp in the SAME directory as <path>
+#         (never a fixed shared path such as "<path>.tmp", which
+#         concurrent `make -j` / concurrent make invocations in
+#         one tree would race on), then mv renames it over <path>
+#         atomically (same filesystem), so readers only ever see
+#         the old file or the complete new one.  A trap removes
+#         the temp file if generation fails or is interrupted.
+#     Both Makefiles use this mode for their deps.mk rule.
 
 set -eu
 
@@ -34,6 +55,31 @@ objdir=$1
 recipevar=$2
 orderonly=$3
 shift 3
+
+out=${FORTRAN_DEPS_OUTPUT:-}
+tmp=
+if [ -n "$out" ]; then
+    if [ -f "$out" ]; then
+        # Incremental skip: regenerate only if some input is
+        # strictly newer than the existing output.  A find error
+        # (e.g. a missing input) must NOT be read as "up to date":
+        # force regeneration so awk reports the real error.
+        stale=$(find "$0" "$@" -newer "$out" -print) || stale=find-error
+        if [ -z "$stale" ]; then
+            echo "fortran_deps.sh: $out up to date, skipping regeneration" >&2
+            exit 0
+        fi
+    fi
+    outdir=$(dirname "$out")
+    [ -d "$outdir" ] || mkdir -p "$outdir"
+    tmp=$(mktemp "$outdir/.fortran_deps.XXXXXX")
+    trap 'rm -f "$tmp"' EXIT
+    trap 'exit 1' HUP INT TERM
+    # Send the awk output below to the temp file; fd 3 keeps the
+    # original stdout so it can be restored before the rename.
+    exec 3>&1
+    exec > "$tmp"
+fi
 
 awk -v objdir="$objdir" -v recipevar="$recipevar" -v orderonly="$orderonly" '
 function base(path,   n, parts) {
@@ -110,3 +156,14 @@ END {
     }
 }
 ' "$@" "$@"
+
+if [ -n "$tmp" ]; then
+    # Direct-output mode: restore stdout, make the temp file
+    # normally readable (mktemp creates it 0600), then atomically
+    # rename it over the target and disarm the cleanup trap.
+    exec >&3
+    exec 3>&-
+    chmod 644 "$tmp"
+    mv -f "$tmp" "$out"
+    trap - EXIT HUP INT TERM
+fi

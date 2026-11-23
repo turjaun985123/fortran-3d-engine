@@ -16,6 +16,28 @@
 # top-level Makefile's `make f3dc` target, which builds here and then
 # copies compiler/f3dc -> ../bin/f3dc so `f3dc` sits next to the
 # engine it drives.
+#
+# PARALLEL BUILDS (supported invocation):
+#   make -j f3dc            # from the repo root (builds + installs)
+#   make -C compiler -j     # in here, builds ./f3dc only
+#   make JOBS=8 f3dc        # repo root: JOBS is forwarded to this
+#                           # Makefile's sub-make as -j8 (see the
+#                           # root Makefile); a bare `make -j` also
+#                           # propagates here via the jobserver.
+# Parallel safety rests on three things, do not regress them:
+#   1. Fortran module compilation ORDER comes from the GENERATED
+#      deps (build/deps.mk): a consumer object depends on the
+#      objects of every module it USEs, so a provider's .mod is
+#      always fully written before any consumer compiles.  There
+#      is deliberately no hand-ordered source list and no
+#      .NOTPARALLEL.
+#   2. build/ is created only via the order-only prerequisite
+#      `| $(BUILD_DIR)`, never inside per-object recipes.
+#   3. No recipe writes a fixed shared temp file: deps generation
+#      goes through tools/fortran_deps.sh, which writes a unique
+#      mktemp file and atomically renames it over build/deps.mk.
+# .DELETE_ON_ERROR below keeps a failed/interrupted parallel
+# compile from leaving a partial object make would trust later.
 
 FC       = gfortran
 CC       = cc
@@ -26,7 +48,15 @@ CFLAGS   = -O2
 BUILD_DIR = build
 TARGET    = f3dc
 
+# Accepted for symmetry with the root Makefile (which forwards it
+# here as -j$(JOBS) for its sub-make).  This Makefile runs no
+# sub-makes of its own, so here `-j` on the command line (or the
+# inherited jobserver) is what enables parallelism.
+JOBS ?=
+
 .DEFAULT_GOAL := all
+
+.DELETE_ON_ERROR:
 
 define FORTRAN_COMPILE
 	$(FC) $(FFLAGS) $(MODFLAGS) -c $< -o $@
@@ -38,9 +68,14 @@ SRC := $(sort $(wildcard src/*.f90))
 # one rule per object (source + provider objects + the recipe above).
 DEPS = $(BUILD_DIR)/deps.mk
 
+# The generator writes deps.mk itself (FORTRAN_DEPS_OUTPUT mode):
+# incrementally (it skips when no source/script is newer than
+# deps.mk) and atomically (unique mktemp file + rename).  The old
+# `> $@.tmp; mv $@.tmp $@` pattern used a FIXED shared temp path:
+# two concurrent make invocations raced on it, and an interrupted
+# run left a stale temp behind -- do not reintroduce it.
 $(DEPS): $(SRC) ../tools/fortran_deps.sh | $(BUILD_DIR)
-	sh ../tools/fortran_deps.sh $(BUILD_DIR) FORTRAN_COMPILE $(BUILD_DIR) $(SRC) > $@.tmp
-	mv $@.tmp $@
+	FORTRAN_DEPS_OUTPUT=$@ sh ../tools/fortran_deps.sh $(BUILD_DIR) FORTRAN_COMPILE $(BUILD_DIR) $(SRC)
 
 ifeq ($(filter clean,$(MAKECMDGOALS)),)
 -include $(DEPS)
@@ -56,6 +91,9 @@ else
 C_OBJS =
 endif
 
+# Every non-file target in this Makefile is declared here
+# (audited for `make -j` safety: all, clean, test-smoke -- the
+# remaining targets are real files/directories).
 .PHONY: all clean test-smoke
 
 all: $(TARGET)
