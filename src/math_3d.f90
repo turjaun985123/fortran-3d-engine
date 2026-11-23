@@ -300,10 +300,32 @@ contains
     pure function mat4_look_at(eye, target, up) result(v)
         type(vec3), intent(in) :: eye, target, up
         type(mat4) :: v
-        type(vec3) :: f, r, u
+        type(vec3) :: f, r, u, up_eff
+        real(dp) :: f_dot_up
 
         f = vec3_normalize(vec3_sub(target, eye))
-        r = vec3_normalize(vec3_cross(f, up))
+        ! Degenerate case (M1, v3.0 Phase 0): when the view direction
+        ! is (anti-)parallel to up -- e.g. a top-down camera at
+        ! (0,5,0) looking at the origin with the usual up (0,1,0) --
+        ! cross(f, up) is the zero vector and the right/up rows of
+        ! the result used to come out all-zero (a degenerate matrix).
+        ! Substitute a fallback up perpendicular to f instead: the
+        ! world Z axis, signed so it keeps a positive component along
+        ! the caller's up where possible.  Non-degenerate inputs take
+        ! exactly the pre-M1 path (bit-identical results).  A zero up
+        ! vector gets the same treatment via the (0,1,0) default.
+        up_eff = up
+        if (vec3_norm(up_eff) <= 1.0e-12_dp) &
+            up_eff = vec3_create(0.0_dp, 1.0_dp, 0.0_dp)
+        f_dot_up = vec3_dot(f, vec3_normalize(up_eff))
+        if (abs(f_dot_up) > 1.0_dp - 1.0e-10_dp) then
+            if (f_dot_up >= 0.0_dp) then
+                up_eff = vec3_create(0.0_dp, 0.0_dp, 1.0_dp)
+            else
+                up_eff = vec3_create(0.0_dp, 0.0_dp, -1.0_dp)
+            end if
+        end if
+        r = vec3_normalize(vec3_cross(f, up_eff))
         u = vec3_cross(r, f)
 
         v%m = 0.0_dp

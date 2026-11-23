@@ -1,5 +1,6 @@
 module camera_3d
     use math_3d
+    use, intrinsic :: iso_fortran_env, only: error_unit
     implicit none
     private
     public :: Camera, camera_init, camera_update_matrices
@@ -72,6 +73,13 @@ contains
         if (ok) then
             call camera_init(cam, pos, target, fov_deg, aspect, near, far)
         else
+            ! M1 (v3.0 Phase 0): this default substitution used to be
+            ! silent; surface it on stderr like the engine's other
+            ! '<module>: warning:' diagnostics (scene.f90 style).
+            write(error_unit, '(A)') 'camera: warning: ' // &
+                'camera_init_checked: invalid camera parameters; ' // &
+                'using default camera (fov 60, aspect 4/3, ' // &
+                'near 0.1, far 100)'
             call camera_init(cam, pos, target, 60.0_dp, 4.0_dp / 3.0_dp, 0.1_dp, 100.0_dp)
         end if
     end subroutine camera_init_checked

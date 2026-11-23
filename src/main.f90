@@ -54,6 +54,16 @@ program main
         ! Legacy demo: no command argument.
         ! This path is the byte-for-byte regression anchor -- do not
         ! change its prints, files or rendering calls.
+        !
+        ! LEGACY-COMPAT SIDE EFFECTS (S3, v3.0 Phase 0; ADR-1 legacy
+        ! freeze): besides the rendered image (output_render.ppm),
+        ! this branch also writes scene.json and model.obj for the
+        ! demo cube into the CURRENT WORKING DIRECTORY (step 8
+        ! below).  Those two extra files are an intentional legacy
+        ! behaviour, preserved exactly under the freeze -- callers
+        ! and scripts may rely on them appearing in the CWD.  Do not
+        ! remove, rename or relocate them without a ruling that
+        ! lifts the freeze for this path.
         ! ================================================================
         width = 640
         height = 480
@@ -129,17 +139,12 @@ program main
         end if
 
         n_frames = max(1, sc%frames)
-        if (allocated(sc%objects)) then
-            n_objects = size(sc%objects)
-        else
-            n_objects = 0
-        end if
+        ! S2: iterate the live count, not the array allocation size.
+        n_objects = sc%n_objects
 
         ! Frame timing comes from the first animation's fps (default 30).
         fps_r = 30.0_dp
-        if (allocated(sc%anims)) then
-            if (size(sc%anims) > 0) fps_r = real(sc%anims(1)%fps, dp)
-        end if
+        if (sc%n_anims > 0) fps_r = real(sc%anims(1)%fps, dp)
         if (fps_r <= 0.0_dp) fps_r = 30.0_dp
 
         call framebuffer_init(fb, sc%width, sc%height)
@@ -157,7 +162,7 @@ program main
                 ! key_eval; scale is the track's uniform scale).
                 track_i = 0
                 if (allocated(sc%tracks)) then
-                    do ti = 1, size(sc%tracks)
+                    do ti = 1, sc%n_tracks
                         if (trim(sc%tracks(ti)%target) == &
                             trim(sc%objects(obj_i)%name)) then
                             track_i = ti
@@ -195,7 +200,7 @@ program main
                 d_pos = 0.0_dp
                 scale_factor = 1.0_dp
                 if (allocated(sc%anims)) then
-                    do anim_i = 1, size(sc%anims)
+                    do anim_i = 1, sc%n_anims
                         if (trim(sc%anims(anim_i)%target) == &
                             trim(sc%objects(obj_i)%name) .or. &
                             trim(sc%anims(anim_i)%target) == 'all') then
@@ -397,7 +402,7 @@ contains
         ident = mat4_identity()
         mat_tri = material_default()
         if (allocated(sc_arg%sprites)) then
-            do wi = 1, size(sc_arg%sprites)
+            do wi = 1, sc_arg%n_sprites
                 call sprite_build_mesh(sc_arg%sprites(wi)%pos, &
                     sc_arg%sprites(wi)%size, &
                     sc_arg%sprites(wi)%color, sc_arg%cam%position, &
@@ -409,7 +414,7 @@ contains
             end do
         end if
         if (allocated(sc_arg%texts)) then
-            do wi = 1, size(sc_arg%texts)
+            do wi = 1, sc_arg%n_texts
                 call text_build_mesh( &
                     trim(sc_arg%texts(wi)%content), &
                     sc_arg%texts(wi)%pos, sc_arg%texts(wi)%size, &
@@ -421,7 +426,7 @@ contains
             end do
         end if
         if (allocated(sc_arg%parts)) then
-            do wi = 1, size(sc_arg%parts)
+            do wi = 1, sc_arg%n_parts
                 call particles_build_mesh(sc_arg%parts(wi)%sys, &
                     t_arg, sc_arg%cam%position, tmp_mesh)
                 call framebuffer_render_mesh_mat(fb_arg, tmp_mesh, &

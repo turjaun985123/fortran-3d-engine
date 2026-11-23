@@ -25,7 +25,7 @@ module mesh_3d
     end type Triangle
 
     type :: Mesh
-        integer :: num_triangles
+        integer :: num_triangles = 0
         type(Triangle), allocatable :: triangles(:)
     end type Mesh
 

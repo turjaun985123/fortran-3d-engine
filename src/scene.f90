@@ -159,6 +159,26 @@ module scene_3d
         character(len=256) :: output_file = 'output_render.ppm'
         type(SceneObject), allocatable :: objects(:)
         type(SceneAnim), allocatable :: anims(:)
+        ! S2 (v3.0 Phase 0): capacity-doubling storage for the
+        ! append_* arrays below.  n_* is the live element count and
+        ! cap_* the allocated capacity (size of the array); every
+        ! reader must iterate 1..n_*, never 1..size(...).  During
+        ! scene_load the arrays may carry spare capacity; scene_load
+        ! trims them back to exact size before returning (see
+        ! scene_trim_storage), so size() once again equals the count
+        ! for any code outside the load path.
+        integer :: n_objects = 0
+        integer :: cap_objects = 0
+        integer :: n_anims = 0
+        integer :: cap_anims = 0
+        integer :: n_sprites = 0
+        integer :: cap_sprites = 0
+        integer :: n_texts = 0
+        integer :: cap_texts = 0
+        integer :: n_parts = 0
+        integer :: cap_parts = 0
+        integer :: n_tracks = 0
+        integer :: cap_tracks = 0
         ! Wave A environment (coordinator integration). has_env gates
         ! main's env render path; default scenes never set it, so the
         ! legacy render stays byte-identical.
@@ -280,106 +300,242 @@ contains
     end function tok_vec3
 
     ! ------------------------------------------------------------------
-    ! Growable-array appends (deep-copy assignment of allocatable parts)
+    ! Growable-array appends (S2, v3.0 Phase 0: capacity doubling)
+    !
+    ! Each append used to deep-copy the whole array (O(N^2) to load
+    ! N elements).  Now an append only copies when the array is full,
+    ! growing to twice the capacity (amortised O(1) per append); the
+    ! live count lives in the Scene's n_* fields and the capacity in
+    ! cap_* (== size of the array).  Array assignment of these types
+    ! deep-copies allocatable parts (meshes, point lists, keys), in
+    ! the grow step exactly as the old code did on every append.
     ! ------------------------------------------------------------------
 
     subroutine append_object(sc, obj)
         type(Scene), intent(inout) :: sc
         type(SceneObject), intent(in) :: obj
         type(SceneObject), allocatable :: tmp(:)
-        integer :: n
-        n = 0
-        if (allocated(sc%objects)) n = size(sc%objects)
-        allocate(tmp(n + 1))
-        if (n > 0) tmp(1:n) = sc%objects(1:n)
-        tmp(n + 1) = obj
-        if (allocated(sc%objects)) deallocate(sc%objects)
-        call move_alloc(tmp, sc%objects)
+        integer :: new_cap
+        if (sc%n_objects >= sc%cap_objects) then
+            new_cap = max(8, 2 * sc%cap_objects)
+            allocate(tmp(new_cap))
+            if (sc%n_objects > 0) &
+                tmp(1:sc%n_objects) = sc%objects(1:sc%n_objects)
+            if (allocated(sc%objects)) deallocate(sc%objects)
+            call move_alloc(tmp, sc%objects)
+            sc%cap_objects = new_cap
+        end if
+        sc%n_objects = sc%n_objects + 1
+        sc%objects(sc%n_objects) = obj
     end subroutine append_object
 
     subroutine append_anim(sc, anim)
         type(Scene), intent(inout) :: sc
         type(SceneAnim), intent(in) :: anim
         type(SceneAnim), allocatable :: tmp(:)
-        integer :: n
-        n = 0
-        if (allocated(sc%anims)) n = size(sc%anims)
-        allocate(tmp(n + 1))
-        if (n > 0) tmp(1:n) = sc%anims(1:n)
-        tmp(n + 1) = anim
-        if (allocated(sc%anims)) deallocate(sc%anims)
-        call move_alloc(tmp, sc%anims)
+        integer :: new_cap
+        if (sc%n_anims >= sc%cap_anims) then
+            new_cap = max(8, 2 * sc%cap_anims)
+            allocate(tmp(new_cap))
+            if (sc%n_anims > 0) &
+                tmp(1:sc%n_anims) = sc%anims(1:sc%n_anims)
+            if (allocated(sc%anims)) deallocate(sc%anims)
+            call move_alloc(tmp, sc%anims)
+            sc%cap_anims = new_cap
+        end if
+        sc%n_anims = sc%n_anims + 1
+        sc%anims(sc%n_anims) = anim
     end subroutine append_anim
 
     subroutine append_sprite(sc, sp)
         type(Scene), intent(inout) :: sc
         type(SceneSprite), intent(in) :: sp
         type(SceneSprite), allocatable :: tmp(:)
-        integer :: n
-        n = 0
-        if (allocated(sc%sprites)) n = size(sc%sprites)
-        allocate(tmp(n + 1))
-        if (n > 0) tmp(1:n) = sc%sprites(1:n)
-        tmp(n + 1) = sp
-        if (allocated(sc%sprites)) deallocate(sc%sprites)
-        call move_alloc(tmp, sc%sprites)
+        integer :: new_cap
+        if (sc%n_sprites >= sc%cap_sprites) then
+            new_cap = max(8, 2 * sc%cap_sprites)
+            allocate(tmp(new_cap))
+            if (sc%n_sprites > 0) &
+                tmp(1:sc%n_sprites) = sc%sprites(1:sc%n_sprites)
+            if (allocated(sc%sprites)) deallocate(sc%sprites)
+            call move_alloc(tmp, sc%sprites)
+            sc%cap_sprites = new_cap
+        end if
+        sc%n_sprites = sc%n_sprites + 1
+        sc%sprites(sc%n_sprites) = sp
     end subroutine append_sprite
 
     subroutine append_text(sc, tx)
         type(Scene), intent(inout) :: sc
         type(SceneText), intent(in) :: tx
         type(SceneText), allocatable :: tmp(:)
-        integer :: n
-        n = 0
-        if (allocated(sc%texts)) n = size(sc%texts)
-        allocate(tmp(n + 1))
-        if (n > 0) tmp(1:n) = sc%texts(1:n)
-        tmp(n + 1) = tx
-        if (allocated(sc%texts)) deallocate(sc%texts)
-        call move_alloc(tmp, sc%texts)
+        integer :: new_cap
+        if (sc%n_texts >= sc%cap_texts) then
+            new_cap = max(8, 2 * sc%cap_texts)
+            allocate(tmp(new_cap))
+            if (sc%n_texts > 0) &
+                tmp(1:sc%n_texts) = sc%texts(1:sc%n_texts)
+            if (allocated(sc%texts)) deallocate(sc%texts)
+            call move_alloc(tmp, sc%texts)
+            sc%cap_texts = new_cap
+        end if
+        sc%n_texts = sc%n_texts + 1
+        sc%texts(sc%n_texts) = tx
     end subroutine append_text
 
     subroutine append_parts(sc, pa)
         type(Scene), intent(inout) :: sc
         type(SceneParticles), intent(in) :: pa
         type(SceneParticles), allocatable :: tmp(:)
-        integer :: n
-        n = 0
-        if (allocated(sc%parts)) n = size(sc%parts)
-        allocate(tmp(n + 1))
-        if (n > 0) tmp(1:n) = sc%parts(1:n)
-        tmp(n + 1) = pa
-        if (allocated(sc%parts)) deallocate(sc%parts)
-        call move_alloc(tmp, sc%parts)
+        integer :: new_cap
+        if (sc%n_parts >= sc%cap_parts) then
+            new_cap = max(8, 2 * sc%cap_parts)
+            allocate(tmp(new_cap))
+            if (sc%n_parts > 0) &
+                tmp(1:sc%n_parts) = sc%parts(1:sc%n_parts)
+            if (allocated(sc%parts)) deallocate(sc%parts)
+            call move_alloc(tmp, sc%parts)
+            sc%cap_parts = new_cap
+        end if
+        sc%n_parts = sc%n_parts + 1
+        sc%parts(sc%n_parts) = pa
     end subroutine append_parts
 
     subroutine append_track(sc, tr)
         type(Scene), intent(inout) :: sc
         type(KeyTrack), intent(in) :: tr
         type(KeyTrack), allocatable :: tmp(:)
-        integer :: n
-        n = 0
-        if (allocated(sc%tracks)) n = size(sc%tracks)
-        allocate(tmp(n + 1))
-        if (n > 0) tmp(1:n) = sc%tracks(1:n)
-        tmp(n + 1) = tr
-        if (allocated(sc%tracks)) deallocate(sc%tracks)
-        call move_alloc(tmp, sc%tracks)
+        integer :: new_cap
+        if (sc%n_tracks >= sc%cap_tracks) then
+            new_cap = max(8, 2 * sc%cap_tracks)
+            allocate(tmp(new_cap))
+            if (sc%n_tracks > 0) &
+                tmp(1:sc%n_tracks) = sc%tracks(1:sc%n_tracks)
+            if (allocated(sc%tracks)) deallocate(sc%tracks)
+            call move_alloc(tmp, sc%tracks)
+            sc%cap_tracks = new_cap
+        end if
+        sc%n_tracks = sc%n_tracks + 1
+        sc%tracks(sc%n_tracks) = tr
     end subroutine append_track
 
-    subroutine append_key(track, kf)
+    ! KeyTrack (keyframe_3d) has no count field of its own and
+    ! key_eval reads size(track%keys), so the caller (scene_load)
+    ! owns the key count: it passes n_keys in/out here and trims the
+    ! keys back to exact size with trim_key_track before the scene
+    ! is handed out (see scene_load).  Growth is the same
+    ! capacity-doubling as the Scene arrays above.
+    subroutine append_key(track, kf, n_keys)
         type(KeyTrack), intent(inout) :: track
         type(KeyFrame), intent(in) :: kf
+        integer, intent(inout) :: n_keys
         type(KeyFrame), allocatable :: tmp(:)
-        integer :: n
-        n = 0
-        if (allocated(track%keys)) n = size(track%keys)
-        allocate(tmp(n + 1))
-        if (n > 0) tmp(1:n) = track%keys(1:n)
-        tmp(n + 1) = kf
-        if (allocated(track%keys)) deallocate(track%keys)
-        call move_alloc(tmp, track%keys)
+        integer :: cap, new_cap
+        cap = 0
+        if (allocated(track%keys)) cap = size(track%keys)
+        if (n_keys >= cap) then
+            new_cap = max(4, 2 * cap)
+            allocate(tmp(new_cap))
+            if (n_keys > 0) tmp(1:n_keys) = track%keys(1:n_keys)
+            if (allocated(track%keys)) deallocate(track%keys)
+            call move_alloc(tmp, track%keys)
+        end if
+        n_keys = n_keys + 1
+        track%keys(n_keys) = kf
     end subroutine append_key
+
+    ! Reallocate one track's keys to exactly n_keys elements
+    ! (deallocate when zero), undoing append_key's spare capacity.
+    subroutine trim_key_track(track, n_keys)
+        type(KeyTrack), intent(inout) :: track
+        integer, intent(in) :: n_keys
+        type(KeyFrame), allocatable :: tmp(:)
+        if (.not. allocated(track%keys)) return
+        if (n_keys <= 0) then
+            deallocate(track%keys)
+            return
+        end if
+        if (size(track%keys) == n_keys) return
+        allocate(tmp(n_keys))
+        tmp(1:n_keys) = track%keys(1:n_keys)
+        call move_alloc(tmp, track%keys)
+    end subroutine trim_key_track
+
+    ! Trim every Scene append_* array back to its live count and
+    ! reset cap_* to match, so after scene_load size(array) equals
+    ! the count again for any reader outside the load path.  A count
+    ! of zero deallocates, matching the pre-S2 state of a scene that
+    ! never appended that kind of element.
+    subroutine scene_trim_storage(sc)
+        type(Scene), intent(inout) :: sc
+        type(SceneObject), allocatable :: tmp_obj(:)
+        type(SceneAnim), allocatable :: tmp_anim(:)
+        type(SceneSprite), allocatable :: tmp_spr(:)
+        type(SceneText), allocatable :: tmp_txt(:)
+        type(SceneParticles), allocatable :: tmp_prt(:)
+        type(KeyTrack), allocatable :: tmp_trk(:)
+
+        if (allocated(sc%objects)) then
+            if (sc%n_objects <= 0) then
+                deallocate(sc%objects)
+            else if (size(sc%objects) /= sc%n_objects) then
+                allocate(tmp_obj(sc%n_objects))
+                tmp_obj = sc%objects(1:sc%n_objects)
+                call move_alloc(tmp_obj, sc%objects)
+            end if
+        end if
+        sc%cap_objects = sc%n_objects
+        if (allocated(sc%anims)) then
+            if (sc%n_anims <= 0) then
+                deallocate(sc%anims)
+            else if (size(sc%anims) /= sc%n_anims) then
+                allocate(tmp_anim(sc%n_anims))
+                tmp_anim = sc%anims(1:sc%n_anims)
+                call move_alloc(tmp_anim, sc%anims)
+            end if
+        end if
+        sc%cap_anims = sc%n_anims
+        if (allocated(sc%sprites)) then
+            if (sc%n_sprites <= 0) then
+                deallocate(sc%sprites)
+            else if (size(sc%sprites) /= sc%n_sprites) then
+                allocate(tmp_spr(sc%n_sprites))
+                tmp_spr = sc%sprites(1:sc%n_sprites)
+                call move_alloc(tmp_spr, sc%sprites)
+            end if
+        end if
+        sc%cap_sprites = sc%n_sprites
+        if (allocated(sc%texts)) then
+            if (sc%n_texts <= 0) then
+                deallocate(sc%texts)
+            else if (size(sc%texts) /= sc%n_texts) then
+                allocate(tmp_txt(sc%n_texts))
+                tmp_txt = sc%texts(1:sc%n_texts)
+                call move_alloc(tmp_txt, sc%texts)
+            end if
+        end if
+        sc%cap_texts = sc%n_texts
+        if (allocated(sc%parts)) then
+            if (sc%n_parts <= 0) then
+                deallocate(sc%parts)
+            else if (size(sc%parts) /= sc%n_parts) then
+                allocate(tmp_prt(sc%n_parts))
+                tmp_prt = sc%parts(1:sc%n_parts)
+                call move_alloc(tmp_prt, sc%parts)
+            end if
+        end if
+        sc%cap_parts = sc%n_parts
+        if (allocated(sc%tracks)) then
+            if (sc%n_tracks <= 0) then
+                deallocate(sc%tracks)
+            else if (size(sc%tracks) /= sc%n_tracks) then
+                allocate(tmp_trk(sc%n_tracks))
+                tmp_trk = sc%tracks(1:sc%n_tracks)
+                call move_alloc(tmp_trk, sc%tracks)
+            end if
+        end if
+        sc%cap_tracks = sc%n_tracks
+    end subroutine scene_trim_storage
 
     ! The text after the first N whitespace-separated tokens of a
     ! line (for the 'text' scene line, whose content is the rest of
@@ -414,7 +570,7 @@ contains
         integer :: i
         idx = 0
         if (.not. allocated(sc%objects)) return
-        do i = 1, size(sc%objects)
+        do i = 1, sc%n_objects
             if (trim(sc%objects(i)%name) == trim(name)) then
                 idx = i
                 return
@@ -426,7 +582,7 @@ contains
         type(Scene), intent(inout) :: sc
         integer :: i
         if (allocated(sc%objects)) then
-            do i = 1, size(sc%objects)
+            do i = 1, sc%n_objects
                 call free_mesh(sc%objects(i)%mesh)
                 call texture_free(sc%objects(i)%tex)
                 if (allocated(sc%objects(i)%pts)) &
@@ -440,12 +596,20 @@ contains
         if (allocated(sc%texts)) deallocate(sc%texts)
         if (allocated(sc%parts)) deallocate(sc%parts)
         if (allocated(sc%tracks)) then
-            do i = 1, size(sc%tracks)
+            do i = 1, sc%n_tracks
                 if (allocated(sc%tracks(i)%keys)) &
                     deallocate(sc%tracks(i)%keys)
             end do
             deallocate(sc%tracks)
         end if
+        ! S2: storage is empty again; counts and capacities reset
+        ! (the deallocations above already freed any spare capacity).
+        sc%n_objects = 0; sc%cap_objects = 0
+        sc%n_anims = 0; sc%cap_anims = 0
+        sc%n_sprites = 0; sc%cap_sprites = 0
+        sc%n_texts = 0; sc%cap_texts = 0
+        sc%n_parts = 0; sc%cap_parts = 0
+        sc%n_tracks = 0; sc%cap_tracks = 0
         if (allocated(sc%shader_defs)) deallocate(sc%shader_defs)
         if (allocated(sc%bones)) deallocate(sc%bones)
     end subroutine scene_free
@@ -733,6 +897,11 @@ contains
         type(KeyTrack) :: trk
         type(KeyFrame) :: kf
         integer :: cur_track  ! track index receiving 'key' lines
+        ! S2: per-track key counts while loading (append_key grows
+        ! keys with spare capacity; counts live here until the keys
+        ! are trimmed to exact size after the read loop).  Bounded
+        ! by the same practical track counts the format allows.
+        integer :: key_counts(4096)
         type(vec3) :: cam_pos, cam_tgt, cam_up
         real(dp) :: aspect
         integer :: cur_tris  ! object index receiving 'tri' lines, 0 = none
@@ -769,6 +938,7 @@ contains
         errmsg = ''
         cur_tris = 0
         cur_track = 0
+        key_counts = 0
         n_extra = 0
         n_defs = 0
         n_bones = 0
@@ -1125,7 +1295,7 @@ contains
                 allocate(obj%mesh%triangles(max(1, count)))
                 call append_object(sc, obj)
                 call free_mesh(obj%mesh)
-                cur_tris = size(sc%objects)
+                cur_tris = sc%n_objects
             case ('tri')
                 if (ntok < 13 .or. cur_tris == 0) then
                     call warn_line(lineno, line)
@@ -1232,7 +1402,9 @@ contains
                 trk%loop = trim(tokens(4))
                 call append_track(sc, trk)
                 if (allocated(trk%keys)) deallocate(trk%keys)
-                cur_track = size(sc%tracks)
+                cur_track = sc%n_tracks
+                if (cur_track >= 1 .and. cur_track <= 4096) &
+                    key_counts(cur_track) = 0
                 cur_tris = 0
             case ('key')
                 ! key TIME PX PY PZ RX RY RZ SCALE EASE  (10 tokens)
@@ -1249,7 +1421,10 @@ contains
                               tok_real(tokens, 8)]
                 kf%scale = tok_real(tokens, 9)
                 kf%ease = trim(tokens(10))
-                call append_key(sc%tracks(cur_track), kf)
+                if (cur_track >= 1 .and. cur_track <= 4096) then
+                    call append_key(sc%tracks(cur_track), kf, &
+                                    key_counts(cur_track))
+                end if
             case ('ortho')
                 ! ortho SIZE -- Wave C orthographic camera (row 3).
                 if (ntok < 2) then
@@ -1475,6 +1650,19 @@ contains
             call free_mesh(new_mesh)
         end do
 
+        ! S2: loading is done -- trim every capacity-doubled array
+        ! back to its live count (per-track keys first, then the
+        ! Scene arrays) so size() equals the count again for all
+        ! readers outside the load path (key_eval reads
+        ! size(track%keys); main reads the Scene arrays).
+        if (allocated(sc%tracks)) then
+            do i = 1, sc%n_tracks
+                if (i <= 4096) call trim_key_track(sc%tracks(i), &
+                                                   key_counts(i))
+            end do
+        end if
+        call scene_trim_storage(sc)
+
         ! Wave A: assemble the unified LightSet (directional first,
         ! built from the legacy fields so defaults match v1 exactly,
         ! then any point/spot lights in file order).
@@ -1496,7 +1684,7 @@ contains
         ! Any object carrying an objmat/texture/standard material also
         ! routes the scene through the env path.
         if (allocated(sc%objects)) then
-            do i = 1, size(sc%objects)
+            do i = 1, sc%n_objects
                 if (sc%objects(i)%tex%loaded .or. &
                     trim(sc%objects(i)%mat_name) == 'standard') &
                     sc%has_env = .true.
@@ -1505,7 +1693,7 @@ contains
 
         ! Materials for 'tris' objects (their colours live per-triangle).
         if (allocated(sc%objects)) then
-            do i = 1, size(sc%objects)
+            do i = 1, sc%n_objects
                 if (trim(sc%objects(i)%prim) == 'tris') &
                     call set_object_material(sc%objects(i))
             end do
