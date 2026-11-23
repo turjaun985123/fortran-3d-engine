@@ -457,6 +457,20 @@ contains
     character(len=64) :: hex
     logical :: bad
     call list_files(dir, rels, n)
+    ! v3.0 Phase 6 (C5): the incremental-build manifest
+    ! (.f3dc-manifest-<stem>) is driver bookkeeping written into
+    ! the output directory, not a build artifact; exclude it
+    ! from the set comparison (cf. .ninja_log in a build dir).
+    block
+      integer :: m, j
+      m = 0
+      do j = 1, n
+        if (index(trim(rels(j)), '.f3dc-manifest-') == 1) cycle
+        m = m + 1
+        rels(m) = rels(j)
+      end do
+      n = m
+    end block
     bad = .false.
     if (n /= json_child_count(exp_artifacts)) bad = .true.
     do i = 1, n

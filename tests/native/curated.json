@@ -1,0 +1,1614 @@
+{
+ "about": "Curated golden set for Forge3D v3.0 Phase 6 (C3): 60 corpus cases selected from tests/native/corpus.json by a deterministic rule -- (1) the shortest case exercising each diagnostic code in corpus.json's baked 'codes' fields (17 codes: E101 E102 E103 E104 E110 E201 E202 E204 E205 E301 E302 E303 E401 E402 E501 E820 W101), (2) up to two shortest build-bearing cases per feature family (geometry, materials, lights, env, keys, particles, post, shader, skin, sprites/text, gltf/obj, cameras; family = keyword match on src), (3) filled to 60 with the shortest remaining build cases, then the shortest remaining cases. Case objects are copied byte-for-byte from corpus.json (schema: src / check / optional build, identical to corpus.json); 'corpus_indices' lists the original corpus index of each case, in ascending order. The selection rule lives in this 'about' field because the corpus schema's only metadata field is 'about'.",
+ "kept": 60,
+ "corpus_indices": [
+  0,
+  62,
+  76,
+  127,
+  185,
+  195,
+  246,
+  290,
+  291,
+  296,
+  303,
+  386,
+  389,
+  391,
+  393,
+  394,
+  404,
+  405,
+  408,
+  409,
+  410,
+  411,
+  412,
+  416,
+  417,
+  418,
+  419,
+  437,
+  466,
+  467,
+  477,
+  488,
+  507,
+  543,
+  544,
+  547,
+  586,
+  587,
+  592,
+  610,
+  690,
+  719,
+  725,
+  726,
+  727,
+  729,
+  746,
+  748,
+  749,
+  750,
+  751,
+  760,
+  774,
+  791,
+  811,
+  816,
+  817,
+  824,
+  840,
+  854
+ ],
+ "cases": [
+  {
+   "src": "\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "ca7d9e7bbf3262ffe3155cfa348601cee9fdbb97dc291ab9cbfadc0687179e22",
+    "stdout_len": 45,
+    "stderr_len": 340,
+    "codes": [
+     "W101",
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: empty program: injecting a default cube\nwarning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "959c08376667ae001cf5102ab269d4f43abfed5a21d1e1f0a2fa0dbcc0ea26ee",
+     "scene.js": "c736b70041a451b1eb54f264cd43d122390bf1eef117d5172a7ebf6ccd43ed91",
+     "scene.json": "e7fc3d016f09cce5c2b3977747c4ce8df9f58be2a8b5724fa6a085355507faea",
+     "scene.legacy.json": "97edd6189ffa476ea2e1debbd8189702a9f6af9194b466630e1a81392493a1ac",
+     "scene.scene": "76bc0ddc8da7e8c54598a5a6bc6a6daa55bc0671fe8491792b528f5d0779e527",
+     "scene_scene.f90": "033e519a39d2a4caad09eba55a83fb3b429f634ef0abd4269eaae359e7e6c326"
+    }
+   }
+  },
+  {
+   "src": "1,2",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "d440cf13c7d23d302cfaa8d746bae0cbe1042a059037944b9b7604ac962cb75a",
+    "stdout_len": 0,
+    "stderr_len": 54,
+    "codes": [
+     "E103"
+    ],
+    "stdout_text": "",
+    "stderr_text": "scene.f3d:1:1: error E103: expected a statement\n1,2\n^\n"
+   }
+  },
+  {
+   "src": ";\n",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "9211a9d07fa9714e4d09fa4e92bc660ff66f914655f3b25b86c6f6b47d61a830",
+    "stdout_len": 0,
+    "stderr_len": 86,
+    "codes": [
+     "E101"
+    ],
+    "stdout_text": "",
+    "stderr_text": "scene.f3d:1:1: error E101: unexpected character ';'\n;\n^\n  help: remove this character\n"
+   }
+  },
+  {
+   "src": "OK:",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "aa49569aff8b4ae88796428e88650ff8aaad5e3e77b8aa6c2136bc6cbb0dd31c",
+    "stdout_len": 0,
+    "stderr_len": 146,
+    "codes": [
+     "E104"
+    ],
+    "stdout_text": "",
+    "stderr_text": "scene.f3d:1:1: error E104: unknown word 'ok' -- did you mean 'bob'?\nOK:\n^\n  why: the compiler does not know this word\n  help: did you mean 'bob'?\n"
+   }
+  },
+  {
+   "src": "Tests for the Forge3D validator (tools/f3dc/validate.py).\n\nStdlib ``unittest`` only; standalone-runnable::\n\n    python3 tests/compiler/test_validate.py\n\nPrograms are built through the real front end -- ``parser.parse`` feeds\n``validate.validate(program, bag, base_dir='.')``, which returns an\n``IRScene`` on success and ``None`` iff the error bag holds an error.\nError-code families follow validate.py: E201 names/targets, E202 colour,\nE204 texture, E205 not-built-yet, E301 object/scene dimensions,\nE302 camera/light ranges, E303 animation/output timing, E501 missing file.\n",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "c140f5ef33617411df1e5cac86ded99c1b91cadd5e0b8044fd859be76c15244f",
+    "stdout_len": 0,
+    "stderr_len": 9796,
+    "codes": [
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E201",
+     "E202",
+     "E101",
+     "E201",
+     "E202",
+     "E101",
+     "E204",
+     "E205",
+     "E301",
+     "E101",
+     "E302",
+     "E303",
+     "E501",
+     "E101",
+     "E302",
+     "E303",
+     "E501",
+     "E101",
+     "E302",
+     "E303",
+     "E501",
+     "E104",
+     "E104",
+     "E104",
+     "E104",
+     "E104",
+     "E104",
+     "E104",
+     "E201",
+     "E202",
+     "E104",
+     "E204",
+     "E205",
+     "E301",
+     "E104",
+     "E302",
+     "E303",
+     "E501"
+    ],
+    "stdout_text": "",
+    "stderr_text": null
+   }
+  },
+  {
+   "src": "The validate triangle estimate for one compiled IR object.\n\n    The props are the object's normalised geometry payload (the same\n    dict ``validate`` folds into its E820 estimate), so this is the\n    compiler's own estimate for the object as compiled, checked here\n    against the closed-form Fortran formula per primitive.  The\n    ``ext_geometry`` entry point (which ``validate`` delegates to for\n    the Wave D prims) must agree exactly.\n    ",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "1359a4375d567e962cf721a72ffa8e6027f66d81cb08bc68ebb1f31c8c15f14d",
+    "stdout_len": 0,
+    "stderr_len": 4922,
+    "codes": [
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E820",
+     "E101",
+     "E820",
+     "E101",
+     "E820",
+     "E101",
+     "E820",
+     "E101",
+     "E820",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E104",
+     "E104",
+     "E104",
+     "E820",
+     "E104",
+     "E104",
+     "E104",
+     "E104"
+    ],
+    "stdout_text": "",
+    "stderr_text": null
+   }
+  },
+  {
+   "src": "bad.glb",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "5d6cf190e0d0e86527bf194951d6f70873a37ba9eafbcd20b511c1740042bd06",
+    "stdout_len": 0,
+    "stderr_len": 246,
+    "codes": [
+     "E101",
+     "E104"
+    ],
+    "stdout_text": "",
+    "stderr_text": "scene.f3d:1:4: error E101: unexpected character '.'\nbad.glb\n   ^\n  help: remove this character\nscene.f3d:1:1: error E104: unknown word 'bad' -- did you mean 'end'?\nbad.glb\n^\n  why: the compiler does not know this word\n  help: did you mean 'end'?\n"
+   }
+  },
+  {
+   "src": "camera ortho\ncube red\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "7904a8bb9a2594e535e355e015ff499586feece826960265cc62d95decb3c147",
+    "stdout_len": 45,
+    "stderr_len": 182,
+    "codes": [
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "3eb80af7cf86550a46565423ee74f5825d6d2c26fc181e18d3d90d0ef218a500",
+     "scene.js": "e008136ad233668314ee5bfdbc4286c7c35b902052b97add9b2b5e337c869f17",
+     "scene.json": "a7fd5cfa16273e8641fa1259891bc9fc4c09ab09bc73df7df2dbff598a94aaba",
+     "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
+     "scene.scene": "a8054afa6d847314bff377c761f7e83ea6c3095dfa6e0e603a885ca0bd05ec06",
+     "scene_scene.f90": "d41cbf8bd4a835ea3d53cafc6e2969746ff5167ec7d24906b7920c9b68393510"
+    }
+   }
+  },
+  {
+   "src": "camera ortho size 12\ncube red\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "7904a8bb9a2594e535e355e015ff499586feece826960265cc62d95decb3c147",
+    "stdout_len": 45,
+    "stderr_len": 182,
+    "codes": [
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "ed1a2216d01efac5cbc26481d73dbd7b03473840e015faf0a7585200a6d9f297",
+     "scene.js": "516001c5c9351718bb1f1b30b811d8963c8c1b6efd5ac00b6f5e977c3fd443a7",
+     "scene.json": "39dc71f0e934d827c42ddc03b42d93210d8be8e0c5ba345e2da7acb46539bff9",
+     "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
+     "scene.scene": "1d9a823f31a5ae2d8b8257d4128258e70521dec58976fa3888f0f4db9025babf",
+     "scene_scene.f90": "cfe7cbb954b5601e7ce5cafec6d2d806593d76624f84fd15f6a567681a2e8e53"
+    }
+   }
+  },
+  {
+   "src": "capsule yellow\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "a2ff3ff6d11f407d09b1f38530aa2a6dae44c5238da92532762937ad572ada48",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 46,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 256 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "00586e0247f58e98c06e0b2ea5b2f6cc8e95e058534e558ae0311840f13b4099",
+     "scene.js": "442483917995a10b5f2d0df951d330be1702b9d6a95b1f830a6f3357a902336e",
+     "scene.json": "37c7860f0bca9188c18ee5ca83bc0f00c3d0f59e0a52a0f6a5bd8ac83885f45c",
+     "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
+     "scene.scene": "039e9ecb11b9762f0a4f45dd83ff353090885929c246ddc46529e4cd431de6ea",
+     "scene_scene.f90": "efebe74320af595339f96e7c8ad0e0d3e34ea6e1047468ec0253be605ac10a04"
+    }
+   }
+  },
+  {
+   "src": "circle red\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "0c9c3b0e2258a31c98820b426a5314feedd5a2600e9d18062490a4fee2643403",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 45,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 64 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "aea6d734f0d97dc3097267bdff8a6425441d0ee1f09107335595c1e7a0642f97",
+     "scene.js": "2abb50e9958ee862c30233d5d1a7b88361d6418c8fadbdd04dc10ccbb659936f",
+     "scene.json": "42355f762805a07e934b6e2ccba65b94708765a4db05e828b8eabab312dd9629",
+     "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
+     "scene.scene": "fdb94fdab8d7218aeabaaca92f6e17a0fa22211ac42e34d794acaefcfa4c366e",
+     "scene_scene.f90": "b29303b8284a7370b49720b4eaf57909c344cbfe90471cd0c6f413841d626797"
+    }
+   }
+  },
+  {
+   "src": "cube\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 45,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "959c08376667ae001cf5102ab269d4f43abfed5a21d1e1f0a2fa0dbcc0ea26ee",
+     "scene.js": "c736b70041a451b1eb54f264cd43d122390bf1eef117d5172a7ebf6ccd43ed91",
+     "scene.json": "e7fc3d016f09cce5c2b3977747c4ce8df9f58be2a8b5724fa6a085355507faea",
+     "scene.legacy.json": "97edd6189ffa476ea2e1debbd8189702a9f6af9194b466630e1a81392493a1ac",
+     "scene.scene": "76bc0ddc8da7e8c54598a5a6bc6a6daa55bc0671fe8491792b528f5d0779e527",
+     "scene_scene.f90": "033e519a39d2a4caad09eba55a83fb3b429f634ef0abd4269eaae359e7e6c326"
+    }
+   }
+  },
+  {
+   "src": "cube gold",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "09304a8c6cc1ccdd8a89f0210e8421361180246ff20502993d1ea2a61ad48bbe",
+    "stdout_len": 0,
+    "stderr_len": 369,
+    "codes": [
+     "W101",
+     "W101",
+     "W101",
+     "E202"
+    ],
+    "stdout_text": "",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\nerror E202: unknown color 'gold'\n  help: use a named color, #rrggbb, or rgb(r,g,b)\n"
+   }
+  },
+  {
+   "src": "cube green\nrender\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 45,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "e8a1f2265129ae67ba751948dabaa2a3f735f72037bc40c252103570cc14270d",
+     "scene.js": "4ead3f5d01e8b384a4c43e9e39d6d7e62076b7e8465623aaca4ff6e83e645824",
+     "scene.json": "93a6afce61934e59e9da33f983a064a2bb367c238a559f58de8f82e0d8fae31d",
+     "scene.legacy.json": "45ff7bf9c1e3140f6aecc8c316408e1da36215dc09c8921400249d10fd273f94",
+     "scene.scene": "76ab69e58f83c2eeb6b4afada35f9993b5b55d35ba7a2725aa046d88696d6c71",
+     "scene_scene.f90": "a5f83acdbb8b3fa9290013f18ea8c350dd0667436f004933de4a8e59461c18ac"
+    }
+   }
+  },
+  {
+   "src": "cube hero red\nbone spine\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 45,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "23bc4fec55ea7220cafb06e02a1db20d744dada210a77982990e70795531a9a4",
+     "scene.js": "80ea20e22c212552623f31342c5749e383aefb0d27ba6391944fd4a1c2d7093a",
+     "scene.json": "b1b4b2c0bee46b1709bb90f96046d031ef5672c7fb82b8c782102d545497f50b",
+     "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
+     "scene.scene": "00a8cd74611581e7051dae81f01f30f10c28fd38a1ea0f35209539cb4b58a62e",
+     "scene_scene.f90": "3fa4ef4bd43c100147103907b6ba8d49e493bd7155ebf0a6ff50794ec038b008"
+    }
+   }
+  },
+  {
+   "src": "cube hero red\nbone spine\nbone arm at 1,2,3 rotate 10,20,30 radius 3.5\nmorph hero bulge 0.5\nskin hero spine\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 45,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "a4987a016310ca0814fa6e14ea3d9c5a8a36c815acd8db621b65100bdbec8f26",
+     "scene.js": "209d57c4716c6f0ad282cfce2c042b1495078c923f2b33ad36c0700c6efbccdb",
+     "scene.json": "d908a5fde5a3514d1955948e43a5a2d397a9b278199e4d20614933d712059e3c",
+     "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
+     "scene.scene": "5e8a8af7fb2abec0b524fbcc579e05ccf0b4edb3c7c5c4b8bf99629b7a14766d",
+     "scene_scene.f90": "e18f3637fe1f3412727bcd8da37833ba8262e18da14179be0b0f230c5b1132b6"
+    }
+   }
+  },
+  {
+   "src": "cube red",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 45,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "660a66bc04c064216acfb1debae34897eea74ea4455a2df29459b845b83f4619",
+     "scene.js": "b2905e298efd81deea6d9ae0fe179774c9878fb18fd04018931dfb63d569b331",
+     "scene.json": "4f6ca837d82d65631a0b3295833a980e4e7e5c055246276bdfd82996ce148936",
+     "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
+     "scene.scene": "ddc85d55f1e9e2c444254f8acff40f956fe3901c494d36e6d719c87c59401b3e",
+     "scene_scene.f90": "38adef571e575b5ec98ecef4516153e96b143b3510f34c8483905a2b7905e631"
+    }
+   }
+  },
+  {
+   "src": "cube red\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 45,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "660a66bc04c064216acfb1debae34897eea74ea4455a2df29459b845b83f4619",
+     "scene.js": "b2905e298efd81deea6d9ae0fe179774c9878fb18fd04018931dfb63d569b331",
+     "scene.json": "4f6ca837d82d65631a0b3295833a980e4e7e5c055246276bdfd82996ce148936",
+     "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
+     "scene.scene": "ddc85d55f1e9e2c444254f8acff40f956fe3901c494d36e6d719c87c59401b3e",
+     "scene_scene.f90": "38adef571e575b5ec98ecef4516153e96b143b3510f34c8483905a2b7905e631"
+    }
+   }
+  },
+  {
+   "src": "cube red\nspin it\nrender\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 45,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "d4aa5a6402ed2585d2d764840a7340647f07d1dfa87529298c534f730ada2284",
+     "scene.js": "c5f409cba7f8fc95bde84a54037041f178fcf3de9edbdc02d9fa6514461101ef",
+     "scene.json": "d3980294aaf012c2b380df2c1f06744dc0ac8572963d22d0a473eedca27031d8",
+     "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
+     "scene.scene": "9f9df6c2edfe9c1ed3e34ffdc687bfc3d719693edf26d4911ba598170d18d66e",
+     "scene_scene.f90": "e4f100b203e7b23987621d7fdc28e07761755523642d097ebbc0f1795798b9e5"
+    }
+   }
+  },
+  {
+   "src": "cube red\ntorus blue\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "819439706f5a5d3693f5a8c7e24990ce6c66e118212eb473dca019ac56e497f0",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 46,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (2 objects, 588 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "8a629ff5702520555e8947b93c21672a977e7785bae8c95d90e055fdaecfddde",
+     "scene.js": "4450aefa41f94f4514b795d6fa7bf64419a177836a23448109e60ae51c7925f9",
+     "scene.json": "d980e6888d2936030c56e0259b644c77ead83477d9a467ff64eb7b74075d0bd7",
+     "scene.legacy.json": "28ebbb089e4a0b7a24b5de82228138cc01132bbdc9141f01a550beb2b11e781f",
+     "scene.scene": "d7c73f77d9ad6f4138640f1cfa88b8c780228e7626801600c9b44196d460534b",
+     "scene_scene.f90": "e4b0097b26b24d2df227e511bbab2170cade22a6152fa683b90878e353bdcf57"
+    }
+   }
+  },
+  {
+   "src": "cube red at 0 0 0 at 1 1 1\n",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "1dbdaa3d64ed6f1fd73b7957094d3f0dd7ff5e402b9eb43d659ee71333635843",
+    "stdout_len": 0,
+    "stderr_len": 90,
+    "codes": [
+     "E110"
+    ],
+    "stdout_text": "",
+    "stderr_text": "scene.f3d:1:1: error E110: 'at' given twice in one statement\ncube red at 0 0 0 at 1 1 1\n^\n"
+   }
+  },
+  {
+   "src": "cube red at 0 0 0 size 2",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 45,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "660a66bc04c064216acfb1debae34897eea74ea4455a2df29459b845b83f4619",
+     "scene.js": "b2905e298efd81deea6d9ae0fe179774c9878fb18fd04018931dfb63d569b331",
+     "scene.json": "4f6ca837d82d65631a0b3295833a980e4e7e5c055246276bdfd82996ce148936",
+     "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
+     "scene.scene": "ddc85d55f1e9e2c444254f8acff40f956fe3901c494d36e6d719c87c59401b3e",
+     "scene_scene.f90": "38adef571e575b5ec98ecef4516153e96b143b3510f34c8483905a2b7905e631"
+    }
+   }
+  },
+  {
+   "src": "cube red material standard\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 45,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "9ba2fe42fd220475284d99951cb584a402cdc99e3761107f351bf931c76a1bca",
+     "scene.js": "847608f7d62a8f0b6bf811c167f44a679a62f3608452e8dffa6ca12c8c6eebc2",
+     "scene.json": "3e8589c169f15afc3d75a225b68e74c96b36b95c2d3f16cdc3b23606350895d7",
+     "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
+     "scene.scene": "88e639691660a15949a360126df1bf1a7b30bfafa689a421753078df51a04de1",
+     "scene_scene.f90": "bc8ea0d6a08ce398308a7b1bf72b57ba05c2147fedc1d6a762c66c6ed5b215ad"
+    }
+   }
+  },
+  {
+   "src": "cube red texture \"checker.ppm\"\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 45,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "6bf7f4505e99625e895fc93f1207cf6476591faec7478f97f09730b8a1153c25",
+     "scene.js": "f7cf1fca091b2386d37206bf466aceae6e5d44fc2aea690f69a7b62210831b00",
+     "scene.json": "a59c664ca72293eb305ae40822329ab966666ec33676aa9dfbe6eebd3e83874a",
+     "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
+     "scene.scene": "4654965a91799e02045590cccc4c04c8cc8ca7d535d5a530f4e6b98c984baeb5",
+     "scene_scene.f90": "e9cc1e172aa8857cb364836deb51fa21cc656355153cb3493fcbf1d5b7a98fc9"
+    }
+   }
+  },
+  {
+   "src": "cube red texture \"missing.ppm\"\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 45,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "155977567632776447832a6e3c9ff7ed2f74301f0f1abbc9c7a043af6bd505c6",
+     "scene.js": "87c3480f3deab7ec6bf3e4e8d5b7349f7baad1918c1090bf7113c2233b800a42",
+     "scene.json": "34bd326b1551abeba133dbc065f0561b3d711cdae4f4786de030f8ceb619d551",
+     "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
+     "scene.scene": "d25a3c8123df729c1af3ef5f5449fd9e4bac81012665ecd05fa69684b676da67",
+     "scene_scene.f90": "e221a9ea56d3b57dfcc07f86486284a3aed7194f0b944954c9a16a36224f842e"
+    }
+   }
+  },
+  {
+   "src": "cube red texture \"wood.jpg\"\n",
+   "check": {
+    "exit": 3,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "6647db36ca704b1bc3e7fdce92249e5078624032a513e883ce6166a0dac3de89",
+    "stdout_len": 0,
+    "stderr_len": 392,
+    "codes": [
+     "W101",
+     "W101",
+     "W101",
+     "E501"
+    ],
+    "stdout_text": "",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\nerror E501: texture 'wood.jpg' has unsupported extension '.png': only .ppm textures are supported in Wave A\n"
+   }
+  },
+  {
+   "src": "cube rgb 10 20 30\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 45,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "a589f1506438ef472deb91b871b4c4c35b3f36d4aec8cfa9409de316b7ea4ad4",
+     "scene.js": "22e373f848a49b78857ffbe8cc453afa22d95027b431ecc9bb5cff24c1de43c1",
+     "scene.json": "c82c8a365369b7d8915cee53bc156b1622a32da00a1897e5062e8183bf836a8b",
+     "scene.legacy.json": "30fe70e0fbdc14f4116fdab902ccaa1f17589af5e47f731e45189f440746e0ea",
+     "scene.scene": "ebf5123feb6385e0562e0133868401126a57dbd8d7e09af57ff7404da40c983e",
+     "scene_scene.f90": "c8f6cc8a59119082ca68f4774576d498bb2fe60f1e5147d8ea7c14a78da6543c"
+    }
+   }
+  },
+  {
+   "src": "end program",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "ca7d9e7bbf3262ffe3155cfa348601cee9fdbb97dc291ab9cbfadc0687179e22",
+    "stdout_len": 45,
+    "stderr_len": 340,
+    "codes": [
+     "W101",
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: empty program: injecting a default cube\nwarning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "959c08376667ae001cf5102ab269d4f43abfed5a21d1e1f0a2fa0dbcc0ea26ee",
+     "scene.js": "c736b70041a451b1eb54f264cd43d122390bf1eef117d5172a7ebf6ccd43ed91",
+     "scene.json": "e7fc3d016f09cce5c2b3977747c4ce8df9f58be2a8b5724fa6a085355507faea",
+     "scene.legacy.json": "97edd6189ffa476ea2e1debbd8189702a9f6af9194b466630e1a81392493a1ac",
+     "scene.scene": "76bc0ddc8da7e8c54598a5a6bc6a6daa55bc0671fe8491792b528f5d0779e527",
+     "scene_scene.f90": "033e519a39d2a4caad09eba55a83fb3b429f634ef0abd4269eaae359e7e6c326"
+    }
+   }
+  },
+  {
+   "src": "f3d-shader.js",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "fc35cd477b50126038c9b2bf4417f77bb494022d1c90bb92a61b609630c9c8ba",
+    "stdout_len": 0,
+    "stderr_len": 178,
+    "codes": [
+     "E101",
+     "E104"
+    ],
+    "stdout_text": "",
+    "stderr_text": "scene.f3d:1:11: error E101: unexpected character '.'\nf3d-shader.js\n          ^\n  help: remove this character\nscene.f3d:1:1: error E104: unknown word 'f3d-shader'\nf3d-shader.js\n^\n"
+   }
+  },
+  {
+   "src": "f3d-skin.js",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "b162abfb43ec53411760ec10016bf6d79a87aba3ef4ace97def7b20cffeec715",
+    "stdout_len": 0,
+    "stderr_len": 169,
+    "codes": [
+     "E101",
+     "E104"
+    ],
+    "stdout_text": "",
+    "stderr_text": "scene.f3d:1:9: error E101: unexpected character '.'\nf3d-skin.js\n        ^\n  help: remove this character\nscene.f3d:1:1: error E104: unknown word 'f3d-skin'\nf3d-skin.js\n^\n"
+   }
+  },
+  {
+   "src": "filter bloom 0.6\nfilter vignette 0.4\nfilter gamma 1.2\ncube red\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 45,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "4ca6ef9321354c8444186bb12d18ac7820d1aae14ae1ec8b037272663eb31506",
+     "scene.js": "b6a5b774888186ce0cec1c314e8d51917b7f3a254dde2b72b9cdba3f2094546c",
+     "scene.json": "70a2c54738c2ecf9b77ac83633f8ba0f78a94e55d530f107fae33eb04b5b8030",
+     "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
+     "scene.scene": "5c6484a35e756e395c89a152e6381aaae340d6569d4628d464e553ee41bb17db",
+     "scene_scene.f90": "5cb3098802e3ff71e14e9188c57a96437d409378d264bf905335c670c09eae43"
+    }
+   }
+  },
+  {
+   "src": "filter vignette 0.6\ncircle red radius 2 rotate 90 0 0\nrender still\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "0c9c3b0e2258a31c98820b426a5314feedd5a2600e9d18062490a4fee2643403",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 45,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 64 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "a5748466f3df5b9663b528d4cd60443dcf8b01eebd5a6a3a6aab487617e7f68c",
+     "scene.js": "5df23453691dd3cc3a868f53a2c8b46145963e8b73db8f2f36f0ea937ab7b292",
+     "scene.json": "85b3f9bac82089fdc01a2a53269548a21b96faa5a3ba9c3ab793b45098694aa1",
+     "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
+     "scene.scene": "ca047bf52011e4838f29ff3104d61c06e535ca1565c857f5998112112fa3ee00",
+     "scene_scene.f90": "c3e650e1379d7d784063db2a119fe7faf6f00c73b9f0610e973af26b43a6306f"
+    }
+   }
+  },
+  {
+   "src": "for (let n = 0; n < 50; n++) {  const u = P.hash01(3, n, n % 3);  assert.ok(u >= 0 && u < 1, 'range: ' + u); }",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "9ae0c854fa61f5fbe5ebfa462918c9e91d2be70c0f779931d825391ff1954ec1",
+    "stdout_len": 0,
+    "stderr_len": 7380,
+    "codes": [
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E101",
+     "E205"
+    ],
+    "stdout_text": "",
+    "stderr_text": null
+   }
+  },
+  {
+   "src": "grid 2 x 3 cube blue\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "fbe009872ac86655a84bf03c8b44fc1033a37a7817dcc8f06c99bd7d160678eb",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 45,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (6 objects, 72 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "98fa1c3c6bfff1f885a50951e4366589064b025aa05805289ef81edb1cfeeffa",
+     "scene.js": "ebae6dfccb9995b5c6012eec853d1e39b2e921bdbecaaf8c4aa14ef5a3342024",
+     "scene.json": "321ddd2dae142bc182cf66a11dd12d2412fb527127aaad01680cce6067df7fb4",
+     "scene.legacy.json": "ecec21c3e7ae2f614cab3a1927ebeb729752e9a3d88926781fff11b21702b21c",
+     "scene.scene": "7c3fecec2ad1a21b8ea22af4a56631ab58bfc9fe4894993c26bcedc3a558907a",
+     "scene_scene.f90": "39cc7fe968b4c9aad7a76d936626f155c868f66d59fb2c23d8c29257531b608d"
+    }
+   }
+  },
+  {
+   "src": "grid.f3d",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "c403f15cfe202e84b4e6bd503fa62bc391499ad8d81915b89e0c18c8fe2d38be",
+    "stdout_len": 0,
+    "stderr_len": 178,
+    "codes": [
+     "E101",
+     "E102"
+    ],
+    "stdout_text": "",
+    "stderr_text": "scene.f3d:1:5: error E101: unexpected character '.'\ngrid.f3d\n    ^\n  help: remove this character\nscene.f3d:1:1: error E102: expected a number for grid rows, got 'f3d'\ngrid.f3d\n^\n"
+   }
+  },
+  {
+   "src": "group.f3d",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "1a67daff13b2ab597841ae8655341906ad948de52c9b013dd2f0c76826404a9f",
+    "stdout_len": 0,
+    "stderr_len": 171,
+    "codes": [
+     "E101",
+     "E401"
+    ],
+    "stdout_text": "",
+    "stderr_text": "scene.f3d:1:6: error E101: unexpected character '.'\ngroup.f3d\n     ^\n  help: remove this character\nscene.f3d:1:1: error E401: group 'f3d' has no closing 'end'\ngroup.f3d\n^\n"
+   }
+  },
+  {
+   "src": "light point at 3,4,3 intensity 2\ncube red\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "a9291db54ee309c168110aad32dca0657ab1db6a51434eeecdbeb114e3b3430e",
+    "stdout_len": 45,
+    "stderr_len": 181,
+    "codes": [
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "f258afc74f4a39099aef254b388a4bd938004b802f4adeb5b9b472f7d40cea55",
+     "scene.js": "4087fa0bcf69a7a1383fbd72d65496b72f3b9a81f65013be22e883ed05c978ae",
+     "scene.json": "0cb0142072287d9956b233afe05c6655631c7d5650fa7a7699015c1735381369",
+     "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
+     "scene.scene": "164868fb85a6ce02199fe3ac723f98274d698faf4359e682f7778146187eafb8",
+     "scene_scene.f90": "c5ae062eb3fd1806b9b9a3ef7d4d3fe914fd059b476c8104007b9156e9f37c14"
+    }
+   }
+  },
+  {
+   "src": "light spot",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "c94da7aeac7400ea6295741c43d3ee2a715449e7393bc5b2721eb15f20105fba",
+    "stdout_len": 0,
+    "stderr_len": 436,
+    "codes": [
+     "W101",
+     "W101",
+     "E302",
+     "E302",
+     "E402"
+    ],
+    "stdout_text": "",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nerror E302: spot light requires a position: 'position' must be given (via 'at' or 'from')\nerror E302: spot light requires a target: 'target' must be given (via 'look' or 'target')\nerror E402: this scene has no objects to render; add a line like: cube red\n"
+   }
+  },
+  {
+   "src": "light spot at 0,5,0 look 0,0,0 angle 30 penumbra 0.5\ncube red\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "a9291db54ee309c168110aad32dca0657ab1db6a51434eeecdbeb114e3b3430e",
+    "stdout_len": 45,
+    "stderr_len": 181,
+    "codes": [
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "4e0d15f7e38d7c773057cf5d977177953fa65df33e9d1e1485867777ea6e7757",
+     "scene.js": "73f7e9da962421b54630ee8c2168e8cae206bc62090759f9c6a6dff6cf4f1b1d",
+     "scene.json": "383a8f6fb8da6f189bbc00c6bdf0e32c77118b92a58c13149fd1ca8eda1f4332",
+     "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
+     "scene.scene": "33fca34feb7b14d0c7f13908f9cdcd5dc26645f992911076ae0fa190466e0b16",
+     "scene_scene.f90": "1dc230d9e7f614a1a02dcd86c51ee4c6dc06a85e8c65baa32e1fb1c9dbfa1994"
+    }
+   }
+  },
+  {
+   "src": "model.glb",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "fc07763e56f86ea151dccc2d0ef03400fd8e51a31af109cb673a434f5aed2bed",
+    "stdout_len": 0,
+    "stderr_len": 256,
+    "codes": [
+     "E101",
+     "E104"
+    ],
+    "stdout_text": "",
+    "stderr_text": "scene.f3d:1:6: error E101: unexpected character '.'\nmodel.glb\n     ^\n  help: remove this character\nscene.f3d:1:1: error E104: unknown word 'model' -- did you mean 'move'?\nmodel.glb\n^\n  why: the compiler does not know this word\n  help: did you mean 'move'?\n"
+   }
+  },
+  {
+   "src": "particles sparks at 0,2,0 count 100 life 2 speed 3 size 0.2 color orange spread 0.5 gravity 9 seed 7\ncube red\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 45,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "0be5b38c5aa919ae41f690beca4318abc60643940061328a24a1b4dbdf68223a",
+     "scene.js": "4ab17a7e2263f6522f7198682aacb75308550a4dd26036c5f228bc72b10d4234",
+     "scene.json": "defb24f649c00154cb869fe8c637d5740e4883e3565f70b845623e1eb82f52f6",
+     "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
+     "scene.scene": "154a9ccb8c4b9a84e17ecc0870aef50400f49664149b641519b9cace0970e8d9",
+     "scene_scene.f90": "71d4e8f2d47693fb88a3200f2caeeb65e06f063066ed627e344f83ee1bca581a"
+    }
+   }
+  },
+  {
+   "src": "repeat 3 cube red\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "fa3f97bd16844af73608636852bed5dbdaa81874d471dc7610916d4330d79cd2",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 45,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 36 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "ce45ca6cadd85f4df7f2a7f3ec0d5558c99ff436dd8d9f43888f45982c6a4f1d",
+     "scene.js": "06c6a0ccfc2671eb29295ce7fe3d17c1f895fab434e2b570b27ee43ab1db9290",
+     "scene.json": "36a199dd27adf9654bd939d9a58db438b5d9466c8c7d18f8e1abc5450eca6f96",
+     "scene.legacy.json": "ad7d164a4c491750ec0ce0f8ea9a0eb090b57ff6095070c3731e30389955a9c3",
+     "scene.scene": "9840dbf5674f738d6aff45903ab58deb93c61427cb9506d5634ca8c5655c396f",
+     "scene_scene.f90": "e3da6b07645df0172575da3131051e8375faa79b76ea5eea793db844ad2ec09b"
+    }
+   }
+  },
+  {
+   "src": "ring 4 sphere green\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "385d63096a71b299abec0cfce36c5b2fecbdc96755331abf473e4365acd5a136",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 47,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (4 objects, 1408 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "3885a29e1997507a0eac24667a726f6d26ad803ed1e72d3a0d17ac286ad639fe",
+     "scene.js": "cc3c5bdb8e4dd3d5ed80cfaabed8ddc2e7440183cfef2d332497114304b4b309",
+     "scene.json": "19d1ac25f2ee4b569cbf8c0c4e31507b03115cfbc36e1853223f70028064e661",
+     "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
+     "scene.scene": "ca41d984cafdc4c0ab93ccd81f784796ea4b2cdf65127c50581c32fc58c8c0f3",
+     "scene_scene.f90": "0a336d13c49445bd0ed7a00fd759bb1fa77e708f6438a33be3b0d3fc03afec4e"
+    }
+   }
+  },
+  {
+   "src": "ring blue\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "e04ebfdaf874a15141899b1b9e86727abcc41cf69570347062c639f72a9e436b",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 46,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 128 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "5b7cb3efa99d9703e87bc1a1ffe6434c516214e93d3ac0df38c06bc60936a940",
+     "scene.js": "1643a5fc0be75d23e0acd26fa1032c5cd7bc26a393b5f0e3779ca66e65aca39d",
+     "scene.json": "d99d4b855a81ff2c68f98a56690143e69a3799486613a78f695980cf7a90cf5e",
+     "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
+     "scene.scene": "9e5766c52367670c60e89c898297af74a509dceeaede118354cd579400bc1131",
+     "scene_scene.f90": "f9096dbc2df10d5eec1dcb3d56c39e2bd331d8a108d80b8e6e30c7d603302c62"
+    }
+   }
+  },
+  {
+   "src": "ring green outer 3 inner 0.25\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "e04ebfdaf874a15141899b1b9e86727abcc41cf69570347062c639f72a9e436b",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 46,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 128 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "00a9f4579cf4640cbeee4a50943e56545683789d87a2bc78baf616bf5e91962c",
+     "scene.js": "8e35ef6e4f51587315b1b8b132ab514cdab477aedfba947f0e8198fcf81cb28f",
+     "scene.json": "507e45d3c9318a9a14fe4895b0dbd8fb54c47db0aaf5d4cf3530e9722ffc44b8",
+     "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
+     "scene.scene": "494e71d25b2d3b1874c352504aa5ee484acbd34e7e8e8319ed98a251c8f04493",
+     "scene_scene.f90": "a17ab1e5d71c3a8995f6ae9f57dad3ba9b6247df4c6c158c445c0ca0394d1925"
+    }
+   }
+  },
+  {
+   "src": "ring inner 0.5 outer 1 red\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "e04ebfdaf874a15141899b1b9e86727abcc41cf69570347062c639f72a9e436b",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 46,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 128 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "3aa93a84cc626f08a08d692ec65d8970b0adc3742b0dbe79e9975e924dad9e59",
+     "scene.js": "be122b57b767991c14bd23b5c27340d1f8c6435dc3a570713a9bc7f10607b185",
+     "scene.json": "91394fb809f4047f9fe07ce4d7fe6b1baaacb913ecc50a56027e9603c9f2d424",
+     "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
+     "scene.scene": "441d974353c64e2cfc8d9b583052fd42e5e7a86791effea0a603ded58912194f",
+     "scene_scene.f90": "4a7f98743020f61885c3eeb9e9d4e46dc3103aaf34a57b9a6fa71e6294be172b"
+    }
+   }
+  },
+  {
+   "src": "scene fog exp2 density 0.05\ncube red\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "fd092aca5f294097e5abfe97c425642d2c61129955ad9cc45d809ebc65e335c1",
+    "stdout_len": 45,
+    "stderr_len": 209,
+    "codes": [
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "4488d0dfcd07454557acbd725d8e90de40b0927990f1010e0d8ef189344cfe0c",
+     "scene.js": "aee7f68c587ec9e0264f4484e487f831060765eef2985ab79169a33fad31a8bf",
+     "scene.json": "5de1345c586b8f1b0ac6025967bc927db8685a256815cf59357cf6713c8bd0cc",
+     "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
+     "scene.scene": "5415db043a6d484439ac93f5609a211f5666ec19f063d58e66c5a78a5c7ff509",
+     "scene_scene.f90": "5526c547d0d7b8cc888448873956bf1df6d81928be7d3cefc3be433dfa266d7a"
+    }
+   }
+  },
+  {
+   "src": "scene fog linear near 8 far 30\ncube red\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "fd092aca5f294097e5abfe97c425642d2c61129955ad9cc45d809ebc65e335c1",
+    "stdout_len": 45,
+    "stderr_len": 209,
+    "codes": [
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "09178e213d4969d382928b21c735b4490171ca78ec860b6c5ca2b784cb754b48",
+     "scene.js": "513f1d4002073055987b758cf4b9a152b93d47d7b97b4d14161d4a1995066765",
+     "scene.json": "84c8a79f1bcaff8f9ea66b44b6fdc15373a7ffbf23e18ad1c5ad09e3890d32c5",
+     "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
+     "scene.scene": "cc6f9c389d1ff626eec2ea7c326efff7fc8e3e786ae4bf85d2b72ef685ff88ab",
+     "scene_scene.f90": "33e0f99407eb63f39d23ce6a58bb2bc02c2a355f96e7853d3068652238a9d653"
+    }
+   }
+  },
+  {
+   "src": "scene shadow on\ncube red\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "fd092aca5f294097e5abfe97c425642d2c61129955ad9cc45d809ebc65e335c1",
+    "stdout_len": 45,
+    "stderr_len": 209,
+    "codes": [
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "1611ce40c358b7d436bae197bde24cb54b7ae3ddedbbb85cd932226e11b5abd4",
+     "scene.js": "4736a1ee8b5430b32b237f817dafc4d34baaf2550d07a9223e9138485ab0c4f6",
+     "scene.json": "80ce7dc86823a343eeec38fd51ec5eaf25782998466a2b005a5c2e0c702cd92d",
+     "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
+     "scene.scene": "d40ae814d8067e4f3eee4d444f6a51ecc45a029d5b6ca54e944a29274d27705a",
+     "scene_scene.f90": "60d44cf371fe0b9613ae04568b641c1172cdb61c33f7cbde41f1980f70d795db"
+    }
+   }
+  },
+  {
+   "src": "scene shadow on 1024\ncube red\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "fd092aca5f294097e5abfe97c425642d2c61129955ad9cc45d809ebc65e335c1",
+    "stdout_len": 45,
+    "stderr_len": 209,
+    "codes": [
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "0d8543068b26719f19c228e7b9666af51d4459ac6d1eda417bfa35e4813ca35c",
+     "scene.js": "35f97aeda208b1c456abbfa164a0dac01f13bb853ae70e49b88f6e012c153c8e",
+     "scene.json": "05243f6a4fc7c6bfb336e7f3e78d43771404ffa55c8f5cedb1ac2c59992720b9",
+     "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
+     "scene.scene": "ba890ce475c8c4871b487972722b6fd81bb60dc5d195d477095895b9a7d0cc9f",
+     "scene_scene.f90": "7f4d0e8ff79a54f815d135114dbee6d3adc67155d630cc49ffcc0cef7a57765d"
+    }
+   }
+  },
+  {
+   "src": "scene shadow soft\ncube red\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "fd092aca5f294097e5abfe97c425642d2c61129955ad9cc45d809ebc65e335c1",
+    "stdout_len": 45,
+    "stderr_len": 209,
+    "codes": [
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "4ea1268afbda1fb58fff04532ac8c98932446a2d49c3296d341af2022cecacb8",
+     "scene.js": "8023eb54d4e6974f552c521040658d8061fd4b1d0f302b7c0b2f6ef991eea4fe",
+     "scene.json": "7d51d4841356fcc334e6cf833a263ab070c028dca82908e92d0bc35704fb8c79",
+     "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
+     "scene.scene": "3af4f539a242c972eb2e1902ef70f2a0cd88635ed1bc5a7614846675c78ad8d5",
+     "scene_scene.f90": "828fa47c3c437ab9fd4b3820619b300e2bc48e4896042d927d80ec7e92e19013"
+    }
+   }
+  },
+  {
+   "src": "scene size 160 120\ncamera at 6 4 9 look 0 0 0\ncube hero red at 0 0 0 size 2\nparticles fountain at 0,2,0 count 100 life 2 speed 3 size 0.2 color orange spread 0.5 gravity 9 seed 7\nrender still\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 45,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "46c6bffcfee3dc6c56c4c04d7cf60f143d92a17910716b53b02a2cd1dfb298f6",
+     "scene.js": "e58ccfc53cd6cc2f70fe1a03c80d3bcd209c9741ed66a950eebf9bbcf69d4cf7",
+     "scene.json": "9a643bbad0e146dd9c9bc3c59c2eabd0cd74f2dfaf82406507ce86f5e1d3cd2e",
+     "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
+     "scene.scene": "6867822e1bdbea2216fb4daf6ddb7bf3039558a2c64659cd3f8f7890ce7d9740",
+     "scene_scene.f90": "388dcd34b7852ed872529294109731083b56da48ff7a67da66f9defd215d49b6"
+    }
+   }
+  },
+  {
+   "src": "scene tonemap aces\ncube red\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "fd092aca5f294097e5abfe97c425642d2c61129955ad9cc45d809ebc65e335c1",
+    "stdout_len": 45,
+    "stderr_len": 209,
+    "codes": [
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "9a931880db7c62c1dc99d9f41304bf9fe0e074ef7364193f9ce00b6e8cd14782",
+     "scene.js": "e02d04d766ca8e47c22f7ab8f9fd0100e9cc295226e43fb32cf4789f5d7efa3f",
+     "scene.json": "33f5dbee24b05e19cf79cfc958e73483e5c4f62a22ebea861cdfa645a1d01b16",
+     "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
+     "scene.scene": "5e97ad5fbfe29980c10e36dc1ba0538bdd211d940b53efa3f2be7eebea3f9ff1",
+     "scene_scene.f90": "2eb216de7f6763bcf09df3be6817f13b7a89eb33f07226676713480b1a3a23e5"
+    }
+   }
+  },
+  {
+   "src": "shaderdef a 1 c",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "a0124a79dbb206c0417f20b20f1974562aa179bad537d33936f952f8c2b9c413",
+    "stdout_len": 0,
+    "stderr_len": 70,
+    "codes": [
+     "E104"
+    ],
+    "stdout_text": "",
+    "stderr_text": "scene.f3d:1:1: error E104: unknown word 'shaderdef'\nshaderdef a 1 c\n^\n"
+   }
+  },
+  {
+   "src": "skin hero arm",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "0a89a685b9286b97b5d195f45652a1353751055eaf11c90f9c25bfb4a1c54c12",
+    "stdout_len": 0,
+    "stderr_len": 514,
+    "codes": [
+     "W101",
+     "W101",
+     "W101",
+     "E402",
+     "E301",
+     "E201"
+    ],
+    "stdout_text": "",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\nerror E402: this scene has no objects to render; add a line like: cube red\nerror E301: skin 'hero' references unknown bone 'arm': 'skin' bone must be a declared bone\nerror E201: skin targets 'hero', but no object is called that\n"
+   }
+  },
+  {
+   "src": "sphere blue\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "e837e245e6b68ffacd9ff102167e108a4d2a481cbb09d8efe381d4337b887e3f",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 46,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 352 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "584675e701791e3200edb4707ac5302ab8e96252902e5a1d9505f05bba134cff",
+     "scene.js": "2137b37f4ad929f653ade00cff207629c32ba9cfe268a7dd611e67da87c5e6e5",
+     "scene.json": "e302805d7ea736e4a1d8d6c1b939f759a5492e5ca91bbc4f8dea07908313fe64",
+     "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
+     "scene.scene": "34ea58d4c05bbb0a63cf1e97a747f557e257888db7c57025a1fb48de1cbea280",
+     "scene_scene.f90": "25672d3a33aff2eb8595214a84402eaf9938821feca593a7687fce2f902583b1"
+    }
+   }
+  },
+  {
+   "src": "sphere blue\nrender\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "e837e245e6b68ffacd9ff102167e108a4d2a481cbb09d8efe381d4337b887e3f",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 46,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 352 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "584675e701791e3200edb4707ac5302ab8e96252902e5a1d9505f05bba134cff",
+     "scene.js": "2137b37f4ad929f653ade00cff207629c32ba9cfe268a7dd611e67da87c5e6e5",
+     "scene.json": "e302805d7ea736e4a1d8d6c1b939f759a5492e5ca91bbc4f8dea07908313fe64",
+     "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
+     "scene.scene": "34ea58d4c05bbb0a63cf1e97a747f557e257888db7c57025a1fb48de1cbea280",
+     "scene_scene.f90": "25672d3a33aff2eb8595214a84402eaf9938821feca593a7687fce2f902583b1"
+    }
+   }
+  },
+  {
+   "src": "sprite star at 0,3,0 size 1 color yellow\ncube red\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 45,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "4d13750490c0b81472c88afd85f4d789e893c677c38868d5b2baab5ca4938454",
+     "scene.js": "d37618802d15c21d409bb1b69c6f6de291f44204003477d09f0197466ec237d9",
+     "scene.json": "1b9ac2641d99aa7dc6229753ec15b856b073068386071cd2c35db5127df376c4",
+     "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
+     "scene.scene": "2766abbb379d6900889e51b8892820540bccef2266cb6fb9d112648cae0b520f",
+     "scene_scene.f90": "b1179a1eec2255c4fde0c3e20db059b038d8b780353815f5a9c8c535b41510c2"
+    }
+   }
+  },
+  {
+   "src": "torusknot white\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "5bf96bb1810732d20a2c19d47c55cafc1d3fc6cfeb649e98296caeb1340152ec",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 47,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 1152 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "0a553de242efc4b168ee881acb3140fd99c4b04d08e5a6dfafe26261ad94e91a",
+     "scene.js": "06a24e46168b27e627999a91b9ae4a38a71bbb2878b619d738647f3115d8ef92",
+     "scene.json": "4d180b376aa8323c80b642340d5decc4ca5298aa55eae4d62cdef4967ff2649c",
+     "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
+     "scene.scene": "5fe0ff115cf4152a46339347242d6061ed746dbd07726b1034671a52a4810022",
+     "scene_scene.f90": "c6af62a7f9fd99edc3c27aab8634a35ab5852bff65a1b88f3453fbeb050231c3"
+    }
+   }
+  },
+  {
+   "src": "tube red\n",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "5f829898d59748c82c722dbf1a41155da89d916599837d23990e6e4be155a0c7",
+    "stdout_len": 0,
+    "stderr_len": 373,
+    "codes": [
+     "W101",
+     "W101",
+     "W101",
+     "E301"
+    ],
+    "stdout_text": "",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\nerror E301: tube needs at least 2 path points, got 0; write e.g. tube path 0,0,0 1,1,0\n"
+   }
+  }
+ ]
+}

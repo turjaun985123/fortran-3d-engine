@@ -109,11 +109,42 @@ run_native_layer() {
     fi
     FORGE3D_ROOT=$REPO_ROOT run_with_timeout $T_LONG "$tmp/test_native_compiler"
     code=$?
-    rm -rf "$tmp"
     if [ $code -ne 0 ]; then
+        rm -rf "$tmp"
         record $FAIL "$label" "native black-box driver exited $code"; return
     fi
-    record $PASS "$label" "Fortran black-box suites passed (corpus/examples/CLI/determinism/preview)"
+    # Phase 6 (C3): property tests + curated golden set, same
+    # black-box mechanism (json_parse + a Fortran driver program).
+    if [ -f tests/native/property_tests.f90 ]; then
+        if ! run_with_timeout $T_FC gfortran -O2 -J"$tmp" -o "$tmp/property_tests" \
+                tests/native/json_parse.f90 tests/native/property_tests.f90; then
+            rm -rf "$tmp"
+            record $FAIL "$label" "property test driver failed to compile"; return
+        fi
+        FORGE3D_ROOT=$REPO_ROOT run_with_timeout $T_LONG "$tmp/property_tests"
+        code=$?
+        if [ $code -ne 0 ]; then
+            rm -rf "$tmp"
+            record $FAIL "$label" "property tests exited $code"; return
+        fi
+    fi
+    # Phase 6 (C3): direct fmt_real/fmt_int tests; the one place the
+    # native layer links a compiler module (f3dc_str is standalone).
+    if [ -f tests/native/property_fmt.f90 ]; then
+        if ! run_with_timeout $T_FC gfortran -O2 -J"$tmp" -o "$tmp/property_fmt" \
+                compiler/src/f3dc_str.f90 tests/native/property_fmt.f90; then
+            rm -rf "$tmp"
+            record $FAIL "$label" "property_fmt failed to compile"; return
+        fi
+        run_with_timeout $T_FRUN "$tmp/property_fmt"
+        code=$?
+        if [ $code -ne 0 ]; then
+            rm -rf "$tmp"
+            record $FAIL "$label" "property_fmt exited $code"; return
+        fi
+    fi
+    rm -rf "$tmp"
+    record $PASS "$label" "Fortran black-box suites passed (corpus/examples/CLI/determinism/preview + properties/curated/fmt)"
 }
 
 # ---------------------------------------------------------------------------
