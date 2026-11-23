@@ -19,7 +19,8 @@
 !   in pure Fortran (no stdlib equivalent exists).
 module f3dc_emit_common
   use, intrinsic :: iso_fortran_env, only: int64, real64
-  use f3dc_str, only: fmt_int, fmt_real, to_lower
+  use f3dc_str, only: fmt_int, fmt_real, to_lower, &
+                      str_builder, sb_init, sb_add, sb_text
   use f3dc_dyn
   implicit none
   private
@@ -149,27 +150,31 @@ contains
   function fmt_vec_dyn(v) result(out)
     type(dyn), intent(in) :: v
     character(len=:), allocatable :: out
+    type(str_builder) :: sb
     integer :: k
-    out = ""
     if (v%kind /= DYN_K_LIST) then
       out = fmt_num_dyn(v)
       return
     end if
+    call sb_init(sb)
     do k = 1, dyn_list_len(v)
-      if (k > 1) out = out // " "
-      out = out // fmt_num_dyn(dyn_list_at(v, k))
+      if (k > 1) call sb_add(sb, " ")
+      call sb_add(sb, fmt_num_dyn(dyn_list_at(v, k)))
     end do
+    out = sb_text(sb)
   end function fmt_vec_dyn
 
   function fmt_vec_reals(a) result(out)
     real(real64), intent(in) :: a(:)
     character(len=:), allocatable :: out
+    type(str_builder) :: sb
     integer :: k
-    out = ""
+    call sb_init(sb)
     do k = 1, size(a)
-      if (k > 1) out = out // " "
-      out = out // fmt_num_real(a(k))
+      if (k > 1) call sb_add(sb, " ")
+      call sb_add(sb, fmt_num_real(a(k)))
     end do
+    out = sb_text(sb)
   end function fmt_vec_reals
 
   ! ------------------------------------------------------------------
@@ -200,31 +205,33 @@ contains
   function json_escape_raw(s) result(out)
     character(len=*), intent(in) :: s
     character(len=:), allocatable :: out
+    type(str_builder) :: sb
     integer :: i, b
-    out = ""
+    call sb_init(sb)
     do i = 1, len(s)
       b = iachar(s(i:i))
       select case (b)
       case (34)
-        out = out // '\"'
+        call sb_add(sb, '\"')
       case (92)
-        out = out // '\\'
+        call sb_add(sb, '\\')
       case (8)
-        out = out // '\b'
+        call sb_add(sb, '\b')
       case (12)
-        out = out // '\f'
+        call sb_add(sb, '\f')
       case (10)
-        out = out // '\n'
+        call sb_add(sb, '\n')
       case (13)
-        out = out // '\r'
+        call sb_add(sb, '\r')
       case (9)
-        out = out // '\t'
+        call sb_add(sb, '\t')
       case (0:7, 11, 14:31)
-        out = out // uesc(b)
+        call sb_add(sb, uesc(b))
       case default
-        out = out // s(i:i)
+        call sb_add(sb, s(i:i))
       end select
     end do
+    out = sb_text(sb)
   end function json_escape_raw
 
   function json_quote(s, ensure_ascii) result(out)
@@ -248,31 +255,32 @@ contains
   function json_escape_ascii(s) result(out)
     character(len=*), intent(in) :: s
     character(len=:), allocatable :: out
+    type(str_builder) :: sb
     integer :: i, b, cp, nbytes, j
-    out = ""
+    call sb_init(sb)
     i = 1
     do while (i <= len(s))
       b = iachar(s(i:i))
       if (b < 128) then
         select case (b)
         case (34)
-          out = out // '\"'
+          call sb_add(sb, '\"')
         case (92)
-          out = out // '\\'
+          call sb_add(sb, '\\')
         case (8)
-          out = out // '\b'
+          call sb_add(sb, '\b')
         case (12)
-          out = out // '\f'
+          call sb_add(sb, '\f')
         case (10)
-          out = out // '\n'
+          call sb_add(sb, '\n')
         case (13)
-          out = out // '\r'
+          call sb_add(sb, '\r')
         case (9)
-          out = out // '\t'
+          call sb_add(sb, '\t')
         case (0:7, 11, 14:31, 127)
-          out = out // uesc(b)
+          call sb_add(sb, uesc(b))
         case default
-          out = out // s(i:i)
+          call sb_add(sb, s(i:i))
         end select
         i = i + 1
       else
@@ -296,14 +304,15 @@ contains
           end do
         end if
         if (cp <= 65535) then
-          out = out // uesc(cp)
+          call sb_add(sb, uesc(cp))
         else
-          out = out // uesc(55296 + (cp - 65536) / 1024)
-          out = out // uesc(56320 + mod(cp - 65536, 1024))
+          call sb_add(sb, uesc(55296 + (cp - 65536) / 1024))
+          call sb_add(sb, uesc(56320 + mod(cp - 65536, 1024)))
         end if
         i = i + nbytes
       end if
     end do
+    out = sb_text(sb)
   end function json_escape_ascii
 
   !> "\uXXXX" with lowercase hex.
@@ -360,57 +369,73 @@ contains
     integer, allocatable :: order(:)
     character(len=:), allocatable :: key
     type(dyn) :: item
+    type(str_builder) :: sb
+
+    ! The builder mirrors `out`: seeded from it on entry, flushed
+    ! back to it before each recursive child call (the child keeps
+    ! appending to `out` itself) and re-seeded on return, and
+    ! flushed on every exit of this invocation.
+    call sb_init(sb)
+    if (allocated(out)) call sb_add(sb, out)
 
     select case (v%kind)
     case (DYN_K_NULL)
-      out = out // "null"
+      call sb_add(sb, "null")
     case (DYN_K_BOOL)
       if (v%b) then
-        out = out // "true"
+        call sb_add(sb, "true")
       else
-        out = out // "false"
+        call sb_add(sb, "false")
       end if
     case (DYN_K_INT)
-      out = out // fmt_int(v%i)
+      call sb_add(sb, fmt_int(v%i))
     case (DYN_K_REAL)
-      out = out // json_real(v%r)
+      call sb_add(sb, json_real(v%r))
     case (DYN_K_STR)
       if (allocated(v%s)) then
-        out = out // json_quote(v%s, ensure_ascii)
+        call sb_add(sb, json_quote(v%s, ensure_ascii))
       else
-        out = out // '""'
+        call sb_add(sb, '""')
       end if
     case (DYN_K_LIST)
       n = dyn_list_len(v)
       if (n == 0) then
-        out = out // "[]"
+        call sb_add(sb, "[]")
+        out = sb_text(sb)
         return
       end if
       if (indent <= 0) then
-        out = out // "["
+        call sb_add(sb, "[")
         do k = 1, n
-          if (k > 1) out = out // ","
+          if (k > 1) call sb_add(sb, ",")
           item = dyn_list_at(v, k)
+          out = sb_text(sb)
           call dump_rec(item, level + 1, sort_keys, ensure_ascii, &
                         indent, out)
+          call sb_init(sb)
+          if (allocated(out)) call sb_add(sb, out)
         end do
-        out = out // "]"
+        call sb_add(sb, "]")
       else
-        out = out // "[" // NL
+        call sb_add(sb, "[" // NL)
         do k = 1, n
-          out = out // repeat(" ", indent * (level + 1))
+          call sb_add(sb, repeat(" ", indent * (level + 1)))
           item = dyn_list_at(v, k)
+          out = sb_text(sb)
           call dump_rec(item, level + 1, sort_keys, ensure_ascii, &
                         indent, out)
-          if (k < n) out = out // ","
-          out = out // NL
+          call sb_init(sb)
+          if (allocated(out)) call sb_add(sb, out)
+          if (k < n) call sb_add(sb, ",")
+          call sb_add(sb, NL)
         end do
-        out = out // repeat(" ", indent * level) // "]"
+        call sb_add(sb, repeat(" ", indent * level) // "]")
       end if
     case (DYN_K_DICT)
       n = dyn_dict_len(v)
       if (n == 0) then
-        out = out // "{}"
+        call sb_add(sb, "{}")
+        out = sb_text(sb)
         return
       end if
       allocate (order(n))
@@ -419,34 +444,41 @@ contains
       end do
       if (sort_keys) call sort_order(v, order)
       if (indent <= 0) then
-        out = out // "{"
+        call sb_add(sb, "{")
         do k = 1, n
-          if (k > 1) out = out // ","
+          if (k > 1) call sb_add(sb, ",")
           key = dyn_dict_key_at(v, order(k))
-          out = out // json_quote(key, ensure_ascii) // ":"
+          call sb_add(sb, json_quote(key, ensure_ascii) // ":")
           item = dyn_dict_value_at(v, order(k))
+          out = sb_text(sb)
           call dump_rec(item, level + 1, sort_keys, ensure_ascii, &
                         indent, out)
+          call sb_init(sb)
+          if (allocated(out)) call sb_add(sb, out)
         end do
-        out = out // "}"
+        call sb_add(sb, "}")
       else
-        out = out // "{" // NL
+        call sb_add(sb, "{" // NL)
         do k = 1, n
-          out = out // repeat(" ", indent * (level + 1))
+          call sb_add(sb, repeat(" ", indent * (level + 1)))
           key = dyn_dict_key_at(v, order(k))
-          out = out // json_quote(key, ensure_ascii) // ": "
+          call sb_add(sb, json_quote(key, ensure_ascii) // ": ")
           item = dyn_dict_value_at(v, order(k))
+          out = sb_text(sb)
           call dump_rec(item, level + 1, sort_keys, ensure_ascii, &
                         indent, out)
-          if (k < n) out = out // ","
-          out = out // NL
+          call sb_init(sb)
+          if (allocated(out)) call sb_add(sb, out)
+          if (k < n) call sb_add(sb, ",")
+          call sb_add(sb, NL)
         end do
-        out = out // repeat(" ", indent * level) // "}"
+        call sb_add(sb, repeat(" ", indent * level) // "}")
       end if
       deallocate (order)
     case default
-      out = out // "null"
+      call sb_add(sb, "null")
     end select
+    out = sb_text(sb)
   end subroutine dump_rec
 
   !> Insertion sort of dict entry indices by key (stable, matching
@@ -540,6 +572,7 @@ contains
     integer(int64) :: s0, s1, ch, maj, t1, t2, bitlen
     integer :: total, blk, nblk, i, t, off, byte
     character(len=1) :: msg_byte
+    type(str_builder) :: sb
 
     h = [int(z'6a09e667', int64), int(z'bb67ae85', int64), &
          int(z'3c6ef372', int64), int(z'a54ff53a', int64), &
@@ -590,10 +623,11 @@ contains
       h(5) = iand(h(5) + e, MASK); h(6) = iand(h(6) + f, MASK)
       h(7) = iand(h(7) + g, MASK); h(8) = iand(h(8) + hh, MASK)
     end do
-    out = ""
+    call sb_init(sb)
     do i = 1, 8
-      out = out // hex8(h(i))
+      call sb_add(sb, hex8(h(i)))
     end do
+    out = sb_text(sb)
     msg_byte = " "  ! silence unused warnings on some compilers
   end subroutine sha256_hex
 
@@ -1035,24 +1069,26 @@ contains
   function html_escape(s) result(out)
     character(len=*), intent(in) :: s
     character(len=:), allocatable :: out
+    type(str_builder) :: sb
     integer :: i
-    out = ""
+    call sb_init(sb)
     do i = 1, len(s)
       select case (s(i:i))
       case ("&")
-        out = out // "&amp;"
+        call sb_add(sb, "&amp;")
       case ("<")
-        out = out // "&lt;"
+        call sb_add(sb, "&lt;")
       case (">")
-        out = out // "&gt;"
+        call sb_add(sb, "&gt;")
       case ('"')
-        out = out // "&quot;"
+        call sb_add(sb, "&quot;")
       case ("'")
-        out = out // "&#x27;"
+        call sb_add(sb, "&#x27;")
       case default
-        out = out // s(i:i)
+        call sb_add(sb, s(i:i))
       end select
     end do
+    out = sb_text(sb)
   end function html_escape
 
 end module f3dc_emit_common

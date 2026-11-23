@@ -38,7 +38,8 @@ module f3dc_ext_materials
                       DYN_K_NULL, DYN_K_BOOL, DYN_K_INT, DYN_K_REAL, &
                       DYN_K_STR, DYN_K_LIST, DYN_K_DICT
   use f3dc_str, only: fmt_int, fmt_real, to_lower, char_list, &
-                      char_list_append
+                      char_list_append, str_builder, sb_init, &
+                      sb_add, sb_text
   implicit none
   private
 
@@ -153,6 +154,7 @@ contains
     character(:), allocatable :: out
     integer :: k
     character(:), allocatable :: acc
+    type(str_builder) :: sb
     select case (v%kind)
     case (DYN_K_NULL)
       out = "None"
@@ -173,19 +175,24 @@ contains
         out = ""
       end if
     case (DYN_K_LIST)
-      acc = "["
+      call sb_init(sb)
+      call sb_add(sb, "[")
       do k = 1, dyn_list_len(v)
-        if (k > 1) acc = acc // ", "
-        acc = acc // py_repr(dyn_list_at(v, k))
+        if (k > 1) call sb_add(sb, ", ")
+        call sb_add(sb, py_repr(dyn_list_at(v, k)))
       end do
+      acc = sb_text(sb)
       out = acc // "]"
     case (DYN_K_DICT)
-      acc = "{"
+      call sb_init(sb)
+      call sb_add(sb, "{")
       do k = 1, dyn_dict_len(v)
-        if (k > 1) acc = acc // ", "
-        acc = acc // py_repr(dyn_str(dyn_dict_key_at(v, k))) // &
-              ": " // py_repr(dyn_dict_value_at(v, k))
+        if (k > 1) call sb_add(sb, ", ")
+        call sb_add(sb, py_repr(dyn_str(dyn_dict_key_at(v, k))))
+        call sb_add(sb, ": ")
+        call sb_add(sb, py_repr(dyn_dict_value_at(v, k)))
       end do
+      acc = sb_text(sb)
       out = acc // "}"
     case default
       out = ""
@@ -214,6 +221,7 @@ contains
   function repr_str(s) result(out)
     character(*), intent(in) :: s
     character(:), allocatable :: out, body
+    type(str_builder) :: sb
     character :: q
     integer :: k, code
     character(len=2) :: hexd
@@ -222,26 +230,29 @@ contains
     else
       q = "'"
     end if
-    body = ""
+    call sb_init(sb)
     do k = 1, len(s)
       code = iachar(s(k:k))
       if (s(k:k) == "\") then
-        body = body // "\\"
+        call sb_add(sb, "\\")
       else if (s(k:k) == q) then
-        body = body // "\" // q
+        call sb_add(sb, "\")
+        call sb_add(sb, q)
       else if (code == 10) then
-        body = body // "\n"
+        call sb_add(sb, "\n")
       else if (code == 13) then
-        body = body // "\r"
+        call sb_add(sb, "\r")
       else if (code == 9) then
-        body = body // "\t"
+        call sb_add(sb, "\t")
       else if (code < 32 .or. code == 127) then
         write(hexd, "(Z2.2)") code
-        body = body // "\x" // to_lower(hexd)
+        call sb_add(sb, "\x")
+        call sb_add(sb, to_lower(hexd))
       else
-        body = body // s(k:k)
+        call sb_add(sb, s(k:k))
       end if
     end do
+    body = sb_text(sb)
     out = q // body // q
   end function repr_str
 
@@ -249,6 +260,7 @@ contains
   function fmt_g(x) result(out)
     real(real64), intent(in) :: x
     character(:), allocatable :: out
+    type(str_builder) :: sb
     character(len=40) :: buf
     character(len=17) :: digs
     integer :: exp10, k, last, ios
@@ -295,34 +307,48 @@ contains
     end do
     if (exp10 < -4 .or. exp10 >= 6) then
       ! Scientific: d[.ddd]e+-XX (exponent at least 2 digits).
-      out = digs(1:1)
-      if (last > 1) out = out // "." // digs(2:last)
-      out = out // "e"
-      if (exp10 < 0) then
-        out = out // "-"
-      else
-        out = out // "+"
+      call sb_init(sb)
+      call sb_add(sb, digs(1:1))
+      if (last > 1) then
+        call sb_add(sb, ".")
+        call sb_add(sb, digs(2:last))
       end if
-      if (abs(exp10) < 10) out = out // "0"
-      out = out // trim(adjustl(fmt_int(int(abs(exp10), int64))))
+      call sb_add(sb, "e")
+      if (exp10 < 0) then
+        call sb_add(sb, "-")
+      else
+        call sb_add(sb, "+")
+      end if
+      if (abs(exp10) < 10) call sb_add(sb, "0")
+      call sb_add(sb, trim(adjustl(fmt_int(int(abs(exp10), int64)))))
+      out = sb_text(sb)
     else if (exp10 >= 0) then
       ! Fixed, integer part has exp10+1 digits.
       if (exp10 + 1 >= 6) then
-        out = digs(1:6)
+        call sb_init(sb)
+        call sb_add(sb, digs(1:6))
         do k = 1, exp10 + 1 - 6
-          out = out // "0"
+          call sb_add(sb, "0")
         end do
+        out = sb_text(sb)
       else
-        out = digs(1:exp10 + 1)
-        if (last > exp10 + 1) out = out // "." // digs(exp10 + 2:last)
+        call sb_init(sb)
+        call sb_add(sb, digs(1:exp10 + 1))
+        if (last > exp10 + 1) then
+          call sb_add(sb, ".")
+          call sb_add(sb, digs(exp10 + 2:last))
+        end if
+        out = sb_text(sb)
       end if
     else
       ! Fixed, 0.000ddd form.
-      out = "0."
+      call sb_init(sb)
+      call sb_add(sb, "0.")
       do k = 1, -exp10 - 1
-        out = out // "0"
+        call sb_add(sb, "0")
       end do
-      out = out // digs(1:last)
+      call sb_add(sb, digs(1:last))
+      out = sb_text(sb)
     end if
     if (neg) out = "-" // out
   end function fmt_g
@@ -370,20 +396,22 @@ contains
     real(real64), intent(out) :: val
     logical, intent(out) :: ok
     character(:), allocatable :: t, u, low
+    type(str_builder) :: sb
     integer :: k, ios
     val = 0.0_real64
     ok = .false.
     t = strip_ws(text)
     ! Remove "_" separators that sit between digits (Python rule,
     ! approximated: between two digits).
-    u = ""
+    call sb_init(sb)
     do k = 1, len(t)
       if (t(k:k) == "_" .and. k > 1 .and. k < len(t)) then
         if (is_digit(t(k - 1:k - 1)) .and. is_digit(t(k + 1:k + 1))) &
           cycle
       end if
-      u = u // t(k:k)
+      call sb_add(sb, t(k:k))
     end do
+    u = sb_text(sb)
     t = u
     low = to_lower(t)
     if (low == "inf" .or. low == "+inf" .or. low == "infinity" .or. &

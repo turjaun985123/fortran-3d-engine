@@ -46,7 +46,7 @@ module f3dc_ext_gltf
        DYN_K_NULL, DYN_K_BOOL, DYN_K_INT, DYN_K_REAL, DYN_K_STR, &
        DYN_K_LIST, DYN_K_DICT
   use f3dc_str, only: fmt_int, fmt_real, to_lower, char_list, &
-       char_list_append
+       char_list_append, str_builder, sb_init, sb_add, sb_text
   use f3dc_ir, only: ir_json_parse
   implicit none
   private
@@ -194,6 +194,7 @@ contains
   function repr_str(s) result(out)
     character(*), intent(in) :: s
     character(:), allocatable :: out, body
+    type(str_builder) :: sb
     character :: quote
     integer :: k, c
     logical :: has_sq, has_dq
@@ -204,25 +205,28 @@ contains
     else
       quote = "'"
     end if
-    body = ""
+    call sb_init(sb)
     do k = 1, len(s)
       c = iachar(s(k:k))
       if (s(k:k) == "\") then
-        body = body // "\\"
+        call sb_add(sb, "\\")
       else if (s(k:k) == quote) then
-        body = body // "\" // quote
+        call sb_add(sb, "\")
+        call sb_add(sb, quote)
       else if (c == 10) then
-        body = body // "\n"
+        call sb_add(sb, "\n")
       else if (c == 13) then
-        body = body // "\r"
+        call sb_add(sb, "\r")
       else if (c == 9) then
-        body = body // "\t"
+        call sb_add(sb, "\t")
       else if (c < 32 .or. c == 127) then
-        body = body // "\x" // hex2(c)
+        call sb_add(sb, "\x")
+        call sb_add(sb, hex2(c))
       else
-        body = body // s(k:k)
+        call sb_add(sb, s(k:k))
       end if
     end do
+    body = sb_text(sb)
     out = quote // body // quote
   end function repr_str
 
@@ -231,6 +235,7 @@ contains
   function repr_bytes(s) result(out)
     character(*), intent(in) :: s
     character(:), allocatable :: out, body
+    type(str_builder) :: sb
     character :: quote
     integer :: k, c
     logical :: has_sq, has_dq
@@ -241,25 +246,28 @@ contains
     else
       quote = "'"
     end if
-    body = ""
+    call sb_init(sb)
     do k = 1, len(s)
       c = iachar(s(k:k))
       if (s(k:k) == "\") then
-        body = body // "\\"
+        call sb_add(sb, "\\")
       else if (s(k:k) == quote) then
-        body = body // "\" // quote
+        call sb_add(sb, "\")
+        call sb_add(sb, quote)
       else if (c == 10) then
-        body = body // "\n"
+        call sb_add(sb, "\n")
       else if (c == 13) then
-        body = body // "\r"
+        call sb_add(sb, "\r")
       else if (c == 9) then
-        body = body // "\t"
+        call sb_add(sb, "\t")
       else if (c < 32 .or. c >= 127) then
-        body = body // "\x" // hex2(c)
+        call sb_add(sb, "\x")
+        call sb_add(sb, hex2(c))
       else
-        body = body // s(k:k)
+        call sb_add(sb, s(k:k))
       end if
     end do
+    body = sb_text(sb)
     out = "b" // quote // body // quote
   end function repr_bytes
 
@@ -267,6 +275,7 @@ contains
   recursive function repr_dyn(d) result(out)
     type(dyn), intent(in) :: d
     character(:), allocatable :: out
+    type(str_builder) :: sb
     integer :: k
     select case (d%kind)
     case (DYN_K_NULL)
@@ -288,20 +297,25 @@ contains
         out = "''"
       end if
     case (DYN_K_LIST)
-      out = "["
+      call sb_init(sb)
+      call sb_add(sb, "[")
       do k = 1, d%n_items
-        if (k > 1) out = out // ", "
-        out = out // repr_dyn(d%items(k))
+        if (k > 1) call sb_add(sb, ", ")
+        call sb_add(sb, repr_dyn(d%items(k)))
       end do
-      out = out // "]"
+      call sb_add(sb, "]")
+      out = sb_text(sb)
     case (DYN_K_DICT)
-      out = "{"
+      call sb_init(sb)
+      call sb_add(sb, "{")
       do k = 1, d%n_entries
-        if (k > 1) out = out // ", "
-        out = out // repr_str(d%keys(k)%s) // ": " // &
-             repr_dyn(d%dvals(k))
+        if (k > 1) call sb_add(sb, ", ")
+        call sb_add(sb, repr_str(d%keys(k)%s))
+        call sb_add(sb, ": ")
+        call sb_add(sb, repr_dyn(d%dvals(k)))
       end do
-      out = out // "}"
+      call sb_add(sb, "}")
+      out = sb_text(sb)
     case default
       out = "None"
     end select
@@ -508,12 +522,14 @@ contains
     type(str_stack), intent(in) :: st
     character(*), intent(in) :: sep
     character(:), allocatable :: out
+    type(str_builder) :: sb
     integer :: k
-    out = ""
+    call sb_init(sb)
     do k = 1, st%n
-      if (k > 1) out = out // sep
-      if (allocated(st%items(k)%s)) out = out // st%items(k)%s
+      if (k > 1) call sb_add(sb, sep)
+      if (allocated(st%items(k)%s)) call sb_add(sb, st%items(k)%s)
     end do
+    out = sb_text(sb)
   end function stack_join
 
   ! ==================================================================
@@ -815,46 +831,50 @@ contains
   function utf8_replace(s) result(out)
     character(*), intent(in) :: s
     character(:), allocatable :: out, reason
+    type(str_builder) :: sb
     integer :: i, nbytes, err_span, k, cb, need, lo2, hi2
-    out = ""
+    call sb_init(sb)
     i = 1
     do while (i <= len(s))
       call utf8_seq(s, i, nbytes, reason, err_span)
       if (nbytes > 0) then
-        out = out // s(i:i + nbytes - 1)
+        call sb_add(sb, s(i:i + nbytes - 1))
         i = i + nbytes
       else if (reason == "unexpected end of data") then
-        out = out // achar(239) // achar(191) // achar(189)
+        call sb_add(sb, achar(239) // achar(191) // achar(189))
         i = len(s) + 1
       else
         ! One replacement covers the error span (the lead byte
         ! plus any valid continuation prefix).
-        out = out // achar(239) // achar(191) // achar(189)
+        call sb_add(sb, achar(239) // achar(191) // achar(189))
         i = i + max(err_span, 1)
       end if
     end do
+    out = sb_text(sb)
   end function utf8_replace
 
   !> urllib.parse.unquote(uri): %XX bytes, UTF-8/replace decode.
   function unquote(s) result(out)
     character(*), intent(in) :: s
     character(:), allocatable :: out, bytes
+    type(str_builder) :: sb
     integer :: i, bval
-    bytes = ""
+    call sb_init(sb)
     i = 1
     do while (i <= len(s))
       if (s(i:i) == "%" .and. i + 2 <= len(s)) then
         if (is_hex(s(i + 1:i + 1)) .and. is_hex(s(i + 2:i + 2))) then
           bval = hex_val1(s(i + 1:i + 1)) * 16 + &
                hex_val1(s(i + 2:i + 2))
-          bytes = bytes // achar(bval)
+          call sb_add(sb, achar(bval))
           i = i + 3
           cycle
         end if
       end if
-      bytes = bytes // s(i:i)
+      call sb_add(sb, s(i:i))
       i = i + 1
     end do
+    bytes = sb_text(sb)
     out = utf8_replace(bytes)
   end function unquote
 
@@ -884,10 +904,12 @@ contains
   subroutine b64_decode(payload, out, err)
     character(*), intent(in) :: payload
     character(:), allocatable, intent(out) :: out, err
+    type(str_builder) :: sb
     integer :: i, n, first_eq, data_chars, pad_chars, v(4), nout
     integer :: cp
     out = ""
     err = ""
+    call sb_init(sb)
     n = len(payload)
     ! Non-ASCII: b64decode encodes the str as ASCII first and the
     ! UnicodeEncodeError (a ValueError) is what _decode_data_uri
@@ -985,14 +1007,15 @@ contains
         do g = 1, take
           v(g) = b64_val(payload(i + g - 1:i + g - 1))
         end do
-        out = out // achar(v(1) * 4 + v(2) / 16)
-        if (take >= 3) out = out // &
-             achar(mod(v(2), 16) * 16 + v(3) / 4)
-        if (take >= 4) out = out // &
-             achar(mod(v(3), 4) * 64 + v(4))
+        call sb_add(sb, achar(v(1) * 4 + v(2) / 16))
+        if (take >= 3) call sb_add(sb, &
+             achar(mod(v(2), 16) * 16 + v(3) / 4))
+        if (take >= 4) call sb_add(sb, &
+             achar(mod(v(3), 4) * 64 + v(4)))
       end block
       i = i + 4
     end do
+    out = sb_text(sb)
   end subroutine b64_decode
 
   !> Code point of the valid UTF-8 sequence at byte i (nbytes
@@ -2992,6 +3015,7 @@ contains
     real(real64) :: coords(9)
     logical :: bad
     character(:), allocatable :: line
+    type(str_builder) :: sb
     g_failed = .false.
     g_errmsg = ""
     ok = .false.
@@ -3076,9 +3100,13 @@ contains
       end do
       line = "tri " // trim(fmt_int(rgb(1))) // " " // &
            trim(fmt_int(rgb(2))) // " " // trim(fmt_int(rgb(3)))
+      call sb_init(sb)
+      call sb_add(sb, line)
       do a = 1, 9
-        line = line // " " // fmt_g6(coords(a))
+        call sb_add(sb, " ")
+        call sb_add(sb, fmt_g6(coords(a)))
       end do
+      line = sb_text(sb)
       call char_list_append(lines, line)
     end do
     ok = .true.

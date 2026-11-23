@@ -57,7 +57,8 @@ module f3dc_ext_sprites_text
        DYN_K_NULL, DYN_K_BOOL, DYN_K_INT, DYN_K_REAL, DYN_K_STR, &
        DYN_K_LIST, DYN_K_DICT
   use f3dc_str, only: char_list, char_list_append, char_list_len, &
-       char_list_at, fmt_int, fmt_real, to_lower
+       char_list_at, fmt_int, fmt_real, to_lower, str_builder, &
+       sb_init, sb_add, sb_text
   implicit none
   private
 
@@ -183,6 +184,7 @@ contains
     real(real64), intent(out) :: x
     logical, intent(out) :: ok
     character(:), allocatable :: t, low, clean
+    type(str_builder) :: sb
     integer :: i, ios, ndig, ndot
     logical :: neg
     ok = .false.
@@ -217,10 +219,11 @@ contains
         if (t(i + 1:i + 1) < "0" .or. t(i + 1:i + 1) > "9") return
       end if
     end do
-    clean = ""
+    call sb_init(sb)
     do i = 1, len(t)
-      if (t(i:i) /= "_") clean = clean // t(i:i)
+      if (t(i:i) /= "_") call sb_add(sb, t(i:i))
     end do
+    clean = sb_text(sb)
     ! Grammar: [+-]? (digits [. digits*] | . digits) ([eE][+-]?digits)?
     i = 1
     if (i <= len(clean)) then
@@ -320,20 +323,22 @@ contains
     type(dyn) :: lowered, comp
     type(char_list) :: parts
     character(:), allocatable :: replaced
+    type(str_builder) :: sb
     integer :: k
     out = dyn_null()
     ok = .false.
     select case (value%kind)
     case (DYN_K_STR)
       if (.not. allocated(value%s)) return
-      replaced = ""
+      call sb_init(sb)
       do k = 1, len(value%s)
         if (value%s(k:k) == ",") then
-          replaced = replaced // " "
+          call sb_add(sb, " ")
         else
-          replaced = replaced // value%s(k:k)
+          call sb_add(sb, value%s(k:k))
         end if
       end do
+      replaced = sb_text(sb)
       call split_ws(replaced, parts)
       if (char_list_len(parts) /= 3) return
       out = dyn_list()
@@ -634,15 +639,21 @@ contains
       else
         out = digits(1:1)
       end if
-      if (exp10 >= 0) then
-        write (ebuf, "(I0)") exp10
-        out = out // "e+"
-      else
-        write (ebuf, "(I0)") -exp10
-        out = out // "e-"
-      end if
-      if (len_trim(ebuf) < 2) out = out // "0"
-      out = out // trim(ebuf)
+      block
+        type(str_builder) :: sb
+        call sb_init(sb)
+        call sb_add(sb, out)
+        if (exp10 >= 0) then
+          write (ebuf, "(I0)") exp10
+          call sb_add(sb, "e+")
+        else
+          write (ebuf, "(I0)") -exp10
+          call sb_add(sb, "e-")
+        end if
+        if (len_trim(ebuf) < 2) call sb_add(sb, "0")
+        call sb_add(sb, trim(ebuf))
+        out = sb_text(sb)
+      end block
     end if
     if (ieee_is_negative(x)) out = "-" // out
   end function fmt_6g
@@ -664,12 +675,14 @@ contains
   function fmt_vec(vec) result(out)
     type(dyn), intent(in) :: vec
     character(:), allocatable :: out
+    type(str_builder) :: sb
     integer :: k
-    out = ""
+    call sb_init(sb)
     do k = 1, dyn_list_len(vec)
-      if (k > 1) out = out // " "
-      out = out // fmt_dyn(dyn_list_at(vec, k))
+      if (k > 1) call sb_add(sb, " ")
+      call sb_add(sb, fmt_dyn(dyn_list_at(vec, k)))
     end do
+    out = sb_text(sb)
   end function fmt_vec
 
   !> _fmt_color(color): "%d %d %d" of _parse_color(color), with
@@ -695,6 +708,7 @@ contains
   function repr_str(s) result(out)
     character(*), intent(in) :: s
     character(:), allocatable :: out, body
+    type(str_builder) :: sb
     character :: quote
     integer :: k, c
     logical :: has_sq, has_dq
@@ -705,31 +719,34 @@ contains
     else
       quote = "'"
     end if
-    body = ""
+    call sb_init(sb)
     do k = 1, len(s)
       c = iachar(s(k:k))
       if (s(k:k) == "\") then
-        body = body // "\\"
+        call sb_add(sb, "\\")
       else if (s(k:k) == quote) then
-        body = body // "\" // quote
+        call sb_add(sb, "\")
+        call sb_add(sb, quote)
       else if (c == 10) then
-        body = body // "\n"
+        call sb_add(sb, "\n")
       else if (c == 13) then
-        body = body // "\r"
+        call sb_add(sb, "\r")
       else if (c == 9) then
-        body = body // "\t"
+        call sb_add(sb, "\t")
       else if (c < 32 .or. c == 127) then
         block
           character(len=2) :: hb
           character(len=16), parameter :: HD = "0123456789abcdef"
           hb(1:1) = HD(c / 16 + 1:c / 16 + 1)
           hb(2:2) = HD(mod(c, 16) + 1:mod(c, 16) + 1)
-          body = body // "\x" // hb
+          call sb_add(sb, "\x")
+          call sb_add(sb, hb)
         end block
       else
-        body = body // s(k:k)
+        call sb_add(sb, s(k:k))
       end if
     end do
+    body = sb_text(sb)
     out = quote // body // quote
   end function repr_str
 
@@ -756,21 +773,32 @@ contains
     case (DYN_K_REAL)
       out = fmt_real(val%r)
     case (DYN_K_LIST)
-      out = "("
-      do k = 1, dyn_list_len(val)
-        if (k > 1) out = out // ", "
-        out = out // py_repr_dyn(dyn_list_at(val, k))
-      end do
-      if (dyn_list_len(val) == 1) out = out // ","
-      out = out // ")"
+      block
+        type(str_builder) :: sb
+        call sb_init(sb)
+        call sb_add(sb, "(")
+        do k = 1, dyn_list_len(val)
+          if (k > 1) call sb_add(sb, ", ")
+          call sb_add(sb, py_repr_dyn(dyn_list_at(val, k)))
+        end do
+        if (dyn_list_len(val) == 1) call sb_add(sb, ",")
+        call sb_add(sb, ")")
+        out = sb_text(sb)
+      end block
     case (DYN_K_DICT)
-      out = "{"
-      do k = 1, dyn_dict_len(val)
-        if (k > 1) out = out // ", "
-        out = out // repr_str(dyn_dict_key_at(val, k)) // ": " // &
-              py_repr_dyn(dyn_dict_value_at(val, k))
-      end do
-      out = out // "}"
+      block
+        type(str_builder) :: sb
+        call sb_init(sb)
+        call sb_add(sb, "{")
+        do k = 1, dyn_dict_len(val)
+          if (k > 1) call sb_add(sb, ", ")
+          call sb_add(sb, repr_str(dyn_dict_key_at(val, k)))
+          call sb_add(sb, ": ")
+          call sb_add(sb, py_repr_dyn(dyn_dict_value_at(val, k)))
+        end do
+        call sb_add(sb, "}")
+        out = sb_text(sb)
+      end block
     case default
       out = "None"
     end select
@@ -853,6 +881,7 @@ contains
   function clean_text(value) result(out)
     type(dyn), intent(in) :: value
     character(:), allocatable :: out, text
+    type(str_builder) :: sb
     type(char_list) :: parts
     integer :: k
     if (value%kind == DYN_K_NULL) then
@@ -882,11 +911,12 @@ contains
       end if
     end if
     call split_ws(text, parts)
-    out = ""
+    call sb_init(sb)
     do k = 1, char_list_len(parts)
-      if (k > 1) out = out // " "
-      out = out // char_list_at(parts, k)
+      if (k > 1) call sb_add(sb, " ")
+      call sb_add(sb, char_list_at(parts, k))
     end do
+    out = sb_text(sb)
   end function clean_text
 
   !> _text_of(d): the content string of a normalised text dict.
@@ -1115,6 +1145,7 @@ contains
     type(dyn) :: dd, at, sizev, number
     type(char_list) :: parts
     character(:), allocatable :: content, head
+    type(str_builder) :: sb
     logical :: ok
     real(real64) :: sz
     integer :: k
@@ -1140,11 +1171,12 @@ contains
     head = "text " // name // " " // fmt_vec(at) // " " // &
            fmt_6g(sz) // " " // fmt_color(dyn_dict_get(dd, "color"))
     call split_ws(text_of(dd), parts)
-    content = ""
+    call sb_init(sb)
     do k = 1, char_list_len(parts)
-      if (k > 1) content = content // " "
-      content = content // char_list_at(parts, k)
+      if (k > 1) call sb_add(sb, " ")
+      call sb_add(sb, char_list_at(parts, k))
     end do
+    content = sb_text(sb)
     if (len(content) > 0) then
       line = head // " " // content
     else

@@ -47,7 +47,8 @@ module f3dc_emit_html
   use f3dc_dyn, only: dyn, dyn_dict_get, dyn_kind, &
                       DYN_K_NULL, DYN_K_BOOL, DYN_K_INT, DYN_K_REAL, &
                       DYN_K_STR, DYN_K_LIST, DYN_K_DICT
-  use f3dc_str, only: fmt_int, fmt_real, to_lower, str_replace
+  use f3dc_str, only: fmt_int, fmt_real, to_lower, str_replace, &
+                      str_builder, sb_init, sb_add, sb_text
   use f3dc_emit_js, only: emit_js
   implicit none
   private
@@ -129,24 +130,26 @@ contains
   function html_escape(s) result(out)
     character(len=*), intent(in) :: s
     character(len=:), allocatable :: out
+    type(str_builder) :: sb
     integer :: i
-    out = ""
+    call sb_init(sb)
     do i = 1, len(s)
       select case (s(i:i))
       case ("&")
-        out = out // "&amp;"
+        call sb_add(sb, "&amp;")
       case ("<")
-        out = out // "&lt;"
+        call sb_add(sb, "&lt;")
       case (">")
-        out = out // "&gt;"
+        call sb_add(sb, "&gt;")
       case ('"')
-        out = out // "&quot;"
+        call sb_add(sb, "&quot;")
       case ("'")
-        out = out // "&#x27;"
+        call sb_add(sb, "&#x27;")
       case default
-        out = out // s(i:i)
+        call sb_add(sb, s(i:i))
       end select
     end do
+    out = sb_text(sb)
   end function html_escape
 
   !> Read a whole file as bytes; ok=.false. on any failure
@@ -575,6 +578,7 @@ contains
     character(len=*), intent(in) :: text, placeholder, js_code
     logical, intent(in) :: missing
     character(len=:), allocatable :: out, repl
+    type(str_builder) :: sb
     integer :: pos
     out = text
     do while (index(out, placeholder) > 0)
@@ -593,7 +597,11 @@ contains
           repl = "<script>" // NL // js_code // NL // "</script>"
         end if
       end if
-      out = out(1:pos - 1) // repl // out(pos + len(placeholder):)
+      call sb_init(sb)
+      call sb_add(sb, out(1:pos - 1))
+      call sb_add(sb, repl)
+      call sb_add(sb, out(pos + len(placeholder):))
+      out = sb_text(sb)
     end do
   end function substitute_js
 

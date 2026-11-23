@@ -45,7 +45,8 @@ module f3dc_ext_keys
        DYN_K_NULL, DYN_K_BOOL, DYN_K_INT, DYN_K_REAL, DYN_K_STR, &
        DYN_K_LIST, DYN_K_DICT
   use f3dc_str, only: char_list, char_list_append, char_list_len, &
-       fmt_int, fmt_real, to_lower
+       fmt_int, fmt_real, to_lower, str_builder, sb_init, sb_add, &
+       sb_text
   implicit none
   private
 
@@ -121,6 +122,7 @@ contains
     real(real64), intent(out) :: x
     logical, intent(out) :: ok
     character(len=:), allocatable :: t, u, w
+    type(str_builder) :: sb
     integer :: i, ios
     ok = .false.
     x = 0.0_real64
@@ -144,12 +146,13 @@ contains
     end if
     ! Drop underscores and reject any character float() would not
     ! accept in a decimal literal.
-    w = ""
+    call sb_init(sb)
     do i = 1, len(t)
       if (t(i:i) == "_") cycle
       if (index("0123456789.eE+-", t(i:i)) == 0) return
-      w = w // t(i:i)
+      call sb_add(sb, t(i:i))
     end do
+    w = sb_text(sb)
     if (len(w) == 0) return
     read (w, *, iostat=ios) x
     if (ios /= 0) then
@@ -350,6 +353,7 @@ contains
     character(len=32) :: buf
     character(len=6) :: digits
     character(len=:), allocatable :: dig, mant, esign, enum
+    type(str_builder) :: sb
     integer :: epos, exp10, i, nd, ip_end
     real(real64) :: ax
     if (ieee_is_nan(x)) then
@@ -390,17 +394,21 @@ contains
         if (nd > ip_end) then
           out = dig(1:ip_end) // "." // dig(ip_end + 1:nd)
         else
-          out = dig
+          call sb_init(sb)
+          call sb_add(sb, dig)
           do i = nd + 1, ip_end
-            out = out // "0"
+            call sb_add(sb, "0")
           end do
+          out = sb_text(sb)
         end if
       else
-        out = "0."
+        call sb_init(sb)
+        call sb_add(sb, "0.")
         do i = 1, -exp10 - 1
-          out = out // "0"
+          call sb_add(sb, "0")
         end do
-        out = out // dig
+        call sb_add(sb, dig)
+        out = sb_text(sb)
       end if
     else
       if (nd > 1) then
@@ -433,6 +441,7 @@ contains
   function repr_str(s) result(out)
     character(len=*), intent(in) :: s
     character(len=:), allocatable :: out, body
+    type(str_builder) :: sb
     character :: quote
     integer :: k, c
     logical :: has_sq, has_dq
@@ -443,25 +452,28 @@ contains
     else
       quote = "'"
     end if
-    body = ""
+    call sb_init(sb)
     do k = 1, len(s)
       c = iachar(s(k:k))
       if (s(k:k) == "\") then
-        body = body // "\\"
+        call sb_add(sb, "\\")
       else if (s(k:k) == quote) then
-        body = body // "\" // quote
+        call sb_add(sb, "\")
+        call sb_add(sb, quote)
       else if (c == 10) then
-        body = body // "\n"
+        call sb_add(sb, "\n")
       else if (c == 13) then
-        body = body // "\r"
+        call sb_add(sb, "\r")
       else if (c == 9) then
-        body = body // "\t"
+        call sb_add(sb, "\t")
       else if (c < 32 .or. c == 127) then
-        body = body // "\x" // hex2(c)
+        call sb_add(sb, "\x")
+        call sb_add(sb, hex2(c))
       else
-        body = body // s(k:k)
+        call sb_add(sb, s(k:k))
       end if
     end do
+    body = sb_text(sb)
     out = quote // body // quote
   end function repr_str
 
@@ -479,6 +491,7 @@ contains
   recursive function py_repr(v) result(out)
     type(dyn), intent(in) :: v
     character(len=:), allocatable :: out, acc
+    type(str_builder) :: sb
     integer :: k
     select case (v%kind)
     case (DYN_K_STR)
@@ -494,20 +507,25 @@ contains
     case (DYN_K_REAL)
       out = fmt_real(v%r)
     case (DYN_K_LIST)
-      acc = "("
+      call sb_init(sb)
+      call sb_add(sb, "(")
       do k = 1, dyn_list_len(v)
-        if (k > 1) acc = acc // ", "
-        acc = acc // py_repr(dyn_list_at(v, k))
+        if (k > 1) call sb_add(sb, ", ")
+        call sb_add(sb, py_repr(dyn_list_at(v, k)))
       end do
-      if (dyn_list_len(v) == 1) acc = acc // ","
+      if (dyn_list_len(v) == 1) call sb_add(sb, ",")
+      acc = sb_text(sb)
       out = acc // ")"
     case (DYN_K_DICT)
-      acc = "{"
+      call sb_init(sb)
+      call sb_add(sb, "{")
       do k = 1, dyn_dict_len(v)
-        if (k > 1) acc = acc // ", "
-        acc = acc // repr_str(dyn_dict_key_at(v, k)) // ": " // &
-              py_repr(dyn_dict_value_at(v, k))
+        if (k > 1) call sb_add(sb, ", ")
+        call sb_add(sb, repr_str(dyn_dict_key_at(v, k)))
+        call sb_add(sb, ": ")
+        call sb_add(sb, py_repr(dyn_dict_value_at(v, k)))
       end do
+      acc = sb_text(sb)
       out = acc // "}"
     case default
       out = "None"

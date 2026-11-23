@@ -26,7 +26,7 @@
 module f3dc_emit_json
   use, intrinsic :: iso_fortran_env, only: int64, real64
   use f3dc_dyn
-  use f3dc_str, only: fmt_real
+  use f3dc_str, only: fmt_real, str_builder, sb_init, sb_add, sb_text
   use f3dc_emit_common, only: json_dumps, palette_face
   use f3dc_ir, only: ir_to_dict
   use f3dc_errors, only: error_bag_t, error_bag_add, make_diagnostic
@@ -328,6 +328,7 @@ contains
   function py_repr_str(s) result(out)
     character(len=*), intent(in) :: s
     character(len=:), allocatable :: out
+    type(str_builder) :: sb
     character(len=1) :: q
     integer :: i, b
     character(len=4) :: hexbuf
@@ -337,28 +338,30 @@ contains
     else
       q = "'"
     end if
-    out = q
+    call sb_init(sb)
+    call sb_add(sb, q)
     do i = 1, len(s)
       b = iachar(s(i:i))
       if (s(i:i) == "\") then
-        out = out // "\\"
+        call sb_add(sb, "\\")
       else if (s(i:i) == q) then
-        out = out // "\" // q
+        call sb_add(sb, "\" // q)
       else if (b == 10) then
-        out = out // "\n"
+        call sb_add(sb, "\n")
       else if (b == 13) then
-        out = out // "\r"
+        call sb_add(sb, "\r")
       else if (b == 9) then
-        out = out // "\t"
+        call sb_add(sb, "\t")
       else if (b < 32 .or. b == 127) then
         hexbuf = "\x" // HEXD(b / 16 + 1:b / 16 + 1) // &
                  HEXD(mod(b, 16) + 1:mod(b, 16) + 1)
-        out = out // hexbuf
+        call sb_add(sb, hexbuf)
       else
-        out = out // s(i:i)
+        call sb_add(sb, s(i:i))
       end if
     end do
-    out = out // q
+    call sb_add(sb, q)
+    out = sb_text(sb)
   end function py_repr_str
 
 

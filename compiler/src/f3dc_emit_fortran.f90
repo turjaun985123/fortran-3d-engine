@@ -60,7 +60,8 @@ module f3dc_emit_fortran
   use f3dc_str, only: char_list, char_list_append, char_list_len, &
                       char_list_at, char_list_clear, &
                       int_list, int_list_append, int_list_at, &
-                      fmt_int, fmt_real, to_lower, str_replace
+                      fmt_int, fmt_real, to_lower, str_replace, &
+                      str_builder, sb_init, sb_add, sb_text
   use f3dc_ext_shader, only: shader_scene_lines, shader_binding_line
   use f3dc_ext_materials, only: mat_objmat => objmat_line, &
                                 mat_extra => material_extra_lines
@@ -192,6 +193,7 @@ contains
     real(real64), intent(out) :: x
     logical, intent(out) :: ok
     character(len=:), allocatable :: t, low
+    type(str_builder) :: sb
     integer :: ios, i
     x = 0.0_real64
     ok = .true.
@@ -223,15 +225,16 @@ contains
         return
       end if
       ! Strip underscores and reject any character float() rejects.
-      t = ""
+      call sb_init(sb)
       do i = 1, len(low)
         if (low(i:i) == "_") cycle
         if (index("0123456789.eE+-", low(i:i)) == 0) then
           ok = .false.
           return
         end if
-        t = t // low(i:i)
+        call sb_add(sb, low(i:i))
       end do
+      t = sb_text(sb)
       if (len(t) == 0) then
         ok = .false.
         return
@@ -599,33 +602,35 @@ contains
   function json_escape_raw(s) result(out)
     character(len=*), intent(in) :: s
     character(len=:), allocatable :: out
+    type(str_builder) :: sb
     character(len=6) :: hexbuf
     integer :: i, b
-    out = ""
+    call sb_init(sb)
     do i = 1, len(s)
       b = iachar(s(i:i))
       select case (b)
       case (34)
-        out = out // '\"'
+        call sb_add(sb, '\"')
       case (92)
-        out = out // '\\'
+        call sb_add(sb, '\\')
       case (10)
-        out = out // '\n'
+        call sb_add(sb, '\n')
       case (13)
-        out = out // '\r'
+        call sb_add(sb, '\r')
       case (9)
-        out = out // '\t'
+        call sb_add(sb, '\t')
       case (8)
-        out = out // '\b'
+        call sb_add(sb, '\b')
       case (12)
-        out = out // '\f'
+        call sb_add(sb, '\f')
       case (0:7, 11, 14:31)
         write (hexbuf, "(A,Z4.4)") "\u", b
-        out = out // trim(hexbuf)
+        call sb_add(sb, trim(hexbuf))
       case default
-        out = out // s(i:i)
+        call sb_add(sb, s(i:i))
       end select
     end do
+    out = sb_text(sb)
   end function json_escape_raw
 
   !> Unsigned byte-wise less-than (Python str sort = code points;
@@ -652,6 +657,7 @@ contains
   recursive function canonical_json(v) result(out)
     type(dyn), intent(in) :: v
     character(len=:), allocatable :: out
+    type(str_builder) :: sb
     integer :: i, j, n
     character(len=:), allocatable :: key, sub_json
     type(dyn) :: val
@@ -686,14 +692,16 @@ contains
         out = '""'
       end if
     case (DYN_K_LIST)
-      out = "["
+      call sb_init(sb)
+      call sb_add(sb, "[")
       do i = 1, v%n_items
-        if (i > 1) out = out // ","
+        if (i > 1) call sb_add(sb, ",")
         val = dyn_list_at(v, i)
         sub_json = canonical_json(val)
-        out = out // sub_json
+        call sb_add(sb, sub_json)
       end do
-      out = out // "]"
+      call sb_add(sb, "]")
+      out = sb_text(sb)
     case (DYN_K_DICT)
       n = v%n_entries
       allocate (order(n))
@@ -716,15 +724,17 @@ contains
           end if
         end do
       end block
-      out = "{"
+      call sb_init(sb)
+      call sb_add(sb, "{")
       do i = 1, n
-        if (i > 1) out = out // ","
+        if (i > 1) call sb_add(sb, ",")
         key = dyn_key_of(v, order(i))
         val = dyn_dict_value_copy(v, order(i))
         sub_json = canonical_json(val)
-        out = out // '"' // json_escape_raw(key) // '":' // sub_json
+        call sb_add(sb, '"' // json_escape_raw(key) // '":' // sub_json)
       end do
-      out = out // "}"
+      call sb_add(sb, "}")
+      out = sb_text(sb)
       deallocate (order)
     case default
       out = "null"
@@ -907,11 +917,13 @@ contains
   function join_lines(lines) result(out)
     type(char_list), intent(in) :: lines
     character(len=:), allocatable :: out
+    type(str_builder) :: sb
     integer :: i
-    out = ""
+    call sb_init(sb)
     do i = 1, char_list_len(lines)
-      out = out // char_list_at(lines, i) // NL
+      call sb_add(sb, char_list_at(lines, i) // NL)
     end do
+    out = sb_text(sb)
   end function join_lines
 
   ! ==================================================================
@@ -1225,6 +1237,7 @@ contains
     character(len=*), intent(in) :: p
     character(len=:), allocatable :: out, part
     type(char_list) :: parts, kept
+    type(str_builder) :: sb
     integer :: i
     logical :: absolute
     absolute = path_isabs(p)
@@ -1251,12 +1264,13 @@ contains
         call char_list_append(kept, part)
       end if
     end do
-    out = ""
-    if (absolute) out = "/"
+    call sb_init(sb)
+    if (absolute) call sb_add(sb, "/")
     do i = 1, char_list_len(kept)
-      if (i > 1) out = out // "/"
-      out = out // char_list_at(kept, i)
+      if (i > 1) call sb_add(sb, "/")
+      call sb_add(sb, char_list_at(kept, i))
     end do
+    out = sb_text(sb)
     if (len(out) == 0) then
       if (absolute) then
         out = "/"
@@ -1574,6 +1588,7 @@ contains
     logical :: ok
     integer :: i, j
     type(tri_list_t) :: tris
+    type(str_builder) :: sb
 
     call char_list_append(lines, "forge3d-scene 1")
     call stamp_lines(ir, "#", lines)
@@ -1598,17 +1613,19 @@ contains
     camera = gv(ir, "camera")
     call vec3_key(camera, "pos", "position", &
                   [3.0_real64, 2.5_real64, 4.0_real64], comp)
-    line = "camera " // fmt_vec(comp)
+    call sb_init(sb)
+    call sb_add(sb, "camera " // fmt_vec(comp))
     call vec3_key(camera, "target", "", &
                   [0.0_real64, 0.0_real64, 0.0_real64], comp)
-    line = line // " " // fmt_vec(comp)
+    call sb_add(sb, " " // fmt_vec(comp))
     call vec3_key(camera, "up", "", &
                   [0.0_real64, 1.0_real64, 0.0_real64], comp)
-    line = line // " " // fmt_vec(comp)
-    line = line // " " // &
+    call sb_add(sb, " " // fmt_vec(comp))
+    call sb_add(sb, " " // &
       fmt_num(gvd(camera, "fov", dyn_real(60.0_real64))) // " " // &
       fmt_num(gvd(camera, "near", dyn_real(0.1_real64))) // " " // &
-      fmt_num(gvd(camera, "far", dyn_real(100.0_real64)))
+      fmt_num(gvd(camera, "far", dyn_real(100.0_real64))))
+    line = sb_text(sb)
     call char_list_append(lines, line)
 
     lights = gvd(ir, "lights", dyn_list())
@@ -1694,9 +1711,10 @@ contains
               fmt_int(int(tris%n, int64)))
           end if
           do j = 1, tris%n
-            line = "tri " // fmt_int(tris%cols(1, j)) // " " // &
-              fmt_int(tris%cols(2, j)) // " " // &
-              fmt_int(tris%cols(3, j))
+            call sb_init(sb)
+            call sb_add(sb, "tri " // fmt_int(tris%cols(1, j)) // &
+              " " // fmt_int(tris%cols(2, j)) // " " // &
+              fmt_int(tris%cols(3, j)))
             block
               type(dyn) :: pc(3)
               integer :: a, b
@@ -1705,9 +1723,10 @@ contains
                   pc(b) = dyn_copy(tris%pts((j - 1) * 9 + &
                                              (a - 1) * 3 + b))
                 end do
-                line = line // " " // fmt_vec(pc)
+                call sb_add(sb, " " // fmt_vec(pc))
               end do
             end block
+            line = sb_text(sb)
             call char_list_append(lines, line)
           end do
         else if (prim == "load") then
@@ -1752,15 +1771,16 @@ contains
             else
               segs = fmt_int(int_or(segv, 0_int64))
             end if
-            line = "object " // prim // " " // name // " " // &
+            call sb_init(sb)
+            call sb_add(sb, "object " // prim // " " // name // " " // &
               material // " " // color_text(colord) // " " // &
               transform // " " // num_or(sizev, "-1") // " " // &
               num_or(radv, "-1") // " " // num_or(hv, "-1") // " " // &
-              segs
+              segs)
             call scene_extra_values(obj, prim, extra)
             if (char_list_len(extra) > 0) then
               do j = 1, char_list_len(extra)
-                line = line // " " // char_list_at(extra, j)
+                call sb_add(sb, " " // char_list_at(extra, j))
               end do
             end if
             ! P1: explicit shading token goes last on the line.
@@ -1768,15 +1788,16 @@ contains
               type(dyn) :: shv
               shv = gv(obj, "shading")
               if (shv%kind == DYN_K_STR) &
-                line = line // " shading " // to_lower(py_str(shv))
+                call sb_add(sb, " shading " // to_lower(py_str(shv)))
             end block
             ! P3: explicit mirror token goes after shading.
             block
               type(dyn) :: mrv
               mrv = gv(obj, "mirror")
               if (mrv%kind == DYN_K_STR) &
-                line = line // " mirror " // to_lower(py_str(mrv))
+                call sb_add(sb, " mirror " // to_lower(py_str(mrv)))
             end block
+            line = sb_text(sb)
             call char_list_append(lines, line)
           end block
         end if
@@ -1977,6 +1998,7 @@ contains
     real(real64), intent(in) :: x
     character(len=:), allocatable :: out, t
     character(len=512) :: buf
+    type(str_builder) :: sb
     integer :: i
     if (ieee_is_nan(x)) then
       t = "nan"
@@ -2000,7 +2022,12 @@ contains
       end if
       if (len(t) == 0 .or. t == "-0") t = "0"
     end if
-    if (index(t, ".") == 0) t = t // ".0"
+    if (index(t, ".") == 0) then
+      call sb_init(sb)
+      call sb_add(sb, t)
+      call sb_add(sb, ".0")
+      t = sb_text(sb)
+    end if
     out = t // "_dp"
   end function f_real
 
@@ -2034,15 +2061,18 @@ contains
   function f_array(vals) result(out)
     type(dyn), intent(in) :: vals
     character(len=:), allocatable :: out
+    type(str_builder) :: sb
     integer :: i
-    out = "["
+    call sb_init(sb)
+    call sb_add(sb, "[")
     if (vals%kind == DYN_K_LIST) then
       do i = 1, vals%n_items
-        if (i > 1) out = out // ", "
-        out = out // f_of(dyn_list_at(vals, i))
+        if (i > 1) call sb_add(sb, ", ")
+        call sb_add(sb, f_of(dyn_list_at(vals, i)))
       end do
     end if
-    out = out // "]"
+    call sb_add(sb, "]")
+    out = sb_text(sb)
   end function f_array
 
   !> Flatten a list of point sequences into one flat dyn list
@@ -2068,6 +2098,7 @@ contains
     type(dyn), intent(in) :: ir
     character(len=:), allocatable :: out, raw, stem
     type(dyn) :: nv
+    type(str_builder) :: sb
     integer :: i, c, lo, hi
     nv = gv(ir, "name")
     if (nv%kind == DYN_K_NULL) then
@@ -2106,8 +2137,12 @@ contains
     end if
     if (len(stem) > 0) then
       c = iachar(stem(1:1))
-      if (c >= iachar("0") .and. c <= iachar("9")) &
-        stem = "s_" // stem
+      if (c >= iachar("0") .and. c <= iachar("9")) then
+        call sb_init(sb)
+        call sb_add(sb, "s_")
+        call sb_add(sb, stem)
+        stem = sb_text(sb)
+      end if
     end if
     out = to_lower(stem) // "_scene"
   end function program_name
@@ -2800,16 +2835,18 @@ contains
             block
               type(dyn) :: pc(3)
               character(len=:), allocatable :: verts_s
+              type(str_builder) :: sbv
               integer :: a, b
-              verts_s = ""
+              call sb_init(sbv)
               do a = 1, 3
                 do b = 1, 3
                   pc(b) = dyn_copy(tris%pts((j - 1) * 9 + &
                                             (a - 1) * 3 + b))
                 end do
-                if (a > 1) verts_s = verts_s // ", "
-                verts_s = verts_s // f_vec(pc)
+                if (a > 1) call sb_add(sbv, ", ")
+                call sb_add(sbv, f_vec(pc))
               end do
+              verts_s = sb_text(sbv)
               call char_list_append(out, &
                 "    msh%triangles(" // fmt_int(int(j, int64)) // &
                 ")%v = [" // verts_s // "]")

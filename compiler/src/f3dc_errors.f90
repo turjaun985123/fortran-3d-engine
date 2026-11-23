@@ -12,7 +12,7 @@ module f3dc_errors
   use, intrinsic :: iso_fortran_env, only: int64, real64
   use, intrinsic :: iso_c_binding, only: c_int
   use f3dc_str, only: char_list, char_list_len, char_list_at, to_lower, &
-                      fmt_int
+                      fmt_int, str_builder, sb_init, sb_add, sb_text
   implicit none
   private
 
@@ -497,6 +497,7 @@ contains
     logical, intent(in) :: colour
     character(len=:), allocatable, intent(out) :: block_text
     character(len=:), allocatable :: header, tl, caret
+    type(str_builder) :: sb
     logical :: have
     if (diag%has_span) then
       header = str_of(diag%span%source) // ":" // &
@@ -509,22 +510,28 @@ contains
                ": " // str_of(diag%message)
     end if
     if (colour) then
+      call sb_init(sb)
       if (str_of(diag%severity) == "error") then
-        header = achar(27) // "[1;31m" // header // achar(27) // "[0m"
+        call sb_add(sb, achar(27) // "[1;31m")
       else
-        header = achar(27) // "[1;33m" // header // achar(27) // "[0m"
+        call sb_add(sb, achar(27) // "[1;33m")
       end if
+      call sb_add(sb, header)
+      call sb_add(sb, achar(27) // "[0m")
+      header = sb_text(sb)
     end if
-    block_text = header
+    call sb_init(sb)
+    call sb_add(sb, header)
     call snippet_lines(bag, diag, tl, caret, have)
-    if (have) block_text = block_text // achar(10) // tl // &
-                           achar(10) // caret
+    if (have) call sb_add(sb, achar(10) // tl // &
+                           achar(10) // caret)
     if (len(str_of(diag%why)) > 0) &
-      block_text = block_text // achar(10) // "  why: " // &
-                   str_of(diag%why)
+      call sb_add(sb, achar(10) // "  why: " // &
+                   str_of(diag%why))
     if (len(str_of(diag%help)) > 0) &
-      block_text = block_text // achar(10) // "  help: " // &
-                   str_of(diag%help)
+      call sb_add(sb, achar(10) // "  help: " // &
+                   str_of(diag%help))
+    block_text = sb_text(sb)
   end subroutine diag_block_text
 
   !> ErrorBag.format_text(use_color): blocks joined by a single "\n",
@@ -697,44 +704,47 @@ contains
     logical, intent(in) :: is_last
     character(len=:), allocatable, intent(out) :: rec
     character(len=*), parameter :: NL = achar(10)
-    rec = "  {" // NL
-    rec = rec // '    "code": ' // json_str(str_of(diag%code)) // &
-          "," // NL
-    rec = rec // '    "severity": ' // &
-          json_str(str_of(diag%severity)) // "," // NL
-    rec = rec // '    "message": ' // &
-          json_str(str_of(diag%message)) // "," // NL
+    type(str_builder) :: sb
+    call sb_init(sb)
+    call sb_add(sb, "  {" // NL)
+    call sb_add(sb, '    "code": ' // json_str(str_of(diag%code)) // &
+          "," // NL)
+    call sb_add(sb, '    "severity": ' // &
+          json_str(str_of(diag%severity)) // "," // NL)
+    call sb_add(sb, '    "message": ' // &
+          json_str(str_of(diag%message)) // "," // NL)
     if (diag%has_span) then
-      rec = rec // '    "file": ' // &
-            json_str(str_of(diag%span%source)) // "," // NL
-      rec = rec // '    "line": ' // &
-            trim(fmt_int(int(diag%span%line, int64))) // "," // NL
-      rec = rec // '    "col": ' // &
-            trim(fmt_int(int(diag%span%col, int64))) // "," // NL
-      rec = rec // '    "span": {' // NL
-      rec = rec // '      "source": ' // &
-            json_str(str_of(diag%span%source)) // "," // NL
-      rec = rec // '      "line": ' // &
-            trim(fmt_int(int(diag%span%line, int64))) // "," // NL
-      rec = rec // '      "col": ' // &
-            trim(fmt_int(int(diag%span%col, int64))) // "," // NL
-      rec = rec // '      "length": ' // &
-            trim(fmt_int(int(diag%span%length, int64))) // NL
-      rec = rec // "    }," // NL
+      call sb_add(sb, '    "file": ' // &
+            json_str(str_of(diag%span%source)) // "," // NL)
+      call sb_add(sb, '    "line": ' // &
+            trim(fmt_int(int(diag%span%line, int64))) // "," // NL)
+      call sb_add(sb, '    "col": ' // &
+            trim(fmt_int(int(diag%span%col, int64))) // "," // NL)
+      call sb_add(sb, '    "span": {' // NL)
+      call sb_add(sb, '      "source": ' // &
+            json_str(str_of(diag%span%source)) // "," // NL)
+      call sb_add(sb, '      "line": ' // &
+            trim(fmt_int(int(diag%span%line, int64))) // "," // NL)
+      call sb_add(sb, '      "col": ' // &
+            trim(fmt_int(int(diag%span%col, int64))) // "," // NL)
+      call sb_add(sb, '      "length": ' // &
+            trim(fmt_int(int(diag%span%length, int64))) // NL)
+      call sb_add(sb, "    }," // NL)
     else
-      rec = rec // '    "file": null,' // NL
-      rec = rec // '    "line": null,' // NL
-      rec = rec // '    "col": null,' // NL
-      rec = rec // '    "span": null,' // NL
+      call sb_add(sb, '    "file": null,' // NL)
+      call sb_add(sb, '    "line": null,' // NL)
+      call sb_add(sb, '    "col": null,' // NL)
+      call sb_add(sb, '    "span": null,' // NL)
     end if
-    rec = rec // '    "why": ' // json_str(str_of(diag%why)) // &
-          "," // NL
-    rec = rec // '    "help": ' // json_str(str_of(diag%help)) // NL
+    call sb_add(sb, '    "why": ' // json_str(str_of(diag%why)) // &
+          "," // NL)
+    call sb_add(sb, '    "help": ' // json_str(str_of(diag%help)) // NL)
     if (is_last) then
-      rec = rec // "  }" // NL
+      call sb_add(sb, "  }" // NL)
     else
-      rec = rec // "  }," // NL
+      call sb_add(sb, "  }," // NL)
     end if
+    rec = sb_text(sb)
   end subroutine json_record_text
 
   !> ErrorBag.format_json(): json.dumps(records, indent=2) exactly.

@@ -40,7 +40,8 @@ module f3dc_ext_particles
        dyn_dict_value_at, DYN_K_NULL, DYN_K_BOOL, DYN_K_INT, &
        DYN_K_REAL, DYN_K_STR, DYN_K_LIST, DYN_K_DICT
   use f3dc_str, only: fmt_int, fmt_real, to_lower, char_list, &
-       char_list_append, char_list_len, char_list_at
+       char_list_append, char_list_len, char_list_at, str_builder, &
+       sb_init, sb_add, sb_text
   use f3dc_ir, only: ir_parse_color_nobag
   use f3dc_emit_common, only: parse_color_str
   implicit none
@@ -122,6 +123,7 @@ contains
     real(real64), intent(out) :: x
     logical, intent(out) :: ok
     character(len=:), allocatable :: t, low, clean
+    type(str_builder) :: sb
     integer :: i, n, ios
     logical :: any_digit, any_frac
     ok = .false.
@@ -147,7 +149,7 @@ contains
     ! Drop underscores that sit between two digits (Python rule,
     ! approximated: any other underscore placement fails below
     ! because the cleaned string is re-scanned strictly).
-    clean = ""
+    call sb_init(sb)
     n = len(t)
     do i = 1, n
       if (t(i:i) == "_") then
@@ -157,8 +159,9 @@ contains
         end if
         return
       end if
-      clean = clean // t(i:i)
+      call sb_add(sb, t(i:i))
     end do
+    clean = sb_text(sb)
     ! Strict scan of the cleaned string.
     block
       integer :: pos, m
@@ -221,11 +224,12 @@ contains
     integer(int64), intent(out) :: v
     logical, intent(out) :: ok
     character(len=:), allocatable :: t, clean
+    type(str_builder) :: sb
     integer :: i, n, ios
     ok = .false.
     v = 0_int64
     t = strip_ws(text)
-    clean = ""
+    call sb_init(sb)
     n = len(t)
     do i = 1, n
       if (t(i:i) == "_") then
@@ -235,8 +239,9 @@ contains
         end if
         return
       end if
-      clean = clean // t(i:i)
+      call sb_add(sb, t(i:i))
     end do
+    clean = sb_text(sb)
     block
       integer :: pos, m
       pos = 1
@@ -263,6 +268,7 @@ contains
   function fmt_g6(x) result(out)
     real(real64), intent(in) :: x
     character(len=:), allocatable :: out, body, digits
+    type(str_builder) :: sb
     character(len=64) :: buf
     character(len=16) :: ebuf
     integer :: epos, dec_exp, ndig, i, j
@@ -290,14 +296,15 @@ contains
     neg = ieee_is_negative(x)
     write (buf, "(ES16.5E3)") x
     epos = index(buf, "E")
-    digits = ""
+    call sb_init(sb)
     j = 0
     do i = 1, epos - 1
       if (is_digit(buf(i:i))) then
         j = j + 1
-        digits = digits // buf(i:i)
+        call sb_add(sb, buf(i:i))
       end if
     end do
+    digits = sb_text(sb)
     ndig = len(digits)
     read (buf(epos + 1:), *) dec_exp
     do while (ndig > 1 .and. digits(ndig:ndig) == "0")
@@ -317,11 +324,16 @@ contains
       end if
       block
         character(len=:), allocatable :: enum
+        type(str_builder) :: sb2
         integer :: ei
         ei = index(ebuf, "e")
         enum = ebuf(ei + 2:len_trim(ebuf))
         if (len(enum) < 2) enum = "0" // enum
-        body = body // ebuf(1:ei + 1) // enum
+        call sb_init(sb2)
+        call sb_add(sb2, body)
+        call sb_add(sb2, ebuf(1:ei + 1))
+        call sb_add(sb2, enum)
+        body = sb_text(sb2)
       end block
     else if (dec_exp >= 0) then
       if (ndig > dec_exp + 1) then
@@ -345,6 +357,7 @@ contains
   function repr_str(s) result(out)
     character(len=*), intent(in) :: s
     character(len=:), allocatable :: out, body
+    type(str_builder) :: sb
     character(len=1) :: quote
     integer :: i, c
     if (index(s, "'") > 0 .and. index(s, '"') == 0) then
@@ -352,27 +365,29 @@ contains
     else
       quote = "'"
     end if
-    body = ""
+    call sb_init(sb)
     do i = 1, len(s)
       c = iachar(s(i:i))
       if (s(i:i) == quote .or. c == 92) then
-        body = body // "\" // s(i:i)
+        call sb_add(sb, "\")
+        call sb_add(sb, s(i:i))
       else if (c == 10) then
-        body = body // "\n"
+        call sb_add(sb, "\n")
       else if (c == 13) then
-        body = body // "\r"
+        call sb_add(sb, "\r")
       else if (c == 9) then
-        body = body // "\t"
+        call sb_add(sb, "\t")
       else if (c < 32 .or. c == 127) then
         block
           character(len=8) :: hb
           write (hb, "(A,Z2.2)") "\x", c
-          body = body // trim(hb)
+          call sb_add(sb, trim(hb))
         end block
       else
-        body = body // s(i:i)
+        call sb_add(sb, s(i:i))
       end if
     end do
+    body = sb_text(sb)
     out = quote // body // quote
   end function repr_str
 
@@ -381,6 +396,7 @@ contains
   recursive function repr_dyn(v) result(out)
     type(dyn), intent(in) :: v
     character(len=:), allocatable :: out
+    type(str_builder) :: sb
     integer :: k
     select case (v%kind)
     case (DYN_K_NULL)
@@ -402,21 +418,26 @@ contains
         out = "''"
       end if
     case (DYN_K_LIST)
-      out = "("
+      call sb_init(sb)
+      call sb_add(sb, "(")
       do k = 1, dyn_list_len(v)
-        if (k > 1) out = out // ", "
-        out = out // repr_dyn(dyn_list_at(v, k))
+        if (k > 1) call sb_add(sb, ", ")
+        call sb_add(sb, repr_dyn(dyn_list_at(v, k)))
       end do
-      if (dyn_list_len(v) == 1) out = out // ","
-      out = out // ")"
+      if (dyn_list_len(v) == 1) call sb_add(sb, ",")
+      call sb_add(sb, ")")
+      out = sb_text(sb)
     case (DYN_K_DICT)
-      out = "{"
+      call sb_init(sb)
+      call sb_add(sb, "{")
       do k = 1, dyn_dict_len(v)
-        if (k > 1) out = out // ", "
-        out = out // repr_str(dyn_dict_key_at(v, k)) // ": " // &
-              repr_dyn(dyn_dict_value_at(v, k))
+        if (k > 1) call sb_add(sb, ", ")
+        call sb_add(sb, repr_str(dyn_dict_key_at(v, k)))
+        call sb_add(sb, ": ")
+        call sb_add(sb, repr_dyn(dyn_dict_value_at(v, k)))
       end do
-      out = out // "}"
+      call sb_add(sb, "}")
+      out = sb_text(sb)
     case default
       out = "None"
     end select
@@ -769,12 +790,14 @@ contains
   function fmt_vec(vec) result(out)
     type(dyn), intent(in) :: vec
     character(len=:), allocatable :: out
+    type(str_builder) :: sb
     integer :: k
-    out = ""
+    call sb_init(sb)
     do k = 1, dyn_list_len(vec)
-      if (k > 1) out = out // " "
-      out = out // fmt_val(dyn_list_at(vec, k))
+      if (k > 1) call sb_add(sb, " ")
+      call sb_add(sb, fmt_val(dyn_list_at(vec, k)))
     end do
+    out = sb_text(sb)
   end function fmt_vec
 
   !> _fmt_color: "%d %d %d" of the parsed colour or the default.

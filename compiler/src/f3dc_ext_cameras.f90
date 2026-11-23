@@ -28,7 +28,8 @@ module f3dc_ext_cameras
        dyn_dict_value_at, DYN_K_NULL, DYN_K_BOOL, DYN_K_INT, &
        DYN_K_REAL, DYN_K_STR, DYN_K_LIST, DYN_K_DICT
   use f3dc_str, only: char_list, char_list_append, char_list_len, &
-       char_list_at, char_list_clear, fmt_int, fmt_real, to_lower
+       char_list_at, char_list_clear, fmt_int, fmt_real, to_lower, &
+       str_builder, sb_init, sb_add, sb_text
   implicit none
   private
 
@@ -140,6 +141,7 @@ contains
     real(real64), intent(out) :: x
     logical, intent(out) :: ok
     character(:), allocatable :: t, u, w
+    type(str_builder) :: sb
     integer :: i, ios, ndig, ndot, nexp
     logical :: prev_digit, next_digit
     ok = .false.
@@ -163,7 +165,7 @@ contains
       return
     end if
     ! Python float() accepts single underscores between digits.
-    w = ""
+    call sb_init(sb)
     do i = 1, len(t)
       if (t(i:i) == "_") then
         prev_digit = (i > 1)
@@ -175,8 +177,9 @@ contains
         if (.not. (prev_digit .and. next_digit)) return
         cycle
       end if
-      w = w // t(i:i)
+      call sb_add(sb, t(i:i))
     end do
+    w = sb_text(sb)
     t = w
     if (len(t) == 0) return
     ndig = 0
@@ -213,6 +216,7 @@ contains
     character(:), allocatable :: out
     character(64) :: buf
     character(:), allocatable :: mant, digits, ip, fp
+    type(str_builder) :: sb
     integer :: i, epos, exp10, ios, sig, zc
     logical :: neg
     if (ieee_is_nan(x)) then
@@ -251,10 +255,14 @@ contains
       end if
     end if
     ! mant is d.ddddd (ES) -- collect the 6 significant digits.
-    digits = ""
+    ! (v3.0 Phase 6, C4: builder accumulation; the zero-strip
+    ! and padding below work on the finished string, unchanged.)
+    call sb_init(sb)
     do i = 1, len(mant)
-      if (mant(i:i) >= "0" .and. mant(i:i) <= "9") digits = digits // mant(i:i)
+      if (mant(i:i) >= "0" .and. mant(i:i) <= "9") &
+        call sb_add(sb, mant(i:i))
     end do
+    digits = sb_text(sb)
     if (len(mant) >= 2) then
      if (mant(1:1) == "0" .and. mant(2:2) == ".") then
       ! 0.ddddd form: value is 0.digits * 10**exp10.
@@ -270,9 +278,13 @@ contains
       end if
      end if
     end if
-    do while (len(digits) < 6)
-      digits = digits // "0"
-    end do
+    if (len(digits) < 6) then
+      block
+        character(:), allocatable :: padded
+        padded = digits // repeat("0", 6 - len(digits))
+        digits = padded
+      end block
+    end if
     sig = exp10  ! decimal exponent of the d.ddd form
     if (sig >= -4 .and. sig < 6) then
       if (sig >= 0) then
@@ -288,11 +300,12 @@ contains
           out = ip
         end if
       else
-        fp = ""
+        call sb_init(sb)
         do i = 1, -sig - 1
-          fp = fp // "0"
+          call sb_add(sb, "0")
         end do
-        fp = fp // digits
+        call sb_add(sb, digits)
+        fp = sb_text(sb)
         do while (len(fp) > 0)
           if (fp(len(fp):len(fp)) /= "0") exit
           fp = fp(:len(fp) - 1)
@@ -310,15 +323,18 @@ contains
       else
         out = digits(1:1)
       end if
+      call sb_init(sb)
+      call sb_add(sb, out)
       if (exp10 < 0) then
-        out = out // "e-"
-        if (abs(exp10) < 10) out = out // "0"
-        out = out // trim(fmt_int(int(-exp10, int64)))
+        call sb_add(sb, "e-")
+        if (abs(exp10) < 10) call sb_add(sb, "0")
+        call sb_add(sb, trim(fmt_int(int(-exp10, int64))))
       else
-        out = out // "e+"
-        if (exp10 < 10) out = out // "0"
-        out = out // trim(fmt_int(int(exp10, int64)))
+        call sb_add(sb, "e+")
+        if (exp10 < 10) call sb_add(sb, "0")
+        call sb_add(sb, trim(fmt_int(int(exp10, int64))))
       end if
+      out = sb_text(sb)
     end if
     if (neg) out = "-" // out
   end function fmt_g6
@@ -330,6 +346,7 @@ contains
   recursive function py_str_of(val) result(out)
     type(dyn), intent(in) :: val
     character(:), allocatable :: out, acc
+    type(str_builder) :: sb
     integer :: k
     select case (val%kind)
     case (DYN_K_STR)
@@ -345,20 +362,25 @@ contains
     case (DYN_K_REAL)
       out = fmt_real(val%r)
     case (DYN_K_LIST)
-      acc = "("
+      call sb_init(sb)
+      call sb_add(sb, "(")
       do k = 1, dyn_list_len(val)
-        if (k > 1) acc = acc // ", "
-        acc = acc // py_repr_of(dyn_list_at(val, k))
+        if (k > 1) call sb_add(sb, ", ")
+        call sb_add(sb, py_repr_of(dyn_list_at(val, k)))
       end do
-      if (dyn_list_len(val) == 1) acc = acc // ","
+      if (dyn_list_len(val) == 1) call sb_add(sb, ",")
+      acc = sb_text(sb)
       out = acc // ")"
     case (DYN_K_DICT)
-      acc = "{"
+      call sb_init(sb)
+      call sb_add(sb, "{")
       do k = 1, dyn_dict_len(val)
-        if (k > 1) acc = acc // ", "
-        acc = acc // repr_str(dyn_dict_key_at(val, k)) // ": " // &
-              py_repr_of(dyn_dict_value_at(val, k))
+        if (k > 1) call sb_add(sb, ", ")
+        call sb_add(sb, repr_str(dyn_dict_key_at(val, k)))
+        call sb_add(sb, ": ")
+        call sb_add(sb, py_repr_of(dyn_dict_value_at(val, k)))
       end do
+      acc = sb_text(sb)
       out = acc // "}"
     case default
       out = "None"
@@ -368,6 +390,7 @@ contains
   function repr_str(s) result(out)
     character(*), intent(in) :: s
     character(:), allocatable :: out, body
+    type(str_builder) :: sb
     character :: quote
     integer :: k, c
     logical :: has_sq, has_dq
@@ -378,25 +401,28 @@ contains
     else
       quote = "'"
     end if
-    body = ""
+    call sb_init(sb)
     do k = 1, len(s)
       c = iachar(s(k:k))
       if (s(k:k) == "\") then
-        body = body // "\\"
+        call sb_add(sb, "\\")
       else if (s(k:k) == quote) then
-        body = body // "\" // quote
+        call sb_add(sb, "\")
+        call sb_add(sb, quote)
       else if (c == 10) then
-        body = body // "\n"
+        call sb_add(sb, "\n")
       else if (c == 13) then
-        body = body // "\r"
+        call sb_add(sb, "\r")
       else if (c == 9) then
-        body = body // "\t"
+        call sb_add(sb, "\t")
       else if (c < 32 .or. c == 127) then
-        body = body // "\x" // hex2(c)
+        call sb_add(sb, "\x")
+        call sb_add(sb, hex2(c))
       else
-        body = body // s(k:k)
+        call sb_add(sb, s(k:k))
       end if
     end do
+    body = sb_text(sb)
     out = quote // body // quote
   end function repr_str
 
@@ -659,15 +685,17 @@ contains
     type(dyn) :: props
     type(char_list) :: toks, joined
     character(:), allocatable :: t
+    type(str_builder) :: sb
     integer :: i, n
-    t = ""
+    call sb_init(sb)
     do i = 1, len(line)
       if (line(i:i) == ",") then
-        t = t // " , "
+        call sb_add(sb, " , ")
       else
-        t = t // line(i:i)
+        call sb_add(sb, line(i:i))
       end if
     end do
+    t = sb_text(sb)
     call split_ws(t, toks)
     call char_list_clear(joined)
     n = char_list_len(toks)

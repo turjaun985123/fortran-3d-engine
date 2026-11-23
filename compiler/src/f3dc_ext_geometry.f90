@@ -56,7 +56,8 @@ module f3dc_ext_geometry
                       DYN_K_STR, DYN_K_LIST, DYN_K_DICT
   use f3dc_str, only: char_list, char_list_append, char_list_len, &
                       char_list_at, char_list_clear, fmt_int, &
-                      fmt_real, to_lower
+                      fmt_real, to_lower, str_builder, sb_init, &
+                      sb_add, sb_text
   implicit none
   private
 
@@ -197,6 +198,7 @@ contains
     real(real64), intent(out) :: x
     logical, intent(out) :: ok
     character(len=:), allocatable :: t, u, clean
+    type(str_builder) :: sb
     integer :: a, b, k, ios
     logical :: prev_digit, next_digit
     ok = .false.
@@ -230,7 +232,7 @@ contains
       ok = .true.
       return
     end if
-    clean = ""
+    call sb_init(sb)
     do k = 1, len(t)
       if (t(k:k) == "_") then
         prev_digit = .false.
@@ -241,8 +243,9 @@ contains
         cycle
       end if
       if (index("0123456789.+-eE", t(k:k)) == 0) return
-      clean = clean // t(k:k)
+      call sb_add(sb, t(k:k))
     end do
+    clean = sb_text(sb)
     if (len(clean) == 0) return
     read (clean, *, iostat=ios) x
     if (ios /= 0) then
@@ -578,6 +581,7 @@ contains
     type(dyn), intent(in) :: v
     character(len=:), allocatable :: out
     character(len=:), allocatable :: acc
+    type(str_builder) :: sb
     integer :: k
     select case (v%kind)
     case (DYN_K_NULL)
@@ -595,12 +599,14 @@ contains
     case (DYN_K_STR)
       out = v%s
     case (DYN_K_LIST)
-      acc = "("
+      call sb_init(sb)
+      call sb_add(sb, "(")
       do k = 1, dyn_list_len(v)
-        if (k > 1) acc = acc // ", "
-        acc = acc // py_repr_val(dyn_list_at(v, k))
+        if (k > 1) call sb_add(sb, ", ")
+        call sb_add(sb, py_repr_val(dyn_list_at(v, k)))
       end do
-      if (dyn_list_len(v) == 1) acc = acc // ","
+      if (dyn_list_len(v) == 1) call sb_add(sb, ",")
+      acc = sb_text(sb)
       out = acc // ")"
     case default
       out = "None"
@@ -623,6 +629,7 @@ contains
   function repr_str(s) result(out)
     character(len=*), intent(in) :: s
     character(len=:), allocatable :: out, body
+    type(str_builder) :: sb
     character :: quote
     integer :: k, c
     logical :: has_sq, has_dq
@@ -634,26 +641,29 @@ contains
     else
       quote = "'"
     end if
-    body = ""
+    call sb_init(sb)
     do k = 1, len(s)
       c = iachar(s(k:k))
       if (s(k:k) == "\") then
-        body = body // "\\"
+        call sb_add(sb, "\\")
       else if (s(k:k) == quote) then
-        body = body // "\" // quote
+        call sb_add(sb, "\")
+        call sb_add(sb, quote)
       else if (c == 10) then
-        body = body // "\n"
+        call sb_add(sb, "\n")
       else if (c == 13) then
-        body = body // "\r"
+        call sb_add(sb, "\r")
       else if (c == 9) then
-        body = body // "\t"
+        call sb_add(sb, "\t")
       else if (c < 32 .or. c == 127) then
-        body = body // "\x" // HD(c / 16 + 1:c / 16 + 1) // &
-               HD(mod(c, 16) + 1:mod(c, 16) + 1)
+        call sb_add(sb, "\x")
+        call sb_add(sb, HD(c / 16 + 1:c / 16 + 1))
+        call sb_add(sb, HD(mod(c, 16) + 1:mod(c, 16) + 1))
       else
-        body = body // s(k:k)
+        call sb_add(sb, s(k:k))
       end if
     end do
+    body = sb_text(sb)
     out = quote // body // quote
   end function repr_str
 
@@ -723,9 +733,14 @@ contains
       end if
       block
         character(len=:), allocatable :: enum
+        type(str_builder) :: sb
         enum = ebuf(3:len_trim(ebuf))
         if (len(enum) < 2) enum = "0" // enum
-        out = out // ebuf(1:2) // enum
+        call sb_init(sb)
+        call sb_add(sb, out)
+        call sb_add(sb, ebuf(1:2))
+        call sb_add(sb, enum)
+        out = sb_text(sb)
       end block
     end if
     if (neg) out = "-" // out
@@ -897,11 +912,15 @@ contains
       call char_list_append(items, "tube")
       call char_list_append(items, "tube_segments")
     end select
-    out = ""
-    do k = 1, char_list_len(items)
-      if (k > 1) out = out // ", "
-      out = out // char_list_at(items, k)
-    end do
+    block
+      type(str_builder) :: sb
+      call sb_init(sb)
+      do k = 1, char_list_len(items)
+        if (k > 1) call sb_add(sb, ", ")
+        call sb_add(sb, char_list_at(items, k))
+      end do
+      out = sb_text(sb)
+    end block
     call char_list_clear(items)
   end function prim_props_sorted_csv
 
@@ -926,6 +945,7 @@ contains
     type(dyn), intent(in) :: props_in, geom_in
     type(char_list), intent(inout) :: codes, messages
     character(len=:), allocatable :: prim, key, joined
+    type(str_builder) :: sb_joined
     type(dyn) :: props, geom, points, point, comp
     type(char_list) :: keys
     real(real64) :: x, outer
@@ -1022,17 +1042,18 @@ contains
           comp = dyn_list_at(point, 1)
           call py_num(comp, 0.0_real64, .false., x, has)
           if (has .and. x < 0.0_real64) then
-            joined = ""
+            call sb_init(sb_joined)
             do j = 1, dyn_list_len(point)
-              if (j > 1) joined = joined // ", "
+              if (j > 1) call sb_add(sb_joined, ", ")
               block
                 real(real64) :: cx
                 logical :: chas
                 call py_num(dyn_list_at(point, j), 0.0_real64, &
                             .false., cx, chas)
-                joined = joined // trim(fmt_g(cx))
+                call sb_add(sb_joined, trim(fmt_g(cx)))
               end block
             end do
+            joined = sb_text(sb_joined)
             call add_err(codes, messages, "E301", &
               "lathe point " // joined // &
               " has a negative radius (" // py_str_val(comp) // &

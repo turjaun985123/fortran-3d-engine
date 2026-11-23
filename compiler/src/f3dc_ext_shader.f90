@@ -42,7 +42,7 @@ module f3dc_ext_shader
   use, intrinsic :: iso_fortran_env, only: int64, real64
   use f3dc_str, only: char_list, char_list_append, char_list_len, &
                       char_list_at, char_list_clear, str_box, fmt_int, &
-                      fmt_real
+                      fmt_real, str_builder, sb_init, sb_add, sb_text
   use f3dc_dyn, only: dyn, dyn_null, dyn_bool, dyn_str, dyn_list, &
                       dyn_dict, dyn_dict_get, dyn_dict_has, &
                       dyn_list_push, dyn_list_len, dyn_list_at, &
@@ -140,6 +140,7 @@ contains
   function py_repr_str(s) result(out)
     character(len=*), intent(in) :: s
     character(len=:), allocatable :: out, body
+    type(str_builder) :: sb
     character(len=1) :: quote
     character(len=16), parameter :: HD = "0123456789abcdef"
     integer :: i, c
@@ -148,24 +149,27 @@ contains
     else
       quote = "'"
     end if
-    body = ""
+    call sb_init(sb)
     do i = 1, len(s)
       c = iachar(s(i:i))
       if (s(i:i) == "\" .or. s(i:i) == quote) then
-        body = body // "\" // s(i:i)
+        call sb_add(sb, "\")
+        call sb_add(sb, s(i:i))
       else if (c == 10) then
-        body = body // "\n"
+        call sb_add(sb, "\n")
       else if (c == 13) then
-        body = body // "\r"
+        call sb_add(sb, "\r")
       else if (c == 9) then
-        body = body // "\t"
+        call sb_add(sb, "\t")
       else if (c < 32 .or. c == 127) then
-        body = body // "\x" // HD(c / 16 + 1:c / 16 + 1) // &
-               HD(mod(c, 16) + 1:mod(c, 16) + 1)
+        call sb_add(sb, "\x")
+        call sb_add(sb, HD(c / 16 + 1:c / 16 + 1))
+        call sb_add(sb, HD(mod(c, 16) + 1:mod(c, 16) + 1))
       else
-        body = body // s(i:i)
+        call sb_add(sb, s(i:i))
       end if
     end do
+    body = sb_text(sb)
     out = quote // body // quote
   end function py_repr_str
 
@@ -195,21 +199,32 @@ contains
     case (DYN_K_REAL)
       out = trim(fmt_real(v%r))
     case (DYN_K_LIST)
-      out = "("
-      do k = 1, dyn_list_len(v)
-        if (k > 1) out = out // ", "
-        out = out // py_repr_dyn(dyn_list_at(v, k))
-      end do
-      if (dyn_list_len(v) == 1) out = out // ","
-      out = out // ")"
+      block
+        type(str_builder) :: sb
+        call sb_init(sb)
+        call sb_add(sb, "(")
+        do k = 1, dyn_list_len(v)
+          if (k > 1) call sb_add(sb, ", ")
+          call sb_add(sb, py_repr_dyn(dyn_list_at(v, k)))
+        end do
+        if (dyn_list_len(v) == 1) call sb_add(sb, ",")
+        call sb_add(sb, ")")
+        out = sb_text(sb)
+      end block
     case (DYN_K_DICT)
-      out = "{"
-      do k = 1, dyn_dict_len(v)
-        if (k > 1) out = out // ", "
-        out = out // py_repr_str(dyn_dict_key_at(v, k)) // ": " // &
-              py_repr_dyn(dyn_dict_value_at(v, k))
-      end do
-      out = out // "}"
+      block
+        type(str_builder) :: sb
+        call sb_init(sb)
+        call sb_add(sb, "{")
+        do k = 1, dyn_dict_len(v)
+          if (k > 1) call sb_add(sb, ", ")
+          call sb_add(sb, py_repr_str(dyn_dict_key_at(v, k)))
+          call sb_add(sb, ": ")
+          call sb_add(sb, py_repr_dyn(dyn_dict_value_at(v, k)))
+        end do
+        call sb_add(sb, "}")
+        out = sb_text(sb)
+      end block
     case default
       out = "None"
     end select
@@ -996,6 +1011,7 @@ contains
     type(dyn) :: item, name_v, rpn_v
     type(char_list) :: toks
     character(len=:), allocatable :: name, joined
+    type(str_builder) :: sb
     integer :: k, j
     call char_list_clear(lines)
     if (defs%kind /= DYN_K_LIST) return
@@ -1024,10 +1040,13 @@ contains
       name = strip_ws(py_str_dyn(name_v))
       call rpn_tokens_of(rpn_v, toks)
       if (char_list_len(toks) > 0) then
-        joined = char_list_at(toks, 1)
+        call sb_init(sb)
+        call sb_add(sb, char_list_at(toks, 1))
         do j = 2, char_list_len(toks)
-          joined = joined // " " // char_list_at(toks, j)
+          call sb_add(sb, " ")
+          call sb_add(sb, char_list_at(toks, j))
         end do
+        joined = sb_text(sb)
         call char_list_append(lines, &
           "shaderdef " // name // " " // &
           trim(fmt_int(int(char_list_len(toks), int64))) // " " // &

@@ -72,7 +72,8 @@ module f3dc_parser
   use f3dc_errors, only: error_bag_t, make_span, &
                          make_diagnostic_span, error_bag_add, &
                          err_did_you_mean => did_you_mean
-  use f3dc_str, only: char_list, char_list_append
+  use f3dc_str, only: char_list, char_list_append, str_builder, &
+                      sb_init, sb_add, sb_text
   use f3dc_lexer, only: token, token_list, tokenize, TK_WORD, &
                         TK_NUMBER, TK_STRING, TK_COLOR, TK_COMMA, &
                         TK_COLON, TK_NEWLINE, TK_EOF
@@ -1778,6 +1779,7 @@ contains
     type(dyn), intent(out) :: stmt
     logical, intent(out) :: has_stmt
     character(:), allocatable :: w, w2, s, key, parts
+    type(str_builder) :: sb_parts
     character(16) :: env_keys(4)
     character(8192) :: env_vals(4)  ! clause text (lexer caps lines at 4096)
     type(dyn) :: name, bg, props, node
@@ -1839,13 +1841,16 @@ contains
         call lp_next(lp)
         call lp_dup(p, seen, key)
         if (p%le_set) return
-        parts = w
+        call sb_init(sb_parts)
+        call sb_add(sb_parts, w)
         do while (.not. lp_at_end(lp))
           call lp_peek_word(lp, w2, hasw2)
           if (hasw2 .and. in_list(w2, SCENE_CLAUSES)) exit
           call lp_next_text(lp, s)
-          parts = parts // " " // s
+          call sb_add(sb_parts, " ")
+          call sb_add(sb_parts, s)
         end do
+        parts = sb_text(sb_parts)
         dupf = .false.
         do i = 1, nenv
           if (env_keys(i) == key) then
@@ -2371,6 +2376,7 @@ contains
     logical, intent(out) :: has_stmt
     type(line_cur) :: lp
     character(:), allocatable :: first, sugg, msg, code
+    type(str_builder) :: sb_msg
     logical :: hasw, found
     has_stmt = .false.
     stmt = dyn_null()
@@ -2449,8 +2455,16 @@ contains
       call raise_line(p, "E401", "'group' must start a block")
     else
       call did_you_mean(first, STARTERS, sugg, found)
-      msg = "unknown word '" // first // "'"
-      if (found) msg = msg // " -- did you mean '" // sugg // "'?"
+      call sb_init(sb_msg)
+      call sb_add(sb_msg, "unknown word '")
+      call sb_add(sb_msg, first)
+      call sb_add(sb_msg, "'")
+      if (found) then
+        call sb_add(sb_msg, " -- did you mean '")
+        call sb_add(sb_msg, sugg)
+        call sb_add(sb_msg, "'?")
+      end if
+      msg = sb_text(sb_msg)
       call raise_line(p, "E104", msg)
     end if
   end subroutine parse_statement

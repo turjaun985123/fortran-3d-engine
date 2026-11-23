@@ -53,7 +53,8 @@ module f3dc_optimize
                       dyn_dict_has, dyn_dict_len, dyn_dict_key_at, &
                       DYN_K_NULL, DYN_K_BOOL, DYN_K_INT, DYN_K_REAL, &
                       DYN_K_STR, DYN_K_LIST, DYN_K_DICT
-  use f3dc_str, only: fmt_int, fmt_real, to_lower
+  use f3dc_str, only: fmt_int, fmt_real, to_lower, str_builder, &
+                      sb_init, sb_add, sb_text
   use f3dc_errors, only: error_bag_t, make_diagnostic, error_bag_add
   implicit none
   private
@@ -214,6 +215,7 @@ contains
   function py_repr_str(s) result(out)
     character(len=*), intent(in) :: s
     character(len=:), allocatable :: out
+    type(str_builder) :: sb
     character :: q
     integer :: i, b
     character(len=4) :: hexbuf
@@ -222,27 +224,30 @@ contains
     else
       q = "'"
     end if
-    out = q
+    call sb_init(sb)
+    call sb_add(sb, q)
     do i = 1, len(s)
       b = iachar(s(i:i))
       if (s(i:i) == "\") then
-        out = out // "\\"
+        call sb_add(sb, "\\")
       else if (s(i:i) == q) then
-        out = out // "\" // q
+        call sb_add(sb, "\")
+        call sb_add(sb, q)
       else if (b == 10) then
-        out = out // "\n"
+        call sb_add(sb, "\n")
       else if (b == 13) then
-        out = out // "\r"
+        call sb_add(sb, "\r")
       else if (b == 9) then
-        out = out // "\t"
+        call sb_add(sb, "\t")
       else if (b < 32 .or. b == 127) then
         write (hexbuf, "(A,Z2.2)") "\x", b
-        out = out // trim(hexbuf)
+        call sb_add(sb, trim(hexbuf))
       else
-        out = out // s(i:i)
+        call sb_add(sb, s(i:i))
       end if
     end do
-    out = out // q
+    call sb_add(sb, q)
+    out = sb_text(sb)
   end function py_repr_str
 
   !> Python repr(value) for a dyn value.
@@ -271,20 +276,32 @@ contains
         out = py_repr_str("")
       end if
     case (DYN_K_LIST)
-      out = "["
-      do k = 1, d%n_items
-        if (k > 1) out = out // ", "
-        out = out // py_repr(d%items(k))
-      end do
-      out = out // "]"
+      block
+        type(str_builder) :: sb
+        call sb_init(sb)
+        call sb_add(sb, "[")
+        do k = 1, d%n_items
+          if (k > 1) call sb_add(sb, ", ")
+          call sb_add(sb, py_repr(d%items(k)))
+        end do
+        call sb_add(sb, "]")
+        out = sb_text(sb)
+      end block
     case (DYN_K_DICT)
-      out = "{"
-      do k = 1, d%n_entries
-        if (k > 1) out = out // ", "
-        key = dyn_dict_key_at(d, k)
-        out = out // py_repr_str(key) // ": " // py_repr(d%dvals(k))
-      end do
-      out = out // "}"
+      block
+        type(str_builder) :: sb
+        call sb_init(sb)
+        call sb_add(sb, "{")
+        do k = 1, d%n_entries
+          if (k > 1) call sb_add(sb, ", ")
+          key = dyn_dict_key_at(d, k)
+          call sb_add(sb, py_repr_str(key))
+          call sb_add(sb, ": ")
+          call sb_add(sb, py_repr(d%dvals(k)))
+        end do
+        call sb_add(sb, "}")
+        out = sb_text(sb)
+      end block
     case default
       out = "None"
     end select
@@ -295,16 +312,19 @@ contains
   function py_repr_tuple(d) result(out)
     type(dyn), intent(in) :: d
     character(len=:), allocatable :: out
+    type(str_builder) :: sb
     integer :: k
-    out = "("
+    call sb_init(sb)
+    call sb_add(sb, "(")
     if (d%kind == DYN_K_LIST) then
       do k = 1, d%n_items
-        if (k > 1) out = out // ", "
-        out = out // py_repr(d%items(k))
+        if (k > 1) call sb_add(sb, ", ")
+        call sb_add(sb, py_repr(d%items(k)))
       end do
-      if (d%n_items == 1) out = out // ","
+      if (d%n_items == 1) call sb_add(sb, ",")
     end if
-    out = out // ")"
+    call sb_add(sb, ")")
+    out = sb_text(sb)
   end function py_repr_tuple
 
   ! ------------------------------------------------------------------

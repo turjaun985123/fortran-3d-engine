@@ -71,7 +71,8 @@ module f3dc_desugar
                       DYN_K_STR, DYN_K_LIST, DYN_K_DICT
   use f3dc_str, only: char_list, char_list_append, char_list_len, &
                       char_list_at, char_list_clear, fmt_int, to_lower, &
-                      str_split, str_join, path_dirname
+                      str_split, str_join, path_dirname, str_builder, &
+                      sb_init, sb_add, sb_text, sb_len
   use f3dc_errors, only: error_bag_t, make_diagnostic, error_bag_add, &
                          error_bag_error_count
   use f3dc_parser, only: f3dc_parse
@@ -1605,6 +1606,7 @@ contains
     type(dyn_arr), intent(inout) :: out
     character(len=:), allocatable :: path_str, as_name, resolved
     character(len=:), allocatable :: text, chain
+    type(str_builder) :: sb_chain
     type(dyn) :: iprops, part_prog, pv, lv
     logical :: pf, rok, bad
     type(dyn_arr) :: part_stmts, sub_out
@@ -1630,13 +1632,14 @@ contains
       return
     end if
     if (name_in(stack, resolved)) then
-      chain = ""
+      call sb_init(sb_chain)
       do i = 1, char_list_len(stack)
-        if (i > 1) chain = chain // " -> "
-        chain = chain // char_list_at(stack, i)
+        if (i > 1) call sb_add(sb_chain, " -> ")
+        call sb_add(sb_chain, char_list_at(stack, i))
       end do
-      if (len(chain) > 0) chain = chain // " -> "
-      chain = chain // resolved
+      if (sb_len(sb_chain) > 0) call sb_add(sb_chain, " -> ")
+      call sb_add(sb_chain, resolved)
+      chain = sb_text(sb_chain)
       call emit_diag(bag, "E504", "error", &
                      "import cycle: " // chain)
       return

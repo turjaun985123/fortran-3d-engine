@@ -56,7 +56,8 @@ module f3dc_compat
                       DYN_K_NULL, DYN_K_BOOL, DYN_K_INT, DYN_K_REAL, &
                       DYN_K_STR, DYN_K_LIST, DYN_K_DICT
   use f3dc_str, only: fmt_int, fmt_real, char_list, char_list_append, &
-                      char_list_len, char_list_at
+                      char_list_len, char_list_at, &
+                      str_builder, sb_init, sb_add, sb_text
   use f3dc_errors, only: error_bag_t, span_t, make_span, &
                          make_diagnostic, make_diagnostic_span, &
                          error_bag_add
@@ -176,6 +177,7 @@ contains
   function py_repr_str(s) result(out)
     character(len=*), intent(in) :: s
     character(len=:), allocatable :: out
+    type(str_builder) :: sb
     character :: q
     integer :: i, b
     character(len=4) :: hexbuf
@@ -184,32 +186,35 @@ contains
     else
       q = "'"
     end if
-    out = q
+    call sb_init(sb)
+    call sb_add(sb, q)
     do i = 1, len(s)
       b = iachar(s(i:i))
       if (s(i:i) == "\") then
-        out = out // "\\"
+        call sb_add(sb, "\\")
       else if (s(i:i) == q) then
-        out = out // "\" // q
+        call sb_add(sb, "\" // q)
       else if (b == 10) then
-        out = out // "\n"
+        call sb_add(sb, "\n")
       else if (b == 13) then
-        out = out // "\r"
+        call sb_add(sb, "\r")
       else if (b == 9) then
-        out = out // "\t"
+        call sb_add(sb, "\t")
       else if (b < 32 .or. b == 127) then
         write (hexbuf, "(A,Z2.2)") "\x", b
-        out = out // trim(hexbuf)
+        call sb_add(sb, trim(hexbuf))
       else
-        out = out // s(i:i)
+        call sb_add(sb, s(i:i))
       end if
     end do
-    out = out // q
+    call sb_add(sb, q)
+    out = sb_text(sb)
   end function py_repr_str
 
   recursive function py_repr(d) result(out)
     type(dyn), intent(in) :: d
     character(len=:), allocatable :: out
+    type(str_builder) :: sb
     integer :: k
     character(len=:), allocatable :: key
     select case (d%kind)
@@ -232,20 +237,24 @@ contains
         out = py_repr_str("")
       end if
     case (DYN_K_LIST)
-      out = "["
+      call sb_init(sb)
+      call sb_add(sb, "[")
       do k = 1, d%n_items
-        if (k > 1) out = out // ", "
-        out = out // py_repr(d%items(k))
+        if (k > 1) call sb_add(sb, ", ")
+        call sb_add(sb, py_repr(d%items(k)))
       end do
-      out = out // "]"
+      call sb_add(sb, "]")
+      out = sb_text(sb)
     case (DYN_K_DICT)
-      out = "{"
+      call sb_init(sb)
+      call sb_add(sb, "{")
       do k = 1, d%n_entries
-        if (k > 1) out = out // ", "
+        if (k > 1) call sb_add(sb, ", ")
         key = dyn_dict_key_at(d, k)
-        out = out // py_repr_str(key) // ": " // py_repr(d%dvals(k))
+        call sb_add(sb, py_repr_str(key) // ": " // py_repr(d%dvals(k)))
       end do
-      out = out // "}"
+      call sb_add(sb, "}")
+      out = sb_text(sb)
     case default
       out = "None"
     end select
@@ -323,21 +332,21 @@ contains
     end if
   end function hex_val
 
-  !> Append the UTF-8 encoding of code point cp to out.
-  subroutine append_utf8(out, cp)
-    character(len=:), allocatable, intent(inout) :: out
+  !> Append the UTF-8 encoding of code point cp to the builder.
+  subroutine append_utf8(sb, cp)
+    type(str_builder), intent(inout) :: sb
     integer, intent(in) :: cp
     if (cp < 128) then
-      out = out // achar(cp)
+      call sb_add(sb, achar(cp))
     else if (cp < 2048) then
-      out = out // achar(192 + cp / 64) // achar(128 + mod(cp, 64))
+      call sb_add(sb, achar(192 + cp / 64) // achar(128 + mod(cp, 64)))
     else if (cp < 65536) then
-      out = out // achar(224 + cp / 4096) // &
-            achar(128 + mod(cp / 64, 64)) // achar(128 + mod(cp, 64))
+      call sb_add(sb, achar(224 + cp / 4096) // &
+            achar(128 + mod(cp / 64, 64)) // achar(128 + mod(cp, 64)))
     else
-      out = out // achar(240 + cp / 262144) // &
+      call sb_add(sb, achar(240 + cp / 262144) // &
             achar(128 + mod(cp / 4096, 64)) // &
-            achar(128 + mod(cp / 64, 64)) // achar(128 + mod(cp, 64))
+            achar(128 + mod(cp / 64, 64)) // achar(128 + mod(cp, 64)))
     end if
   end subroutine append_utf8
 
@@ -370,10 +379,11 @@ contains
     type(jparser), intent(inout) :: p
     character(len=:), allocatable, intent(out) :: out
     logical, intent(out) :: ok
+    type(str_builder) :: sb
     integer :: start, cp, cp2, save
     character :: c, e
     ok = .false.
-    out = ""
+    call sb_init(sb)
     start = p%pos
     p%pos = p%pos + 1
     do while (p%pos <= len(p%text))
@@ -381,39 +391,43 @@ contains
       if (c == '"') then
         p%pos = p%pos + 1
         ok = .true.
+        out = sb_text(sb)
         return
       else if (c == "\") then
         if (p%pos + 1 > len(p%text)) exit  ! unterminated
         e = p%text(p%pos + 1:p%pos + 1)
         select case (e)
         case ('"')
-          out = out // '"'
+          call sb_add(sb, '"')
           p%pos = p%pos + 2
         case ("\")
-          out = out // "\"
+          call sb_add(sb, "\")
           p%pos = p%pos + 2
         case ("/")
-          out = out // "/"
+          call sb_add(sb, "/")
           p%pos = p%pos + 2
         case ("b")
-          out = out // achar(8)
+          call sb_add(sb, achar(8))
           p%pos = p%pos + 2
         case ("f")
-          out = out // achar(12)
+          call sb_add(sb, achar(12))
           p%pos = p%pos + 2
         case ("n")
-          out = out // achar(10)
+          call sb_add(sb, achar(10))
           p%pos = p%pos + 2
         case ("r")
-          out = out // achar(13)
+          call sb_add(sb, achar(13))
           p%pos = p%pos + 2
         case ("t")
-          out = out // achar(9)
+          call sb_add(sb, achar(9))
           p%pos = p%pos + 2
         case ("u")
           p%pos = p%pos + 2
           cp = parse_u_escape(p)
-          if (cp < 0) return
+          if (cp < 0) then
+            out = sb_text(sb)
+            return
+          end if
           if (cp >= 55296 .and. cp <= 56319) then
             ! High surrogate: combine with a following \uXXXX low one.
             save = p%pos
@@ -422,35 +436,41 @@ contains
                   p%text(p%pos + 1:p%pos + 1) == "u") then
                 p%pos = p%pos + 2
                 cp2 = parse_u_escape(p)
-                if (cp2 < 0) return
+                if (cp2 < 0) then
+                  out = sb_text(sb)
+                  return
+                end if
                 if (cp2 >= 56320 .and. cp2 <= 57343) then
                   cp = 65536 + (cp - 55296) * 1024 + (cp2 - 56320)
                 else
-                  call append_utf8(out, cp)  ! lone high surrogate
+                  call append_utf8(sb, cp)  ! lone high surrogate
                   cp = cp2
                 end if
               end if
             end if
             if (p%pos == save) then
-              call append_utf8(out, cp)
+              call append_utf8(sb, cp)
               cycle
             end if
-            call append_utf8(out, cp)
+            call append_utf8(sb, cp)
             cycle
           end if
-          call append_utf8(out, cp)
+          call append_utf8(sb, cp)
         case default
           call jerr(p, "Invalid \escape", p%pos + 1)
+          out = sb_text(sb)
           return
         end select
       else if (iachar(c) < 32) then
         call jerr(p, "Invalid control character at", p%pos)
+        out = sb_text(sb)
         return
       else
-        out = out // c
+        call sb_add(sb, c)
         p%pos = p%pos + 1
       end if
     end do
+    out = sb_text(sb)
     call jerr(p, "Unterminated string starting at", start)
   end subroutine jparse_string
 
@@ -1037,6 +1057,7 @@ contains
     real(real64), intent(out) :: x
     logical, intent(out) :: ok
     character(len=:), allocatable :: t, clean, low
+    type(str_builder) :: sb
     integer :: i, e, ndig, ios
     logical :: okk
     ok = .false.
@@ -1119,10 +1140,11 @@ contains
       end if
       if (i <= len(t)) return
     end block
-    clean = ""
+    call sb_init(sb)
     do i = 1, len(t)
-      if (t(i:i) /= "_") clean = clean // t(i:i)
+      if (t(i:i) /= "_") call sb_add(sb, t(i:i))
     end do
+    clean = sb_text(sb)
     read (clean, *, iostat=ios) x
     if (ios /= 0) return
     ok = .true.

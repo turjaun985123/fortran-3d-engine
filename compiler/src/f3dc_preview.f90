@@ -70,7 +70,8 @@ module f3dc_preview
        c_ptr, c_funptr, c_funloc, c_f_pointer, c_associated, &
        c_null_char, c_null_ptr
   use f3dc_str, only: fmt_int, path_stem, path_dirname, &
-       path_extension, to_lower, str_replace
+       path_extension, to_lower, str_replace, str_builder, &
+       sb_init, sb_add, sb_text, sb_len
   use f3dc_dyn, only: dyn, dyn_null, dyn_copy, dyn_dict_get, &
        dyn_list_len, dyn_list_at, DYN_K_STR, DYN_K_DICT
   use f3dc_errors, only: error_bag_t, diagnostic_t, make_span, &
@@ -561,18 +562,29 @@ contains
   function diag_json(d) result(out)
     type(diagnostic_t), intent(in) :: d
     character(len=:), allocatable :: out
-    out = '{"code": '//json_str(diag_str(d%code))// &
-          ', "severity": '//json_str(diag_str(d%severity))// &
-          ', "message": '//json_str(diag_str(d%message))// &
-          ', "why": '//json_str(diag_str(d%why))// &
-          ', "help": '//json_str(diag_str(d%help))//', "line": '
+    type(str_builder) :: sb
+    call sb_init(sb)
+    call sb_add(sb, '{"code": ')
+    call sb_add(sb, json_str(diag_str(d%code)))
+    call sb_add(sb, ', "severity": ')
+    call sb_add(sb, json_str(diag_str(d%severity)))
+    call sb_add(sb, ', "message": ')
+    call sb_add(sb, json_str(diag_str(d%message)))
+    call sb_add(sb, ', "why": ')
+    call sb_add(sb, json_str(diag_str(d%why)))
+    call sb_add(sb, ', "help": ')
+    call sb_add(sb, json_str(diag_str(d%help)))
+    call sb_add(sb, ', "line": ')
     if (d%has_span) then
-       out = out//trim(fmt_int(int(d%span%line, int64)))//', "col": '// &
-             trim(fmt_int(int(d%span%col, int64)))
+       call sb_add(sb, trim(fmt_int(int(d%span%line, int64))))
+       call sb_add(sb, ', "col": ')
+       call sb_add(sb, trim(fmt_int(int(d%span%col, int64))))
     else
-       out = out//"null"//', "col": null'
+       call sb_add(sb, "null")
+       call sb_add(sb, ', "col": null')
     end if
-    out = out//"}"
+    call sb_add(sb, "}")
+    out = sb_text(sb)
   end function diag_json
 
   function version_json() result(out)
@@ -589,23 +601,29 @@ contains
 
   function status_json() result(out)
     character(len=:), allocatable :: out
+    type(str_builder) :: sb
     integer :: k
-    out = '{"version": '//trim(fmt_int(int(p_version, int64)))// &
-          ', "ok": '//json_bool(p_ok)// &
-          ', "compile_count": '// &
-          trim(fmt_int(int(p_compile_count, int64)))// &
-          ', "diagnostics": ['
+    call sb_init(sb)
+    call sb_add(sb, '{"version": ')
+    call sb_add(sb, trim(fmt_int(int(p_version, int64))))
+    call sb_add(sb, ', "ok": ')
+    call sb_add(sb, json_bool(p_ok))
+    call sb_add(sb, ', "compile_count": ')
+    call sb_add(sb, trim(fmt_int(int(p_compile_count, int64))))
+    call sb_add(sb, ', "diagnostics": [')
     do k = 1, p_ndiag
-       if (k > 1) out = out//", "
-       out = out//diag_json(p_diags(k))
+       if (k > 1) call sb_add(sb, ", ")
+       call sb_add(sb, diag_json(p_diags(k)))
     end do
-    out = out//"]}"
+    call sb_add(sb, "]}")
+    out = sb_text(sb)
   end function status_json
 
   ! PreviewState.page()
   function pv_page() result(out)
     character(len=:), allocatable :: out
     character(len=:), allocatable :: bar, body, line
+    type(str_builder) :: sb_line, sb_body
     integer :: k, idx
     type(diagnostic_t) :: d
     bar = make_bar()
@@ -618,22 +636,37 @@ contains
        end if
        return
     end if
-    body = ""
+    ! v3.0 Phase 6 (C4): body accumulates in sb_body; the
+    ! separator guard reads sb_len (== len(body)) instead of the
+    ! string itself, so semantics are unchanged.
+    call sb_init(sb_body)
     do k = 1, p_ndiag
        d = p_diags(k)
-       line = diag_str(d%code)//" "//diag_str(d%severity)
+       call sb_init(sb_line)
+       call sb_add(sb_line, diag_str(d%code))
+       call sb_add(sb_line, " ")
+       call sb_add(sb_line, diag_str(d%severity))
        if (d%has_span) then
-          line = line//":"//trim(fmt_int(int(d%span%line, int64)))// &
-                 ":"//trim(fmt_int(int(d%span%col, int64)))
+          call sb_add(sb_line, ":")
+          call sb_add(sb_line, trim(fmt_int(int(d%span%line, int64))))
+          call sb_add(sb_line, ":")
+          call sb_add(sb_line, trim(fmt_int(int(d%span%col, int64))))
        end if
-       line = line//": "//diag_str(d%message)
-       if (len(body) > 0) body = body//NL
-       body = body//line
-       if (len(diag_str(d%why)) > 0) body = body//NL// &
-            "  why: "//diag_str(d%why)
-       if (len(diag_str(d%help)) > 0) body = body//NL// &
-            "  help: "//diag_str(d%help)
+       call sb_add(sb_line, ": ")
+       call sb_add(sb_line, diag_str(d%message))
+       line = sb_text(sb_line)
+       if (sb_len(sb_body) > 0) call sb_add(sb_body, NL)
+       call sb_add(sb_body, line)
+       if (len(diag_str(d%why)) > 0) then
+          call sb_add(sb_body, NL)
+          call sb_add(sb_body, "  why: "//diag_str(d%why))
+       end if
+       if (len(diag_str(d%help)) > 0) then
+          call sb_add(sb_body, NL)
+          call sb_add(sb_body, "  help: "//diag_str(d%help))
+       end if
     end do
+    body = sb_text(sb_body)
     if (p_ndiag == 0) body = "scene failed to compile (no diagnostics)"
     out = "<!DOCTYPE html>"//NL// &
           '<html><head><meta charset="utf-8">'// &

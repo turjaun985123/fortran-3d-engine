@@ -26,6 +26,7 @@ module f3dc_str
   public :: str_repeat, str_pad_left
   public :: path_basename, path_stem, path_dirname, path_extension
   public :: fmt_int, fmt_real
+  public :: str_builder, sb_init, sb_add, sb_text, sb_len, sb_clear
 
   !> Boxed string: element type for arrays of allocatable strings.
   type :: str_box
@@ -38,6 +39,22 @@ module f3dc_str
     integer :: n = 0
     integer :: cap = 0
   end type char_list
+
+  !> Growable string builder (v3.0 Phase 6, C4): a capacity-
+  !! doubling character buffer that replaces `s = s // piece`
+  !! accumulation (which reallocates the whole string on every
+  !! append, O(n^2) over a long emit).  Usage:
+  !!   type(str_builder) :: sb
+  !!   call sb_init(sb)
+  !!   call sb_add(sb, "piece"); call sb_add(sb, other)
+  !!   result = sb_text(sb)   ! character(:), allocatable copy
+  !! sb_add accepts any character(*) (including allocatable
+  !! character(:) values); sb_text on an empty builder is "".
+  type :: str_builder
+    character(len=:), allocatable :: buf
+    integer :: n = 0
+    integer :: cap = 0
+  end type str_builder
 
   !> Growable list of real64.
   type :: real_list
@@ -389,23 +406,27 @@ contains
   function str_replace(s, old, new) result(out)
     character(len=*), intent(in) :: s, old, new
     character(len=:), allocatable :: out
+    type(str_builder) :: sb
     integer :: pos, hit
     out = ""
     if (len(old) == 0) then
       out = s
       return
     end if
+    call sb_init(sb)
     pos = 1
     do while (pos <= len(s))
       hit = index(s(pos:), old)
       if (hit == 0) then
-        out = out // s(pos:)
+        call sb_add(sb, s(pos:))
+        out = sb_text(sb)
         return
       end if
-      if (hit > 1) out = out // s(pos:pos + hit - 2)
-      out = out // new
+      if (hit > 1) call sb_add(sb, s(pos:pos + hit - 2))
+      call sb_add(sb, new)
       pos = pos + hit - 1 + len(old)
     end do
+    out = sb_text(sb)
   end function str_replace
 
   ! ------------------------------------------------------------------
@@ -613,9 +634,14 @@ contains
       i = index(ebuf, "e")
       block
         character(len=:), allocatable :: enum
+        type(str_builder) :: sb
         enum = ebuf(i + 2:len_trim(ebuf))
         if (len(enum) < 2) enum = "0" // enum
-        body = body // ebuf(1:i + 1) // enum
+        call sb_init(sb)
+        call sb_add(sb, body)
+        call sb_add(sb, ebuf(1:i + 1))
+        call sb_add(sb, enum)
+        body = sb_text(sb)
       end block
     end if
     if (neg) then
@@ -624,5 +650,63 @@ contains
       out = body
     end if
   end function render_python_float
+
+  ! ------------------------------------------------------------------
+  ! String builder (v3.0 Phase 6, C4)
+  ! ------------------------------------------------------------------
+
+  subroutine sb_init(sb)
+    type(str_builder), intent(inout) :: sb
+    sb%n = 0
+    if (.not. allocated(sb%buf)) then
+      allocate(character(len=256) :: sb%buf)
+      sb%cap = 256
+    end if
+  end subroutine sb_init
+
+  subroutine sb_clear(sb)
+    type(str_builder), intent(inout) :: sb
+    sb%n = 0
+    sb%cap = 0
+    if (allocated(sb%buf)) deallocate(sb%buf)
+  end subroutine sb_clear
+
+  subroutine sb_add(sb, s)
+    type(str_builder), intent(inout) :: sb
+    character(len=*), intent(in) :: s
+    character(len=:), allocatable :: grown
+    integer :: need, new_cap
+    need = sb%n + len(s)
+    if (need > sb%cap) then
+      new_cap = max(256, sb%cap)
+      do while (new_cap < need)
+        new_cap = new_cap * 2
+      end do
+      allocate(character(len=new_cap) :: grown)
+      if (sb%n > 0) grown(1:sb%n) = sb%buf(1:sb%n)
+      call move_alloc(grown, sb%buf)
+      sb%cap = new_cap
+    end if
+    if (len(s) > 0) sb%buf(sb%n + 1:need) = s
+    sb%n = need
+  end subroutine sb_add
+
+  function sb_text(sb) result(out)
+    type(str_builder), intent(in) :: sb
+    character(len=:), allocatable :: out
+    if (sb%n > 0) then
+      allocate(character(len=sb%n) :: out)
+      out = sb%buf(1:sb%n)
+    else
+      allocate(character(len=0) :: out)
+      out = ""
+    end if
+  end function sb_text
+
+  pure function sb_len(sb) result(n)
+    type(str_builder), intent(in) :: sb
+    integer :: n
+    n = sb%n
+  end function sb_len
 
 end module f3dc_str

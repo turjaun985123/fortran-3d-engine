@@ -69,7 +69,8 @@ module f3dc_ir
                       dyn_list_push, dyn_list_len, dyn_list_at, &
                       DYN_K_NULL, DYN_K_BOOL, DYN_K_INT, DYN_K_REAL, &
                       DYN_K_STR, DYN_K_LIST, DYN_K_DICT
-  use f3dc_str, only: fmt_int, fmt_real, to_lower
+  use f3dc_str, only: fmt_int, fmt_real, to_lower, &
+                      str_builder, sb_init, sb_add, sb_text
   use f3dc_errors, only: error_bag_t, diagnostic_t, make_diagnostic, &
                          error_bag_add, json_escape
   implicit none
@@ -484,6 +485,7 @@ contains
   recursive function repr_dyn(v) result(out)
     type(dyn), intent(in) :: v
     character(len=:), allocatable :: out
+    type(str_builder) :: sb
     integer :: k
     select case (v%kind)
     case (DYN_K_NULL)
@@ -509,21 +511,25 @@ contains
       ! vec3 / colour triple is a tuple in the AST), so repr renders
       ! tuple style; a genuine Python list input would print with
       ! brackets there -- the one place the conflation shows.
-      out = "("
+      call sb_init(sb)
+      call sb_add(sb, "(")
       do k = 1, dyn_list_len(v)
-        if (k > 1) out = out // ", "
-        out = out // repr_dyn(dyn_list_at(v, k))
+        if (k > 1) call sb_add(sb, ", ")
+        call sb_add(sb, repr_dyn(dyn_list_at(v, k)))
       end do
-      if (dyn_list_len(v) == 1) out = out // ","
-      out = out // ")"
+      if (dyn_list_len(v) == 1) call sb_add(sb, ",")
+      call sb_add(sb, ")")
+      out = sb_text(sb)
     case (DYN_K_DICT)
-      out = "{"
+      call sb_init(sb)
+      call sb_add(sb, "{")
       do k = 1, dyn_dict_len(v)
-        if (k > 1) out = out // ", "
-        out = out // repr_str(dyn_dict_key_at(v, k)) // ": " // &
-              repr_dyn(dyn_dict_value_at(v, k))
+        if (k > 1) call sb_add(sb, ", ")
+        call sb_add(sb, repr_str(dyn_dict_key_at(v, k)) // ": " // &
+              repr_dyn(dyn_dict_value_at(v, k)))
       end do
-      out = out // "}"
+      call sb_add(sb, "}")
+      out = sb_text(sb)
     case default
       out = "None"
     end select
@@ -535,6 +541,7 @@ contains
   function repr_str(s) result(out)
     character(len=*), intent(in) :: s
     character(len=:), allocatable :: out, body
+    type(str_builder) :: sb
     character(len=1) :: quote
     integer :: i, c
     if (index(s, "'") > 0 .and. index(s, '"') == 0) then
@@ -542,27 +549,28 @@ contains
     else
       quote = "'"
     end if
-    body = ""
+    call sb_init(sb)
     do i = 1, len(s)
       c = iachar(s(i:i))
       if (s(i:i) == quote .or. c == 92) then
-        body = body // "\" // s(i:i)
+        call sb_add(sb, "\" // s(i:i))
       else if (c == 10) then
-        body = body // "\n"
+        call sb_add(sb, "\n")
       else if (c == 13) then
-        body = body // "\r"
+        call sb_add(sb, "\r")
       else if (c == 9) then
-        body = body // "\t"
+        call sb_add(sb, "\t")
       else if (c < 32 .or. c == 127) then
         block
           character(len=8) :: hb
           write (hb, "(A,Z2.2)") "\x", c
-          body = body // trim(hb)
+          call sb_add(sb, trim(hb))
         end block
       else
-        body = body // s(i:i)
+        call sb_add(sb, s(i:i))
       end if
     end do
+    body = sb_text(sb)
     out = quote // body // quote
   end function repr_str
 
@@ -1227,98 +1235,112 @@ contains
     character(len=:), allocatable, intent(inout) :: out
     integer :: k, n
     character(len=:), allocatable :: pad_in, pad_out
+    type(str_builder) :: sb
+    ! Builder mirrors `out` (seed / flush / re-seed around the
+    ! recursive child calls), as in f3dc_emit_common.dump_rec.
+    call sb_init(sb)
+    if (allocated(out)) call sb_add(sb, out)
     select case (v%kind)
     case (DYN_K_NULL)
-      out = out // "null"
+      call sb_add(sb, "null")
     case (DYN_K_BOOL)
       if (v%b) then
-        out = out // "true"
+        call sb_add(sb, "true")
       else
-        out = out // "false"
+        call sb_add(sb, "false")
       end if
     case (DYN_K_INT)
-      out = out // trim(fmt_int(v%i))
+      call sb_add(sb, trim(fmt_int(v%i)))
     case (DYN_K_REAL)
       ! json.dumps spells non-finite values NaN/Infinity/-Infinity.
       if (v%r /= v%r) then
-        out = out // "NaN"
+        call sb_add(sb, "NaN")
       else if (.not. (abs(v%r) <= huge(v%r))) then
         if (v%r > 0.0_real64) then
-          out = out // "Infinity"
+          call sb_add(sb, "Infinity")
         else
-          out = out // "-Infinity"
+          call sb_add(sb, "-Infinity")
         end if
       else
-        out = out // trim(fmt_real(v%r))
+        call sb_add(sb, trim(fmt_real(v%r)))
       end if
     case (DYN_K_STR)
       if (allocated(v%s)) then
-        out = out // '"' // json_escape(v%s) // '"'
+        call sb_add(sb, '"' // json_escape(v%s) // '"')
       else
-        out = out // '""'
+        call sb_add(sb, '""')
       end if
     case (DYN_K_LIST)
       n = dyn_list_len(v)
       if (n == 0) then
-        out = out // "[]"
+        call sb_add(sb, "[]")
+        out = sb_text(sb)
         return
       end if
-      out = out // "["
+      call sb_add(sb, "[")
       do k = 1, n
         if (k > 1) then
           if (indent >= 0) then
-            out = out // ","
+            call sb_add(sb, ",")
           else
-            out = out // ", "
+            call sb_add(sb, ", ")
           end if
         end if
         if (indent >= 0) then
           pad_in = repeat(" ", indent * (level + 1))
-          out = out // achar(10) // pad_in
+          call sb_add(sb, achar(10) // pad_in)
         end if
+        out = sb_text(sb)
         call json_write_rec(dyn_list_at(v, k), indent, level + 1, out)
+        call sb_init(sb)
+        if (allocated(out)) call sb_add(sb, out)
       end do
       if (indent >= 0) then
         pad_out = repeat(" ", indent * level)
-        out = out // achar(10) // pad_out
+        call sb_add(sb, achar(10) // pad_out)
       end if
-      out = out // "]"
+      call sb_add(sb, "]")
     case (DYN_K_DICT)
       n = dyn_dict_len(v)
       if (n == 0) then
-        out = out // "{}"
+        call sb_add(sb, "{}")
+        out = sb_text(sb)
         return
       end if
-      out = out // "{"
+      call sb_add(sb, "{")
       do k = 1, n
         if (k > 1) then
           if (indent >= 0) then
-            out = out // ","
+            call sb_add(sb, ",")
           else
-            out = out // ", "
+            call sb_add(sb, ", ")
           end if
         end if
         if (indent >= 0) then
           pad_in = repeat(" ", indent * (level + 1))
-          out = out // achar(10) // pad_in
+          call sb_add(sb, achar(10) // pad_in)
         end if
-        out = out // '"' // json_escape(dyn_dict_key_at(v, k)) // '"'
+        call sb_add(sb, '"' // json_escape(dyn_dict_key_at(v, k)) // '"')
         if (indent >= 0) then
-          out = out // ": "
+          call sb_add(sb, ": ")
         else
-          out = out // ": "
+          call sb_add(sb, ": ")
         end if
+        out = sb_text(sb)
         call json_write_rec(dyn_dict_value_at(v, k), indent, &
                             level + 1, out)
+        call sb_init(sb)
+        if (allocated(out)) call sb_add(sb, out)
       end do
       if (indent >= 0) then
         pad_out = repeat(" ", indent * level)
-        out = out // achar(10) // pad_out
+        call sb_add(sb, achar(10) // pad_out)
       end if
-      out = out // "}"
+      call sb_add(sb, "}")
     case default
-      out = out // "null"
+      call sb_add(sb, "null")
     end select
+    out = sb_text(sb)
   end subroutine json_write_rec
 
   !> to_json(scene, indent=...): json.dumps(to_dict(scene)).
@@ -1525,55 +1547,64 @@ contains
   subroutine json_parse_string(p, out)
     type(json_parser), intent(inout) :: p
     character(len=:), allocatable, intent(out) :: out
+    type(str_builder) :: sb
     integer :: cp, hi, lo, save
-    out = ""
+    call sb_init(sb)
     p%pos = p%pos + 1  ! opening quote
     do while (p%pos <= len(p%s))
       if (p%s(p%pos:p%pos) == '"') then
         p%pos = p%pos + 1
+        out = sb_text(sb)
         return
       end if
       if (p%s(p%pos:p%pos) == "\") then
         p%pos = p%pos + 1
         if (p%pos > len(p%s)) then
           p%ok = .false.
+          out = sb_text(sb)
           return
         end if
         select case (p%s(p%pos:p%pos))
         case ('"')
-          out = out // '"'
+          call sb_add(sb, '"')
           p%pos = p%pos + 1
         case ("\")
-          out = out // "\"
+          call sb_add(sb, "\")
           p%pos = p%pos + 1
         case ("/")
-          out = out // "/"
+          call sb_add(sb, "/")
           p%pos = p%pos + 1
         case ("b")
-          out = out // achar(8)
+          call sb_add(sb, achar(8))
           p%pos = p%pos + 1
         case ("f")
-          out = out // achar(12)
+          call sb_add(sb, achar(12))
           p%pos = p%pos + 1
         case ("n")
-          out = out // achar(10)
+          call sb_add(sb, achar(10))
           p%pos = p%pos + 1
         case ("r")
-          out = out // achar(13)
+          call sb_add(sb, achar(13))
           p%pos = p%pos + 1
         case ("t")
-          out = out // achar(9)
+          call sb_add(sb, achar(9))
           p%pos = p%pos + 1
         case ("u")
           call json_parse_hex4(p, cp)
-          if (.not. p%ok) return
+          if (.not. p%ok) then
+            out = sb_text(sb)
+            return
+          end if
           if (cp >= 55296 .and. cp <= 56319) then
             save = p%pos
             if (p%pos + 1 <= len(p%s)) then
               if (p%s(p%pos:p%pos + 1) == "\u") then
                 p%pos = p%pos + 1
                 call json_parse_hex4(p, lo)
-                if (.not. p%ok) return
+                if (.not. p%ok) then
+                  out = sb_text(sb)
+                  return
+                end if
                 if (lo >= 56320 .and. lo <= 57343) then
                   hi = cp
                   cp = 65536 + (hi - 55296) * 1024 + (lo - 56320)
@@ -1583,21 +1614,24 @@ contains
               end if
             end if
           end if
-          out = out // utf8_encode(cp)
+          call sb_add(sb, utf8_encode(cp))
         case default
           p%ok = .false.
+          out = sb_text(sb)
           return
         end select
         cycle
       end if
       if (iachar(p%s(p%pos:p%pos)) < 32) then
         p%ok = .false.
+        out = sb_text(sb)
         return
       end if
-      out = out // p%s(p%pos:p%pos)
+      call sb_add(sb, p%s(p%pos:p%pos))
       p%pos = p%pos + 1
     end do
     p%ok = .false.
+    out = sb_text(sb)
   end subroutine json_parse_string
 
   !> Consume 'u' + 4 hex digits (pos is at the 'u').

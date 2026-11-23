@@ -31,7 +31,8 @@ module f3dc_ext_lights_env
                       ieee_quiet_nan
   use f3dc_str, only: char_list, char_list_append, char_list_len, &
                       char_list_at, char_list_clear, to_lower, &
-                      fmt_int, fmt_real
+                      fmt_int, fmt_real, str_builder, sb_init, &
+                      sb_add, sb_text
   use f3dc_dyn, only: dyn, dyn_null, dyn_bool, dyn_int, dyn_real, &
                       dyn_str, dyn_list, dyn_dict, dyn_copy, dyn_assign, dyn_dict_get, &
                       dyn_dict_set, dyn_dict_has, dyn_dict_len, &
@@ -213,6 +214,7 @@ contains
     real(real64), intent(out) :: x
     logical, intent(out) :: ok
     character(len=:), allocatable :: t, low, clean
+    type(str_builder) :: sb
     integer :: i, ios, ndig
     logical :: prev_digit, next_digit
     x = 0.0_real64
@@ -237,7 +239,7 @@ contains
       return
     end if
     ! Charset + underscore validation, then a list-directed read.
-    clean = ""
+    call sb_init(sb)
     ndig = 0
     do i = 1, len(t)
       if (t(i:i) == "_") then
@@ -254,12 +256,13 @@ contains
           .or. t(i:i) == "e" .or. t(i:i) == "E" .or. t(i:i) == "+" &
           .or. t(i:i) == "-") then
         if (t(i:i) >= "0" .and. t(i:i) <= "9") ndig = ndig + 1
-        clean = clean // t(i:i)
+        call sb_add(sb, t(i:i))
       else
         return
       end if
     end do
     if (ndig == 0) return
+    clean = sb_text(sb)
     read (clean, *, iostat=ios) x
     if (ios /= 0) then
       x = 0.0_real64
@@ -574,18 +577,24 @@ contains
         out = "0." // repeat("0", -exp10 - 1) // digs
       end if
     else
-      out = digs(1:1)
-      if (nd > 1) out = out // "." // digs(2:nd)
-      if (exp10 < 0) then
-        out = out // "e-"
-      else
-        out = out // "e+"
-      end if
       block
         character(len=:), allocatable :: es
+        type(str_builder) :: sb
+        call sb_init(sb)
+        call sb_add(sb, digs(1:1))
+        if (nd > 1) then
+          call sb_add(sb, ".")
+          call sb_add(sb, digs(2:nd))
+        end if
+        if (exp10 < 0) then
+          call sb_add(sb, "e-")
+        else
+          call sb_add(sb, "e+")
+        end if
         es = trim(fmt_int(int(abs(exp10), int64)))
         if (len(es) < 2) es = "0" // es
-        out = out // es
+        call sb_add(sb, es)
+        out = sb_text(sb)
       end block
     end if
     if (neg) out = "-" // out
@@ -638,20 +647,32 @@ contains
         out = ""
       end if
     case (DYN_K_LIST)
-      out = "["
-      do k = 1, dyn_list_len(val)
-        if (k > 1) out = out // ", "
-        out = out // py_repr_of(dyn_list_at(val, k))
-      end do
-      out = out // "]"
+      block
+        type(str_builder) :: sb
+        call sb_init(sb)
+        call sb_add(sb, "[")
+        do k = 1, dyn_list_len(val)
+          if (k > 1) call sb_add(sb, ", ")
+          call sb_add(sb, py_repr_of(dyn_list_at(val, k)))
+        end do
+        call sb_add(sb, "]")
+        out = sb_text(sb)
+      end block
     case (DYN_K_DICT)
-      out = "{"
-      do k = 1, dyn_dict_len(val)
-        if (k > 1) out = out // ", "
-        out = out // "'" // dyn_dict_key_at(val, k) // "': " // &
-              py_repr_of(dyn_dict_value_at(val, k))
-      end do
-      out = out // "}"
+      block
+        type(str_builder) :: sb
+        call sb_init(sb)
+        call sb_add(sb, "{")
+        do k = 1, dyn_dict_len(val)
+          if (k > 1) call sb_add(sb, ", ")
+          call sb_add(sb, "'")
+          call sb_add(sb, dyn_dict_key_at(val, k))
+          call sb_add(sb, "': ")
+          call sb_add(sb, py_repr_of(dyn_dict_value_at(val, k)))
+        end do
+        call sb_add(sb, "}")
+        out = sb_text(sb)
+      end block
     case default
       out = ""
     end select
