@@ -113,7 +113,11 @@ module f3dc_validate
   use f3dc_ext_gltf, only: load_gltf
   implicit none
   private
-  public :: f3dc_validate
+  public :: f3dc_validate, f3dc_validate_import_deps
+
+  ! v2.0 P5: import record of the most recent validate run
+  ! (side channel for the preview watcher; see the accessor below).
+  type(dyn) :: last_import_deps
 
   ! ------------------------------------------------------------ limits
   real(real64), parameter :: MAX_DIM = 1000.0_real64
@@ -2121,6 +2125,7 @@ contains
     scene = dyn_null()
     ok = .false.
     ! ---- state init ---------------------------------------------
+    last_import_deps = dyn_list()
     vs%bag => bag
     vs%base_dir = base_dir
     vs%light_nodes = dyn_list()
@@ -3097,8 +3102,32 @@ contains
       call dyn_dict_set(scene, "extensions", exts)
     end block
     call dyn_dict_set(scene, "base_dir", dyn_str(base_dir))
+    ! v2.0 P5: record desugar's import list for the preview watcher
+    ! in module state (see f3dc_validate_import_deps below).  It is
+    ! deliberately NOT stamped onto the scene dyn: the .scene and
+    ! _scene.f90 emitters hash the canonical JSON of the whole IR
+    ! into their header stamp, so any extra scene key would change
+    ! emitted artifacts for import scenes.
+    last_import_deps = dyn_list()
+    if (dyn_dict_has(prog, "_import_deps")) &
+      last_import_deps = dyn_copy(dyn_dict_get(prog, "_import_deps"))
     ok = .true.
   end subroutine f3dc_validate
+
+  !> v2.0 P5 side channel: the "_import_deps" list (canonical
+  !! resolved part-file paths) recorded by desugar during the most
+  !! recent f3dc_validate call -- an empty list when that call
+  !! imported nothing or has not run yet.  Read by the preview
+  !! watcher only; never part of the scene dyn, so no emitted
+  !! artifact can observe it.
+  function f3dc_validate_import_deps() result(out)
+    type(dyn) :: out
+    if (last_import_deps%kind == DYN_K_LIST) then
+       out = dyn_copy(last_import_deps)
+    else
+       out = dyn_list()
+    end if
+  end function f3dc_validate_import_deps
 
   !> Python scene.extensions[key] = payload, only when the payload
   !! dict is non-empty (the env payload itself is a

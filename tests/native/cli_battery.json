@@ -558,7 +558,7 @@
     "stdout_text": "out/scene.scene\nout/scene.json\nout/scene.legacy.json\nout/scene.js\nout/scene.html\nout/scene_scene.f90\n",
     "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n",
     "artifacts": {
-     "scene.html": "cf93680259dd7bf36a47c3191a0e2ef9479333ab51c26125b3d23065e6185136",
+     "scene.html": "636267e9683c6f07387d902afd20f6e80d7797ce7f148a148ab369cf5293a84c",
      "scene.js": "c5f409cba7f8fc95bde84a54037041f178fcf3de9edbdc02d9fa6514461101ef",
      "scene.json": "d3980294aaf012c2b380df2c1f06744dc0ac8572963d22d0a473eedca27031d8",
      "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
@@ -590,7 +590,7 @@
     "stdout_text": "out/scene.scene\nout/scene.json\nout/scene.legacy.json\nout/scene.js\nout/scene.html\nout/scene_scene.f90\n",
     "stderr_text": "",
     "artifacts": {
-     "scene.html": "6f0bc6078cf4c5713d70a4fb208ded37ca017801bc6d76809185cafc58d11bfb",
+     "scene.html": "71f8f42174b826d0cf7bf6d6897fe0783a59f3aa0782bc5089102000cc7dcff0",
      "scene.js": "c23b188ffb359f99f7788b4408ea6aee5874a5d07d9b4ed941039709c4da2577",
      "scene.json": "087e0d65343d5b027fb50c4b293279adc66fb272335cd21215bd666afcbd2962",
      "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",

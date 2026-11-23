@@ -37,9 +37,11 @@
 ! text it is given (cli.py reads runtime/f3d.js).  The extension
 ! runtimes runtime/f3d-*.js (f3d-pbr.js, f3d-post.js, ...) are NOT
 ! pulled in by emit_html.py -- they are separate <script> loads a
-! page performs itself -- so there is no sidecar embedding to port;
-! the single {{F3D_JS}} substitution below is the whole embedding
-! surface, and it is implemented in full.
+! page performs itself.  P5-B adds ONE deliberate exception: the
+! WebGL2 sidecar runtime/f3d-webgl2.js is loaded from repo_root
+! by emit_html itself (emit_html_webgl2_js) and substituted into
+! the {{WEBGL2_JS}} slot, so the viewer boot can default to
+! WebGL2 with the core Canvas2D player as fallback.
 module f3dc_emit_html
   use, intrinsic :: iso_fortran_env, only: int64, real64
   use f3dc_dyn, only: dyn, dyn_dict_get, dyn_kind, &
@@ -51,6 +53,7 @@ module f3dc_emit_html
   private
 
   public :: emit_html, emit_html_repo_root, emit_html_runtime_js
+  public :: emit_html_webgl2_js
   public :: FALLBACK_COMMENT
 
   !> Exact marker required when no runtime is supplied.
@@ -276,6 +279,19 @@ contains
     if (.not. ok) runtime_js = ""
   end subroutine emit_html_runtime_js
 
+  !> P5-B: the text of <repo_root>/runtime/f3d-webgl2.js (the
+  !! WebGL2 sidecar inlined into the {{WEBGL2_JS}} slot), or ""
+  !! when missing/unreadable -- the viewer boot then degrades
+  !! to the core Canvas2D player only.
+  subroutine emit_html_webgl2_js(repo_root, webgl2_js)
+    character(len=*), intent(in) :: repo_root
+    character(len=:), allocatable, intent(out) :: webgl2_js
+    logical :: ok
+    call read_file(repo_root // "/runtime/f3d-webgl2.js", &
+                   webgl2_js, ok)
+    if (.not. ok) webgl2_js = ""
+  end subroutine emit_html_webgl2_js
+
   ! ==================================================================
   ! Fallback JS + built-in template (emit_html.py constants)
   ! ==================================================================
@@ -325,20 +341,163 @@ contains
       NL // &
       "</main>" // NL // &
       "{{F3D_JS}}" // NL // &
+      "{{WEBGL2_JS}}" // NL // &
       "{{SCENE_JS}}" // NL // &
       "<script>" // NL // &
       "(function () {" // NL // &
-      "  var scene = (typeof SCENE !== ""undefined"") ? SCENE : " // &
-      "window.SCENE;" // NL // &
-      "  var canvas = document.getElementById(""f3d-canvas"");" // &
-      NL // &
+      "  // Forge3D viewer boot v2: WebGL2 first (via the inlined" // NL // &
+      "  // f3d-webgl2.js sidecar + F3D.worldTris), Canvas2D core" // NL // &
+      "  // player as automatic fallback. F3DBoot exposes the pure" // NL // &
+      "  // decision / MVP helpers for headless tests." // NL // &
+      "  function v3(v, d) {" // NL // &
+      "    if (v == null) return d.slice();" // NL // &
+      "    if (typeof v === ""number"") return [v, v, v];" // NL // &
+      "    return [+v[0] || 0, +v[1] || 0, +v[2] || 0];" // NL // &
+      "  }" // NL // &
+      "  function sub(a, b) {" // NL // &
+      "    return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];" // NL // &
+      "  }" // NL // &
+      "  function cross(a, b) {" // NL // &
+      "    return [a[1] * b[2] - a[2] * b[1]," // NL // &
+      "      a[2] * b[0] - a[0] * b[2]," // NL // &
+      "      a[0] * b[1] - a[1] * b[0]];" // NL // &
+      "  }" // NL // &
+      "  function dot(a, b) {" // NL // &
+      "    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];" // NL // &
+      "  }" // NL // &
+      "  function norm(a) {" // NL // &
+      "    var l = Math.hypot(a[0], a[1], a[2]);" // NL // &
+      "    return l > 1e-12 ? [a[0] / l, a[1] / l, a[2] / l]" // NL // &
+      "      : [0, 0, 0];" // NL // &
+      "  }" // NL // &
+      "  function mul(a, b) { // column-major a * b" // NL // &
+      "    var o = new Array(16), c, r, k, s;" // NL // &
+      "    for (c = 0; c < 4; c++) for (r = 0; r < 4; r++) {" // NL // &
+      "      s = 0;" // NL // &
+      "      for (k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k];" // NL // &
+      "      o[c * 4 + r] = s;" // NL // &
+      "    }" // NL // &
+      "    return o;" // NL // &
+      "  }" // NL // &
+      "  function mvpForCamera(cam, aspect) {" // NL // &
+      "    cam = cam || {};" // NL // &
+      "    var eye = v3(cam.pos || cam.position, [3, 2.5, 4]);" // NL // &
+      "    var tgt = v3(cam.target, [0, 0, 0]);" // NL // &
+      "    var up = v3(cam.up, [0, 1, 0]);" // NL // &
+      "    var fov = cam.fov || 60;" // NL // &
+      "    var near = cam.near != null ? +cam.near : 0.1;" // NL // &
+      "    var far = cam.far != null ? +cam.far : 100;" // NL // &
+      "    var f = norm(sub(tgt, eye)), r = norm(cross(f, up));" // NL // &
+      "    var u = cross(r, f);" // NL // &
+      "    var view = [r[0], u[0], -f[0], 0," // NL // &
+      "      r[1], u[1], -f[1], 0," // NL // &
+      "      r[2], u[2], -f[2], 0," // NL // &
+      "      -dot(r, eye), -dot(u, eye), dot(f, eye), 1];" // NL // &
+      "    var t = 1 / Math.tan(fov * Math.PI / 360);" // NL // &
+      "    var a = aspect || 1;" // NL // &
+      "    var persp = [t / a, 0, 0, 0," // NL // &
+      "      0, t, 0, 0," // NL // &
+      "      0, 0, (far + near) / (near - far), -1," // NL // &
+      "      0, 0, 2 * far * near / (near - far), 0];" // NL // &
+      "    return mul(persp, view);" // NL // &
+      "  }" // NL // &
+      "  function canUseWebGL2(scene, gl, f3d) {" // NL // &
+      "    return !!(gl && f3d &&" // NL // &
+      "      typeof f3d.worldTris === ""function"" &&" // NL // &
+      "      scene && scene.camera && !scene.controls);" // NL // &
+      "  }" // NL // &
+      "  window.F3DBoot = { mvpForCamera: mvpForCamera," // NL // &
+      "    canUseWebGL2: canUseWebGL2 };" // NL // &
+      "  var scene = window.F3D_SCENE ||" // NL // &
+      "    (typeof SCENE !== ""undefined"" ? SCENE : window.SCENE);" // NL // &
+      "  var canvas = document.getElementById(""f3d-canvas"");" // NL // &
       "  if (!canvas || !scene) { return; }" // NL // &
-      "  if (window.F3D && typeof window.F3D.create === " // &
-      """function"") {" // NL // &
-      "    window.F3D.create(canvas, scene);" // NL // &
-      "  } else if (window.F3D && typeof window.F3D.mount === " // &
-      """function"") {" // NL // &
-      "    window.F3D.mount(canvas, scene);" // NL // &
+      "  var fb = document.getElementById(""f3d-fallback"");" // NL // &
+      "  function done() {" // NL // &
+      "    // The scene JS bootstrap would otherwise auto-start the" // NL // &
+      "    // Canvas2D player on DOMContentLoaded; the boot owns the" // NL // &
+      "    // canvas now, so neutralise that second start." // NL // &
+      "    if (window.F3D) window.F3D.auto = function () {" // NL // &
+      "      return null;" // NL // &
+      "    };" // NL // &
+      "    if (fb) fb.style.display = ""none"";" // NL // &
+      "  }" // NL // &
+      "  var used = false, glTried = false;" // NL // &
+      "  if (canUseWebGL2(scene, window.Forge3DWebGL2, window.F3D)) {" // NL // &
+      "    try {" // NL // &
+      "      var tris = window.F3D.worldTris(scene, 0);" // NL // &
+      "      if (tris.length &&" // NL // &
+      "          window.Forge3DWebGL2.isAvailable()) {" // NL // &
+      "        if (canvas.clientWidth) {" // NL // &
+      "          canvas.width = canvas.clientWidth;" // NL // &
+      "        }" // NL // &
+      "        if (canvas.clientHeight) {" // NL // &
+      "          canvas.height = canvas.clientHeight;" // NL // &
+      "        }" // NL // &
+      "        glTried = true;" // NL // &
+      "        var renderer = window.Forge3DWebGL2.create(canvas);" // NL // &
+      "        if (renderer) {" // NL // &
+      "          if (scene.bg && scene.bg.length) {" // NL // &
+      "            renderer.clearColor = scene.bg;" // NL // &
+      "          }" // NL // &
+      "          var opts = {};" // NL // &
+      "          var L = (scene.lights && scene.lights[0]) || {};" // NL // &
+      "          if (L.direction || L.dir) {" // NL // &
+      "            opts.lightDir = L.direction || L.dir;" // NL // &
+      "          }" // NL // &
+      "          var aspect = function () {" // NL // &
+      "            return canvas.width /" // NL // &
+      "              Math.max(1, canvas.height);" // NL // &
+      "          };" // NL // &
+      "          var drawn = window.Forge3DWebGL2.renderScene(" // NL // &
+      "            renderer, tris," // NL // &
+      "            mvpForCamera(scene.camera, aspect()), opts);" // NL // &
+      "          if (drawn > 0) {" // NL // &
+      "            used = true;" // NL // &
+      "            done();" // NL // &
+      "            var anims = scene.animations || scene.anims" // NL // &
+      "              || [];" // NL // &
+      "            if (anims.length &&" // NL // &
+      "                window.requestAnimationFrame) {" // NL // &
+      "              var start = Date.now();" // NL // &
+      "              var frame = function () {" // NL // &
+      "                var t = (Date.now() - start) / 1000;" // NL // &
+      "                window.Forge3DWebGL2.renderScene(renderer," // NL // &
+      "                  window.F3D.worldTris(scene, t)," // NL // &
+      "                  mvpForCamera(scene.camera, aspect())," // NL // &
+      "                  opts);" // NL // &
+      "                window.requestAnimationFrame(frame);" // NL // &
+      "              };" // NL // &
+      "              window.requestAnimationFrame(frame);" // NL // &
+      "            }" // NL // &
+      "          }" // NL // &
+      "        }" // NL // &
+      "      }" // NL // &
+      "    } catch (e) { used = false; }" // NL // &
+      "  }" // NL // &
+      "  if (!used) {" // NL // &
+      "    var target = canvas;" // NL // &
+      "    if (glTried && canvas.parentNode) {" // NL // &
+      "      // The failed WebGL2 attempt claimed this canvas's" // NL // &
+      "      // context mode; a fresh element is needed for 2D." // NL // &
+      "      target = document.createElement(""canvas"");" // NL // &
+      "      target.id = canvas.id;" // NL // &
+      "      target.className = canvas.className;" // NL // &
+      "      target.width = canvas.width;" // NL // &
+      "      target.height = canvas.height;" // NL // &
+      "      canvas.parentNode.replaceChild(target, canvas);" // NL // &
+      "    }" // NL // &
+      "    try {" // NL // &
+      "      if (window.F3D &&" // NL // &
+      "          typeof window.F3D.create === ""function"") {" // NL // &
+      "        window.F3D.create(target, scene);" // NL // &
+      "        done();" // NL // &
+      "      } else if (window.F3D &&" // NL // &
+      "          typeof window.F3D.mount === ""function"") {" // NL // &
+      "        window.F3D.mount(target, scene);" // NL // &
+      "        done();" // NL // &
+      "      }" // NL // &
+      "    } catch (e) { /* both paths failed: fallback stays */ }" // NL // &
       "  }" // NL // &
       "})();" // NL // &
       "</script>" // NL // &
@@ -460,6 +619,7 @@ contains
     character(len=*), intent(in) :: template_arg, repo_root
     character(len=:), allocatable, intent(out) :: text
     character(len=:), allocatable :: out, fallback_html, scene
+    character(len=:), allocatable :: webgl2_js
 
     out = load_template(template_arg, repo_root)
 
@@ -470,6 +630,11 @@ contains
       out = substitute_js(out, "{{F3D_JS}}", "", .true.)
       fallback_html = html_escape(FALLBACK_MESSAGE)
     end if
+
+    ! P5-B: inline the WebGL2 sidecar ("" when the file is
+    ! missing; the boot degrades to the core player alone).
+    call emit_html_webgl2_js(repo_root, webgl2_js)
+    out = substitute_js(out, "{{WEBGL2_JS}}", webgl2_js, .false.)
 
     if (len(scene_js) > 0) then
       scene = scene_js

@@ -48,6 +48,22 @@
 !     command line; Python prints str(Path(scene_path)).
 !   - Ctrl+C: the C helper's SIGINT flag ends the loop, then the
 !     same "\npreview stopped" line is printed and exit code is 0.
+!
+! v2.0 P5 extension (native-only; preview.py watched only the scene
+! file): the watcher also watches the scene's dependency files --
+! imported part files (the "_import_deps" list recorded by desugar
+! and exposed through f3dc_validate's side-channel accessor
+! f3dc_validate_import_deps -- deliberately NOT a scene-dyn key,
+! because the .scene/_scene.f90 header stamps hash the whole IR)
+! and asset files
+! referenced by the compiled IR (each object's "source_file" for
+! load-ed OBJ/glTF and "extensions.material.texture" for textures,
+! resolved against the scene's "base_dir" when relative).  A dep
+! whose mtime changes, appears or vanishes takes the same debounced
+! recompile path as a scene save.  The dep set is rebuilt from every
+! successful compile; on a failed compile the previous set stays in
+! force (its stored mtimes are refreshed to the values just seen,
+! so a broken dep does not retrigger a compile every tick).
 module f3dc_preview
   use, intrinsic :: iso_fortran_env, only: output_unit, int64
   use, intrinsic :: iso_c_binding, only: c_char, c_int, c_int64_t, &
@@ -55,13 +71,14 @@ module f3dc_preview
        c_null_char, c_null_ptr
   use f3dc_str, only: fmt_int, path_stem, path_dirname, &
        path_extension, to_lower, str_replace
-  use f3dc_dyn, only: dyn, dyn_null, dyn_copy
+  use f3dc_dyn, only: dyn, dyn_null, dyn_copy, dyn_dict_get, &
+       dyn_list_len, dyn_list_at, DYN_K_STR, DYN_K_DICT
   use f3dc_errors, only: error_bag_t, diagnostic_t, make_span, &
        make_diagnostic_span, error_bag_add, error_bag_set_source, &
        error_bag_len, error_bag_at, error_bag_has_errors, &
        json_escape
   use f3dc_parser, only: f3dc_parse
-  use f3dc_validate, only: f3dc_validate
+  use f3dc_validate, only: f3dc_validate, f3dc_validate_import_deps
   use f3dc_optimize, only: optimize
   use f3dc_compat, only: ast_from_obj, ast_from_legacy_json, &
        is_legacy_json
@@ -87,6 +104,19 @@ module f3dc_preview
   integer :: p_compile_count = 0
   integer(c_int64_t) :: p_mtime_ns = 0
   logical :: p_mtime_ok = .false.
+
+  ! v2.0 P5: dependency watch set (imported parts + referenced
+  ! assets), rebuilt by pv_collect_deps after each successful
+  ! compile.  Capped so a pathological scene cannot grow the set
+  ! without bound; entries past the cap are simply not watched.
+  integer, parameter :: PV_MAX_DEPS = 512
+  type :: pv_dep_t
+    character(len=:), allocatable :: path
+    integer(c_int64_t) :: mtime_ns = 0
+    logical :: ok = .false.
+  end type pv_dep_t
+  type(pv_dep_t), allocatable :: p_deps(:)
+  integer :: p_ndeps = 0
 
   interface
     function ph_open(host, port, actual, errbuf, errcap, errlen) &
@@ -323,6 +353,131 @@ contains
     ok = .true.
   end subroutine pv_compile_pipeline
 
+  ! ------------------------------------------------------------------
+  ! v2.0 P5: dependency-set collection from a compiled scene dyn.
+  !
+  ! Fields collected (exactly these):
+  !   - f3dc_validate_import_deps(): the "_import_deps" list of
+  !     canonical resolved part-file paths recorded by desugar
+  !     during the validate stage of this compile (side channel,
+  !     not a scene-dyn key).  Already resolved; used verbatim.
+  !   - scene "objects"[] "source_file": the load-ed OBJ/glTF path
+  !     as written in the scene (dyn_str; null for plain objects).
+  !   - scene "objects"[] "extensions" "material" "texture": the
+  !     material extension's texture path (dyn_str).  This value is
+  !     usually already base_dir-joined by validate (it rewrites
+  !     the raw prop to the resolved path when the file exists);
+  !     pv_resolve leaves an already-prefixed path alone.
+  ! Relative asset paths are resolved against the scene's
+  ! "base_dir" (also stamped by validate).
+  ! ------------------------------------------------------------------
+  function pv_resolve(base_dir, s) result(out)
+    character(len=*), intent(in) :: base_dir, s
+    character(len=:), allocatable :: out
+    if (len(s) > 0 .and. s(1:1) == "/") then
+       out = s
+    else if (len(base_dir) > 0 .and. base_dir /= "." .and. &
+             len(s) > len(base_dir) + 1 .and. &
+             s(1:len(base_dir) + 1) == base_dir//"/") then
+       out = s  ! already resolved against base_dir by validate
+    else if (len(base_dir) == 0) then
+       out = s
+    else if (base_dir(len(base_dir):len(base_dir)) == "/") then
+       out = base_dir//s
+    else
+       out = base_dir//"/"//s
+    end if
+  end function pv_resolve
+
+  subroutine pv_dep_push(arr, n, path)
+    type(pv_dep_t), allocatable, intent(inout) :: arr(:)
+    integer, intent(inout) :: n
+    character(*), intent(in) :: path
+    type(pv_dep_t), allocatable :: tmp(:)
+    integer :: i
+    if (n >= PV_MAX_DEPS) return
+    do i = 1, n
+       if (arr(i)%path == path) return  ! dedupe
+    end do
+    if (.not. allocated(arr)) allocate (arr(16))
+    if (n == size(arr)) then
+       allocate (tmp(2 * size(arr)))
+       do i = 1, n
+          tmp(i)%path = arr(i)%path
+          tmp(i)%mtime_ns = arr(i)%mtime_ns
+          tmp(i)%ok = arr(i)%ok
+       end do
+       call move_alloc(tmp, arr)
+    end if
+    n = n + 1
+    arr(n)%path = path
+    arr(n)%mtime_ns = 0
+    arr(n)%ok = .false.
+  end subroutine pv_dep_push
+
+  subroutine pv_collect_deps(ir)
+    type(dyn), intent(in) :: ir
+    type(pv_dep_t), allocatable :: fresh(:)
+    integer :: nfresh, i
+    type(dyn) :: deps, objs, obj, exts, mat, v
+    character(len=:), allocatable :: base_dir, s
+    nfresh = 0
+    if (ir%kind == DYN_K_DICT) then
+       base_dir = "."
+       v = dyn_dict_get(ir, "base_dir")
+       if (v%kind == DYN_K_STR .and. allocated(v%s)) base_dir = v%s
+       deps = f3dc_validate_import_deps()
+       do i = 1, dyn_list_len(deps)
+          v = dyn_list_at(deps, i)
+          if (v%kind == DYN_K_STR .and. allocated(v%s)) then
+             if (len(v%s) > 0) call pv_dep_push(fresh, nfresh, v%s)
+          end if
+       end do
+       objs = dyn_dict_get(ir, "objects")
+       do i = 1, dyn_list_len(objs)
+          obj = dyn_list_at(objs, i)
+          if (obj%kind /= DYN_K_DICT) cycle
+          v = dyn_dict_get(obj, "source_file")
+          if (v%kind == DYN_K_STR .and. allocated(v%s)) then
+             if (len(v%s) > 0) &
+                call pv_dep_push(fresh, nfresh, &
+                                 pv_resolve(base_dir, v%s))
+          end if
+          exts = dyn_dict_get(obj, "extensions")
+          if (exts%kind == DYN_K_DICT) then
+             mat = dyn_dict_get(exts, "material")
+             if (mat%kind == DYN_K_DICT) then
+                v = dyn_dict_get(mat, "texture")
+                if (v%kind == DYN_K_STR .and. allocated(v%s)) then
+                   s = trim(v%s)
+                   if (len(s) > 0) &
+                      call pv_dep_push(fresh, nfresh, &
+                                       pv_resolve(base_dir, s))
+                end if
+             end if
+          end if
+       end do
+    end if
+    ! Baseline-stat each fresh dep so the watcher only fires on
+    ! changes from this moment on.
+    do i = 1, nfresh
+       call pv_stat_path(fresh(i)%path, fresh(i)%ok, &
+                         fresh(i)%mtime_ns)
+    end do
+    if (allocated(p_deps)) deallocate (p_deps)
+    if (nfresh > 0) then
+       allocate (p_deps(nfresh))
+       do i = 1, nfresh
+          p_deps(i)%path = fresh(i)%path
+          p_deps(i)%mtime_ns = fresh(i)%mtime_ns
+          p_deps(i)%ok = fresh(i)%ok
+       end do
+    else
+       allocate (p_deps(0))
+    end if
+    p_ndeps = nfresh
+  end subroutine pv_collect_deps
+
   ! cli.py _html_text, mirrored like f3dc_cli.f90's html_text.
   subroutine pv_html_text(ir, text)
     type(dyn), intent(in) :: ir
@@ -351,6 +506,10 @@ contains
     end do
     p_ok = okc
     if (okc) then
+       ! v2.0 P5: rebuild the dependency watch set from this fresh
+       ! compile.  On failure the previous set is kept (see the
+       ! module header note).
+       call pv_collect_deps(ir)
        call pv_html_text(ir, p_html)
        p_has_html = .true.
     else
@@ -564,29 +723,57 @@ contains
   ! ------------------------------------------------------------------
   ! Watcher tick (preview.py _watch): mtime poll + debounce.
   ! ------------------------------------------------------------------
-  subroutine pv_stat_now(ok, ns)
+  subroutine pv_stat_path(path, ok, ns)
+    character(len=*), intent(in) :: path
     logical, intent(out) :: ok
     integer(c_int64_t), intent(out) :: ns
     character(kind=c_char) :: cpath(4097)
     integer :: i
     integer(c_int) :: rc
-    do i = 1, len(p_path)
-       cpath(i) = p_path(i:i)
+    ok = .false.
+    ns = 0
+    if (len(path) >= size(cpath)) return
+    do i = 1, len(path)
+       cpath(i) = path(i:i)
     end do
-    cpath(len(p_path) + 1) = c_null_char
+    cpath(len(path) + 1) = c_null_char
     rc = ph_mtime(cpath, ns)
     ok = (rc == 0)
     if (.not. ok) ns = 0
+  end subroutine pv_stat_path
+
+  subroutine pv_stat_now(ok, ns)
+    logical, intent(out) :: ok
+    integer(c_int64_t), intent(out) :: ns
+    call pv_stat_path(p_path, ok, ns)
   end subroutine pv_stat_now
 
   subroutine pv_watch_tick()
-    logical :: ok
+    logical :: ok, changed
     integer(c_int64_t) :: ns
+    integer :: i
     call pv_stat_now(ok, ns)
     ! NB: parentheses are load-bearing -- in Fortran .neqv. binds
     ! looser than .or., unlike the Python `!=`/`or` reading.
-    if ((ok .neqv. p_mtime_ok) .or. &
-        (ok .and. ns /= p_mtime_ns)) then
+    changed = (ok .neqv. p_mtime_ok) .or. &
+              (ok .and. ns /= p_mtime_ns)
+    ! v2.0 P5: poll every watched dependency the same way.  A dep
+    ! whose stored stat is refreshed here keeps its (possibly
+    ! stale-path) entry when the recompile below fails: the set is
+    ! only rebuilt on success (pv_collect_deps), but the refreshed
+    ! mtimes stop a broken dep from retriggering every tick.
+    if (allocated(p_deps)) then
+       do i = 1, p_ndeps
+          call pv_stat_path(p_deps(i)%path, ok, ns)
+          if ((ok .neqv. p_deps(i)%ok) .or. &
+              (ok .and. ns /= p_deps(i)%mtime_ns)) then
+             changed = .true.
+             p_deps(i)%ok = ok
+             p_deps(i)%mtime_ns = ns
+          end if
+       end do
+    end if
+    if (changed) then
        call ph_sleep_ms(150_c_int)
        call pv_stat_now(ok, ns)
        p_mtime_ok = ok
@@ -616,6 +803,8 @@ contains
     p_version = 0
     p_compile_count = 0
     p_ndiag = 0
+    p_ndeps = 0
+    if (allocated(p_deps)) deallocate (p_deps)
     call pv_compile_now()
     ok0 = p_ok
 

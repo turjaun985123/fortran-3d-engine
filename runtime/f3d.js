@@ -143,15 +143,19 @@ function animState(obj,anims,t){
     else if(k==='move')pos[ax]+=sp*du*ep;
   });
   return{pos:pos,rot:rot,scl:scl};}
+// ---- scene normalisation shared by create() and worldTris():
+// legacy v1 {triangles} and {meshes} shapes become {objects}.
+function normScene(scene){
+  if(scene.triangles&&!scene.objects)scene={objects:[{prim:'tris',triangles:scene.triangles}],bg:scene.bg,camera:scene.camera,lights:scene.lights};
+  if(scene.meshes&&!scene.objects)scene.objects=scene.meshes.map(function(m){return{prim:'tris',triangles:(m.triangles||[])};});
+  return scene;}
 // ---- player ----
 function create(el,scene){
   if(typeof el==='string')el=document.querySelector(el);
   var canvas=el&&el.tagName==='CANVAS'?el:null,host=el;
   if(!canvas){canvas=document.createElement('canvas');if(host)host.appendChild(canvas);}
   var ctx=canvas.getContext('2d');
-  scene=scene||g.F3D_SCENE||{objects:[{prim:'cube'}]};
-  if(scene.triangles&&!scene.objects)scene={objects:[{prim:'tris',triangles:scene.triangles}],bg:scene.bg,camera:scene.camera,lights:scene.lights};
-  if(scene.meshes&&!scene.objects)scene.objects=scene.meshes.map(function(m){return{prim:'tris',triangles:(m.triangles||[])};});
+  scene=normScene(scene||g.F3D_SCENE||{objects:[{prim:'cube'}]});
   var objs=(scene.objects||[]).map(build);
   var cam=scene.camera||{},eye0=v3(cam.pos||cam.position,[3,2.5,4]),tgt0=v3(cam.target,[0,0,0]),
     up=v3(cam.up,[0,1,0]),fov=cam.fov||60,near=cam.near||0.1,far=cam.far||100;
@@ -226,13 +230,31 @@ function create(el,scene){
       if(canvas.removeEventListener){canvas.removeEventListener('pointerdown',down);canvas.removeEventListener('pointermove',move);canvas.removeEventListener('pointerup',up2);canvas.removeEventListener('wheel',wheel);}}};
   render(0);if(anims.length)api.play();
   return api;}
+// ---- worldTris(scene, t): flat world-space triangles in the
+// core tri format ([a,b,c,faceIdx,color,normals?]) for time t,
+// computed with the same build/animState/xform paths render()
+// uses, so the WebGL2 sidecar draws exactly what the player
+// would. Colours are resolved (per-tri, else object, else the
+// cube palette / white rule of render()); index-5 normals are
+// carried, rotated by xformN like the smooth-shading path.
+function worldTris(scene,t){
+  scene=normScene(scene||g.F3D_SCENE||{objects:[{prim:'cube'}]});
+  var anims=scene.animations||scene.anims||[],out=[];
+  (scene.objects||[]).map(build).forEach(function(o){
+    var st=animState(o,anims,t||0);
+    o.tris.forEach(function(tr){
+      var e=[],i;for(i=0;i<3;i++)e[i]=xform(tr[i],st.pos,st.rot,st.scl);
+      e[3]=tr[3];e[4]=tr[4]||o.color||(o.prim==='cube'||o.prim==='box'?PALETTE[tr[3]%6]:[255,255,255]);
+      if(tr[5])e[5]=tr[5].map(function(q){return xformN(q,st.rot,st.scl);});
+      out.push(e);});});
+  return out;}
 function auto(scene){
   var el=document.querySelector('f3d-view')||document.querySelector('canvas#f3d-canvas');
   if(!el)return null;
   var fb=document.querySelector('#f3d-fallback');if(fb)fb.style.display='none';
   if(el.tagName!=='CANVAS'&&!el.querySelector('canvas')){/* create() appends one */}
   return create(el,scene||g.F3D_SCENE);}
-g.F3D={create:create,auto:auto,version:'1.0.0'};
+g.F3D={create:create,auto:auto,worldTris:worldTris,version:'1.0.0'};
 // <f3d-view>: uses window.F3D_SCENE, or fetches its src JSON (http only;
 // file:// fetch failures are caught and fallback text stays visible).
 if(typeof customElements!=='undefined'&&!customElements.get('f3d-view')){

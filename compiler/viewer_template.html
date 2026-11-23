@@ -13,8 +13,7 @@ header{display:flex;align-items:baseline;gap:1rem;flex-wrap:wrap;padding:.6rem 1
 header h1{font-size:1.05rem;font-weight:600;color:var(--text)}
 header .hint{font-size:.82rem;color:var(--muted)}
 main{flex:1;display:flex;flex-direction:column;min-height:0}
-f3d-view{display:block;flex:1;width:100%;min-height:0;background:#191923}
-f3d-view canvas,#f3d-canvas{display:block;width:100%;height:100%}
+#f3d-canvas{display:block;flex:1;width:100%;min-height:0;background:#191923}
 #f3d-fallback{margin:1rem;padding:1rem;border:1px solid var(--border);border-radius:8px;background:var(--panel);color:var(--muted);font-size:.9rem;line-height:1.5}
 #f3d-fallback strong{color:var(--text)}
 noscript p{margin:1rem;padding:1rem;border:1px solid var(--border);border-radius:8px;color:var(--muted)}
@@ -26,11 +25,170 @@ noscript p{margin:1rem;padding:1rem;border:1px solid var(--border);border-radius
 <span class="hint">drag to orbit - scroll to zoom</span>
 </header>
 <main>
-<f3d-view id="view"><canvas id="f3d-canvas"></canvas></f3d-view>
-<div id="f3d-fallback" role="alert"><strong>WebGL unavailable.</strong> This 3D scene needs WebGL, which your browser could not provide. Try a recent browser with hardware acceleration enabled, or open this file in a browser that supports WebGL.</div>
+<canvas id="f3d-canvas" width="640" height="480"></canvas>
+<div id="f3d-fallback" role="alert"><strong>Could not render this scene.</strong> Neither the WebGL2 renderer nor the Canvas 2D fallback could start in this browser. Try a recent browser with hardware acceleration enabled.</div>
 <noscript><p>JavaScript is disabled, so this 3D scene cannot run. Please enable JavaScript and reload the page.</p></noscript>
 </main>
 <script>{{F3D_JS}}</script>
+<script>{{WEBGL2_JS}}</script>
 <script>{{SCENE_JS}}</script>
+<script>
+(function () {
+  // Forge3D viewer boot v2: WebGL2 first (via the inlined
+  // f3d-webgl2.js sidecar + F3D.worldTris), Canvas2D core
+  // player as automatic fallback. F3DBoot exposes the pure
+  // decision / MVP helpers for headless tests.
+  function v3(v, d) {
+    if (v == null) return d.slice();
+    if (typeof v === "number") return [v, v, v];
+    return [+v[0] || 0, +v[1] || 0, +v[2] || 0];
+  }
+  function sub(a, b) {
+    return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  }
+  function cross(a, b) {
+    return [a[1] * b[2] - a[2] * b[1],
+      a[2] * b[0] - a[0] * b[2],
+      a[0] * b[1] - a[1] * b[0]];
+  }
+  function dot(a, b) {
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  }
+  function norm(a) {
+    var l = Math.hypot(a[0], a[1], a[2]);
+    return l > 1e-12 ? [a[0] / l, a[1] / l, a[2] / l]
+      : [0, 0, 0];
+  }
+  function mul(a, b) { // column-major a * b
+    var o = new Array(16), c, r, k, s;
+    for (c = 0; c < 4; c++) for (r = 0; r < 4; r++) {
+      s = 0;
+      for (k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k];
+      o[c * 4 + r] = s;
+    }
+    return o;
+  }
+  function mvpForCamera(cam, aspect) {
+    cam = cam || {};
+    var eye = v3(cam.pos || cam.position, [3, 2.5, 4]);
+    var tgt = v3(cam.target, [0, 0, 0]);
+    var up = v3(cam.up, [0, 1, 0]);
+    var fov = cam.fov || 60;
+    var near = cam.near != null ? +cam.near : 0.1;
+    var far = cam.far != null ? +cam.far : 100;
+    var f = norm(sub(tgt, eye)), r = norm(cross(f, up));
+    var u = cross(r, f);
+    var view = [r[0], u[0], -f[0], 0,
+      r[1], u[1], -f[1], 0,
+      r[2], u[2], -f[2], 0,
+      -dot(r, eye), -dot(u, eye), dot(f, eye), 1];
+    var t = 1 / Math.tan(fov * Math.PI / 360);
+    var a = aspect || 1;
+    var persp = [t / a, 0, 0, 0,
+      0, t, 0, 0,
+      0, 0, (far + near) / (near - far), -1,
+      0, 0, 2 * far * near / (near - far), 0];
+    return mul(persp, view);
+  }
+  function canUseWebGL2(scene, gl, f3d) {
+    return !!(gl && f3d &&
+      typeof f3d.worldTris === "function" &&
+      scene && scene.camera && !scene.controls);
+  }
+  window.F3DBoot = { mvpForCamera: mvpForCamera,
+    canUseWebGL2: canUseWebGL2 };
+  var scene = window.F3D_SCENE ||
+    (typeof SCENE !== "undefined" ? SCENE : window.SCENE);
+  var canvas = document.getElementById("f3d-canvas");
+  if (!canvas || !scene) { return; }
+  var fb = document.getElementById("f3d-fallback");
+  function done() {
+    // The scene JS bootstrap would otherwise auto-start the
+    // Canvas2D player on DOMContentLoaded; the boot owns the
+    // canvas now, so neutralise that second start.
+    if (window.F3D) window.F3D.auto = function () {
+      return null;
+    };
+    if (fb) fb.style.display = "none";
+  }
+  var used = false, glTried = false;
+  if (canUseWebGL2(scene, window.Forge3DWebGL2, window.F3D)) {
+    try {
+      var tris = window.F3D.worldTris(scene, 0);
+      if (tris.length &&
+          window.Forge3DWebGL2.isAvailable()) {
+        if (canvas.clientWidth) {
+          canvas.width = canvas.clientWidth;
+        }
+        if (canvas.clientHeight) {
+          canvas.height = canvas.clientHeight;
+        }
+        glTried = true;
+        var renderer = window.Forge3DWebGL2.create(canvas);
+        if (renderer) {
+          if (scene.bg && scene.bg.length) {
+            renderer.clearColor = scene.bg;
+          }
+          var opts = {};
+          var L = (scene.lights && scene.lights[0]) || {};
+          if (L.direction || L.dir) {
+            opts.lightDir = L.direction || L.dir;
+          }
+          var aspect = function () {
+            return canvas.width /
+              Math.max(1, canvas.height);
+          };
+          var drawn = window.Forge3DWebGL2.renderScene(
+            renderer, tris,
+            mvpForCamera(scene.camera, aspect()), opts);
+          if (drawn > 0) {
+            used = true;
+            done();
+            var anims = scene.animations || scene.anims
+              || [];
+            if (anims.length &&
+                window.requestAnimationFrame) {
+              var start = Date.now();
+              var frame = function () {
+                var t = (Date.now() - start) / 1000;
+                window.Forge3DWebGL2.renderScene(renderer,
+                  window.F3D.worldTris(scene, t),
+                  mvpForCamera(scene.camera, aspect()),
+                  opts);
+                window.requestAnimationFrame(frame);
+              };
+              window.requestAnimationFrame(frame);
+            }
+          }
+        }
+      }
+    } catch (e) { used = false; }
+  }
+  if (!used) {
+    var target = canvas;
+    if (glTried && canvas.parentNode) {
+      // The failed WebGL2 attempt claimed this canvas's
+      // context mode; a fresh element is needed for 2D.
+      target = document.createElement("canvas");
+      target.id = canvas.id;
+      target.className = canvas.className;
+      target.width = canvas.width;
+      target.height = canvas.height;
+      canvas.parentNode.replaceChild(target, canvas);
+    }
+    try {
+      if (window.F3D &&
+          typeof window.F3D.create === "function") {
+        window.F3D.create(target, scene);
+        done();
+      } else if (window.F3D &&
+          typeof window.F3D.mount === "function") {
+        window.F3D.mount(target, scene);
+        done();
+      }
+    } catch (e) { /* both paths failed: fallback stays */ }
+  }
+})();
+</script>
 </body>
 </html>

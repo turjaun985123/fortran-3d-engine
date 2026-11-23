@@ -16,7 +16,7 @@
    },
    "build": {
     "artifacts": {
-     "animated.html": "813bbc957f20e6ffdbd0a110d89b43f672f4d846af144943964d1b88d999dc41",
+     "animated.html": "f488a5315e0d91dd0c3b4236cc24e07c3be2b589635bcadaff2e00d2c1238bd5",
      "animated.js": "19d9989ae8e5ce288de4cd74ed8301e37923fe28293e144001f239e93752c33a",
      "animated.json": "20a87f466528cfacfa291ab06f034270ace8fc7feec852acd14f7e6d6cfe08df",
      "animated.legacy.json": "4da18e236a476faaf17a275ed06a734526c6efcb61d02eb51a431d9324e553df",
@@ -38,7 +38,7 @@
    },
    "build": {
     "artifacts": {
-     "geometries.html": "4af9839dae1c2bb446f01a4b274d445827ffee384811a7ae1f05e0ff962a4415",
+     "geometries.html": "df0fb77bcf351159bb81d65199916c0e207b26a1bea60fc1b3b1485ebbef8079",
      "geometries.js": "b73f753d90a51478db9a626c869aa85ef158a0d88e60995679a3445baa07edfa",
      "geometries.json": "087e0d65343d5b027fb50c4b293279adc66fb272335cd21215bd666afcbd2962",
      "geometries.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
@@ -64,7 +64,7 @@
    },
    "build": {
     "artifacts": {
-     "hello-cube.html": "8eb4b4b59c5f688f274069d44ce3fc58453e8fc63fc4f14ef24434620c27fd54",
+     "hello-cube.html": "5ad7d135bc48d1f2bc7b19c770ebac73dd83d25e59fb708fa79e27d452022352",
      "hello-cube.js": "0679b595fd4e594acf7179072edd24e6004e34c6ffa9b9558d38dc2b66d5f55c",
      "hello-cube.json": "d3980294aaf012c2b380df2c1f06744dc0ac8572963d22d0a473eedca27031d8",
      "hello-cube.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
@@ -86,7 +86,7 @@
    },
    "build": {
     "artifacts": {
-     "lighting-showcase.html": "7710bebe67955a59f1b3d5756329c0eea33342b174b88b0ca4d7a0419e953850",
+     "lighting-showcase.html": "62f2ff7f9f8723c90bb1c5e8f2275884897199bafdcfb4b6d308cfb364a26153",
      "lighting-showcase.js": "57fa09d1b3337ec134540cd5d312c4342a5e7fcd9213b92997d4ef78d0463678",
      "lighting-showcase.json": "45bece3796968dbe889cfc86ba13197d067ed281538f38e9b3b2eaf8b444975c",
      "lighting-showcase.legacy.json": "48736f03a9f60da89982f909ebf161f857d64fa044c8824888cb51985251736b",
@@ -108,7 +108,7 @@
    },
    "build": {
     "artifacts": {
-     "materials.html": "9e006fb67f5ce92a1b2eeeefcd0f3a268a06cbd8e700c3c2016e804ba1f9a47d",
+     "materials.html": "6887574f4237e61ec7a46afc01ef0f02bd8f288d6e3a9df24aa281d4b18a1578",
      "materials.js": "ab571134ff0d6f3247eadf207a025d3846ee96ed97188f69c9b0e13d37898753",
      "materials.json": "420f65462be687af7cdd7704f146bee96b7a64084e447dcd036a73860f274102",
      "materials.legacy.json": "930fa4a6ec934d11687c13b915845dbd00ffdcc77398af863cc3888caa12b566",
@@ -132,7 +132,7 @@
    },
    "build": {
     "artifacts": {
-     "multi-object.html": "6447cf6ca0bbe10bd5a30305c13530cf63156c457c4a033cef555679d112dae8",
+     "multi-object.html": "119415f98c98d84d38dda8064c55d4c289dc4e2985fff5ce50a232f63538404e",
      "multi-object.js": "eb2defefa859ab3aee6275f7f4df68a1db6d91a39ad2879bc39ddcf226f67529",
      "multi-object.json": "5eec7baceb92a15b433241adef5d5cdb1fb2e491baea7ceb776e01e9a178d53d",
      "multi-object.legacy.json": "bfedf48a8ce681ccbff1f6795d094db783eb1fcdfd7a34d22d041d28d2c7f235",
@@ -154,13 +154,13 @@
    },
    "build": {
     "artifacts": {
-     "multi-scene-multi-scene-one.html": "552e3753bb80a040d5289c538d4d11fcfcc23940a9405e67d8a67f25f91b3511",
+     "multi-scene-multi-scene-one.html": "b1f0515807bf8cdbe7571443c9ebbf0416fe477e968982ba544c8e68f7e9f6d9",
      "multi-scene-multi-scene-one.js": "b01d10797a86b84383b7960424b4dca040c753a79c3d614134f2fae82a12cf4c",
      "multi-scene-multi-scene-one.json": "036fbf1b8ae2b75d160357b9235e716151cdeb54e21e0b5c8d76550274cf9052",
      "multi-scene-multi-scene-one.legacy.json": "08bbc759f0c3f34906ec51e2ec7e4dd0f59e5e71c4cd321ebfaba4a85c20505e",
      "multi-scene-multi-scene-one.scene": "d0c5fa38859a3d02a684b27b9a3b02e417b7586500bd16fd0bfe058265385950",
      "multi-scene-multi-scene-one_scene.f90": "b7fb641e368cc25ef8abedccaf4508022df966ebf90c8c36df3a585560a90559",
-     "multi-scene-multi-scene-two.html": "cbe341a2ca5a11fa3ff19b85de61c6c5d936e18c6dfc95edf95e7a9daae38553",
+     "multi-scene-multi-scene-two.html": "cd26ac1502f73da2ab3c059d68ce6f44d62ce8faefd5cd36872c329acb672120",
      "multi-scene-multi-scene-two.js": "dc513bca13d4f433b6b05d5cefe73d0a17d19307153bed9c8ce30b7d8450f1fc",
      "multi-scene-multi-scene-two.json": "77fd28c3477e507626b5d5f61543a33ad64f8506ebb73d8e6230c046e1a6ba72",
      "multi-scene-multi-scene-two.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
@@ -182,7 +182,7 @@
    },
    "build": {
     "artifacts": {
-     "post-ortho.html": "7588530eccb27daa1ff5790e91fc9e1cadeedbabf036332dfa4b59a4f457f26d",
+     "post-ortho.html": "7966be57782a394ecdc96fce7a9e1cc31c1a5ff75ea7b8c5b42e08d6863599cc",
      "post-ortho.js": "594abd96d0821b26f9a737160b9617ebef8ae99b8462145c2b5b9fb87e0bde98",
      "post-ortho.json": "cea834fc214186c46f4966d92a430f346965ac646d245a4e96e05ef3c6634ea8",
      "post-ortho.legacy.json": "f670c35a88a6131a4834020637e5889bd2db8e15b1f1bf2b3cdb78ad1592d2e7",
@@ -204,7 +204,7 @@
   },
   "build": {
    "artifacts": {
-    "rocket-parts.html": "a9094d04a945e7b3ac5214444fb01a359dcae896e59a6f78b63d28a5af13dd06",
+    "rocket-parts.html": "48df20375cf7171d75a0003bbf35753144ce356ecd500cdf94da9734923f24a6",
     "rocket-parts.js": "175ffd39c6da9ac8d6d0f132cdbbdc9e00d6e991b42f15a8b92806cccb91fd16",
     "rocket-parts.json": "3b3e2e2cbfd9a0c9d0d43a36738ca61fe33d303dd798957e23076d36d749139e",
     "rocket-parts.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
@@ -226,7 +226,7 @@
    },
    "build": {
     "artifacts": {
-     "waveb-showcase.html": "94d7d3ae22a53b83f36ed035ea8d7bdd154fc5efa540854995b435f7fb2cc46f",
+     "waveb-showcase.html": "8d83bd11a0c03539c5cd592e55eaca3285061739384e79b57e32f8bc1c5bba07",
      "waveb-showcase.js": "3d7cda3fdd7c70006ddd4230cae2a9b837f51e3fe244e53b9601ee4be13a2e0b",
      "waveb-showcase.json": "59bf5ece398a315beb2e11f5f963a0dd13860a0cba6027e6e5f7af279ae54ada",
      "waveb-showcase.legacy.json": "c42356ade93a43347d233191a988b867be3b02e21d9de6e9771b67c759d325e2",
@@ -248,7 +248,7 @@
    },
    "build": {
     "artifacts": {
-     "wavee-showcase.html": "f8f0b2c467957aa5fcf673414574ec3c2b41d2b8122a4333ebde711fc4d6575e",
+     "wavee-showcase.html": "df9a5dfd0cdad0c2b5514a76d5ec69aa094813b291a0f7670f93dfd66bf2a143",
      "wavee-showcase.js": "7a45a6248c90856144b0721858ea35301c45a251728840025cbdb20881c603e1",
      "wavee-showcase.json": "3b29f4f3512d9b13658e8f6e77cd6714f59863e9f5b767b1f1d43b09859dd9cf",
      "wavee-showcase.legacy.json": "8579fbaa10ba77196e16a72eae6a92c752318f441c7a26f5efc84040ca67fa68",

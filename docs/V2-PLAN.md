@@ -607,3 +607,76 @@ behaviour; no assertion dropped):
   `tests/native/cli_battery.json` 2 `.html` hashes.
 - Golden byte-identical; full suite PASS (e2e now 65 checks,
   JS 160 tests).
+
+### P4 — NO_COLOR / F3DC_DEBUG (shipped)
+
+- `compiler/preview_http.c`: `f3dc_isatty_stderr()` (isatty(2),
+  bind(C)). `compiler/src/f3dc_errors.f90`:
+  `error_bag_use_color()` — colours only when stderr is a TTY
+  and `NO_COLOR` is absent (presence semantics: any value,
+  including empty, disables); `error_bag_debug_text()` — with
+  `F3DC_DEBUG` present, one `debug: code=… severity=… file=…
+  line=… col=… message=…` line per diagnostic.
+  `f3dc_cli`'s `print_diagnostics` (the single text-diagnostic
+  path) uses both; the JSON form is untouched. (No live E9000
+  raise site exists in the native compiler — no exceptions —
+  so the print-time internal dump is the native equivalent of
+  the oracle's traceback mode.)
+- Verified: piped output byte-identical to the pre-change
+  binary (zero ESC bytes); under a `script(1)` pty the same
+  diagnostic is coloured, and `NO_COLOR=1`/`NO_COLOR=` remove
+  the escapes; `F3DC_DEBUG=1` appends the debug lines and
+  changes nothing else. Full suite PASS with **zero**
+  expectation changes. `compiler/REPLACEMENT.md` addendum
+  marked CLOSED; manual §3 documents the behaviour.
+- Hash changes: **none**.
+
+### P5 — Preview v2 (shipped)
+
+- **(a) Dependency watching** (`f3dc_preview.f90`,
+  `f3dc_validate.f90`): after each successful preview compile
+  the watcher also stats every dependency — imported part
+  files (incl. nested; from desugar's `_import_deps`, exposed
+  through a `f3dc_validate_import_deps()` side channel —
+  stamping the key on the scene dyn was tried first and
+  rejected: the `.scene`/`_scene.f90` header stamps hash the
+  whole IR, which broke import ≡ group byte-identity),
+  `load`ed OBJ/glTF files (`objects[].source_file`), and
+  material textures (`objects[].extensions.material.texture`),
+  resolved against `base_dir`. A dep change/appear/vanish
+  takes the same debounced recompile path as a scene save;
+  the set (cap 512) is rebuilt per compile and a failed
+  compile keeps the previous set without hot-looping.
+  Live-verified: part-only, nested-part, OBJ-only and
+  texture-only edits all recompile; breaking and fixing a
+  dep recovers cleanly.
+- **(b) WebGL2 default viewer** (`f3dc_emit_html.f90`,
+  `compiler/viewer_template.html`, `runtime/f3d.js`): the
+  generated viewer (and the preview page, which shares
+  `emit_html`) inlines the WebGL2 sidecar after the core
+  runtime and boots WebGL2-first: new core export
+  `F3D.worldTris(scene, t)` (the player's own
+  build/animState/xform code; player output unchanged)
+  feeds `Forge3DWebGL2.renderScene` with an MVP built in the
+  boot glue from the scene camera (parity vs the core
+  player's projection: 1e-9 in tests). Animated scenes get a
+  WebGL2 rAF loop. Fallback to the full Canvas2D player
+  (`F3D.create`) on any failure/unavailability — including a
+  fresh-canvas swap when a failed WebGL2 attempt claimed the
+  canvas context; `#f3d-fallback` shows only when both paths
+  fail. Scenes whose JSON declares `controls` keep the
+  interactive Canvas2D player by design (compiler-emitted
+  scene JSON does not currently carry a `controls` key, so
+  compiled scenes take the WebGL2 path; orbit-drag in
+  generated viewers is Canvas2D-only for now — recorded as a
+  known trade-off, not a silent cut: the fallback is one
+  WebGL2 failure away and the player API is unchanged).
+- Minified core: 15,335 bytes of the 15,360 budget — the
+  budget is effectively full; future core features must free
+  space or raise it deliberately.
+- Tests: new `tests/compiler/test_f3d_webgl2_boot_js.js`
+  (10 tests: worldTris at t=0 and animated t, decision
+  matrix, MVP parity). Hash changes (cause: WebGL2 boot +
+  sidecar inlined into `.html`; guarded rebake, non-HTML
+  diffs abort): corpus 91, examples 12, cli 2 `.html` hashes.
+- Golden byte-identical; full suite PASS (JS 170 tests).
