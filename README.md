@@ -1,7 +1,11 @@
 # Forge3D — 3D in 3 lines
 
+**Version 3.0.0 — "Real Pipeline"**
+
 Write a scene in plain words, compile it, and render it — natively, offline,
-with no boilerplate.
+with no boilerplate. The native Fortran renderer is now the v3 rasterizer
+by default; the v2 renderer remains available, bit-exact, as
+`--renderer legacy`.
 
 ```f3d
 cube red
@@ -28,8 +32,9 @@ Python dependency.
 
 ## What you get
 
-- **A native PPM render** — produced by the Fortran renderer in `src/`,
-  no browser, GPU, or JavaScript needed.
+- **A native PPM render** — produced by the Fortran v3 rasterizer in
+  `src/` by default, no browser, GPU, or JavaScript needed. Pass
+  `--renderer legacy` for the v2 renderer, bit-exact.
 - **A standalone HTML viewer** — a single self-contained page you can open
   in a browser to orbit and inspect the same scene. It boots WebGL2-first
   (via the `f3d-webgl2.js` sidecar) and falls back to the Canvas2D core
@@ -60,14 +65,37 @@ render "multi-object.ppm"
 More scenes live in `examples/`: `animated.f3d` and `materials.f3d`, as well
 as the two shown above.
 
+## What's new in 3.0
+
+- **v3 rasterizer by default:** perspective-correct interpolation and
+  per-light shadow mapping in the native Fortran renderer.
+- **Linear-HDR colour:** ACES and Reinhard tonemapping.
+- **Textures and materials:** PNG textures with mipmaps, plus normal and
+  metalness-roughness maps.
+- **Quaternion keyframe animation** alongside the declarative verbs.
+- **A faster, stricter compiler:** typed AST and typed IR, incremental
+  builds, and `f3dc profile` (see Compiler below).
+
+Full details: `CHANGELOG.md` and `docs/releases/v3.0.md`.
+
 ## Features
 
 - **7 primitives, one word each:** `cube`, `sphere`, `cylinder`, `plane`,
   `pyramid`, `cone`, and `torus` — every parameter has a default.
 - **Materials:** `lambert` (the default, lit), `basic` (flat, unlit), and
   `phong` (specular highlights) — e.g. `material phong` on an object line.
+- **Renderer:** the v3 rasterizer (perspective-correct interpolation,
+  per-light shadow mapping, linear-HDR colour with ACES/Reinhard
+  tonemapping, PNG textures with mipmaps, and normal/metalness-roughness
+  maps) is the default; `--renderer legacy` selects the v2 renderer,
+  bit-exact.
 - **Animation:** declarative verbs such as `spin`, `bob`, and `orbit` —
-  no render loop, clock, or resize code in your program.
+  no render loop, clock, or resize code in your program — plus quaternion
+  keyframe animation.
+- **Compiler:** typed AST and typed IR; incremental builds with a
+  manifest cache (unchanged scenes are skipped as "up to date", `--force`
+  rebuilds anyway); and `f3dc profile` for build profiling. There is
+  zero Python anywhere in the repo.
 - **Groups and repetition:** `group … end` blocks, plus `repeat` (and
   grid/ring forms) to place many objects without copying lines.
 - **OBJ loading:** `load "model.obj"` puts an existing model in the scene
@@ -115,8 +143,9 @@ Invoke it as `bin/f3dc <command> …` (build and install it first with
 |---|---|
 | `new` | Create a new `.f3d` scene from the starter template |
 | `check` | Validate a scene only — no files written |
-| `build` | Compile a scene to `build/` (Fortran + JSON + JS + HTML) |
+| `build` | Compile a scene to `build/` (Fortran + JSON + JS + HTML); incremental — unchanged scenes are skipped as "up to date", `--force` rebuilds |
 | `run` | Build, compile the engine, and render |
+| `profile` | Profile a build (`f3dc profile`) |
 | `fmt` | Print the canonical `.f3d` form of a scene |
 | `preview` | Serve the compiled viewer locally, watch the scene file, and recompile + reload the browser on every save |
 | `doctor` | Check the gfortran / make / cc toolchain and print fixes |
@@ -150,7 +179,8 @@ make test
 This runs `tests/run_tests.sh` (POSIX shell; the harness is shell +
 Fortran + Node — there is no Python anywhere in this repo), covering
 the native-compiler black-box tests, the JS runtime tests, the Fortran
-tests, the golden-image checks, and the end-to-end CLI tests.
+tests, the golden-image checks, the property tests and curated golden
+set, and the end-to-end CLI tests.
 
 ## Roadmap
 
@@ -167,5 +197,6 @@ Forge3D stands on the original Fortran 3D engine in this repository: a
 modular software renderer written in modern Fortran (2008/2018) with a
 vector/matrix library, triangle meshes, a perspective camera, a barycentric
 rasterizer with a Z-buffer, Lambertian shading, and PPM export. That
-renderer is still the native engine under `src/` — Forge3D is the language,
-compiler, and runtime built around it.
+v2 renderer remains available, bit-exact, as `--renderer legacy`; the
+default native engine under `src/` is now the v3 rasterizer — Forge3D is
+the language, compiler, and runtime built around it.

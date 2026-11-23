@@ -95,7 +95,7 @@ program f3dc
   use f3dc_preview, only: preview_serve
   implicit none
 
-  character(len=*), parameter :: VERSION = "2.0.0"
+  character(len=*), parameter :: VERSION = "3.0.0"
   ! _COMMANDS in cli.py, in cli.py's order (used in the error text).
   character(len=*), parameter :: COMMAND_LIST = &
        "run, build, check, new, fmt, doctor, preview, bench, profile"

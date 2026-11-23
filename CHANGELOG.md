@@ -2,6 +2,80 @@
 
 All notable changes to Forge3D. Dates are commit dates.
 
+## 3.0.0 — Real Pipeline (2026-11-23)
+
+Status: code complete; the v3.0 wave was written in a no-test wave by user order and is UNTESTED pending the verification pass; the tag/Release await the maintainer's nod.
+
+The "Real Pipeline" release: the renderer becomes a linear,
+HDR pipeline with a new default rasterizer, the scene and model
+formats become fully typed, textures gain a native PNG decoder
+and the full material map set, animation gains quaternions, and
+the compiler gains a typed IR, incremental compilation and fuzz
+hardening. The legacy renderer is frozen, not removed, and
+remains available as `--renderer legacy`.
+
+### Added
+
+- **Benchmarking and profiling (Phases 0 and 8).** `f3dc bench`
+  for repeatable render/compiler timings, and `f3dc profile` for
+  per-stage profiling of a compile and render.
+- **Typed scene and model data (Phase 1).** Indexed mesh data as
+  the internal representation, a typed JSON reader, full OBJ and
+  glTF readers, and the typed `forge3d-scene` scene format.
+- **Per-light shadows and PBR lighting (Phase 3).** Per-light PCF
+  shadow maps — directional (orthographic), spot, and point
+  (cube) — GGX specular, and a linear-HDR pipeline with ACES and
+  Reinhard tonemapping plus bloom.
+- **Full texture pipeline (Phase 4).** PNG textures decoded by
+  Forge3D's own decoder, mipmaps with trilinear filtering, and
+  normal, metallic-roughness, emissive and occlusion maps, with
+  alpha mask and alpha blend transparency modes.
+- **Quaternion animation (Phase 5).** Quaternions with slerp
+  keyframe interpolation, per-axis scale, per-track fps, and
+  cubic and bezier easing.
+- **Modular JS runtime (Phase 7).** The browser runtime is now
+  split into ES modules with per-module size budgets (total
+  139,928 B), and the Fortran and JS sides share the same math
+  vectors.
+- **Compressed and binary output (Phase 8).** Compressed PNG
+  output using real DEFLATE, binary PPM (P6) output, a `--video`
+  render mode, SSIM reported alongside PSNR, and block-wise
+  SHA-256 hashing, with parallel-build polish.
+- **Fuzzing (Phase 9).** Fuzz harnesses for the parsers and
+  readers, feeding the hardening work below.
+
+### Changed
+
+- **Toolchain standardised on gfortran (Phase 0).** The build
+  standardises on gfortran, and `f3dc preview` is hardened to
+  bind loopback-only.
+- **v3 rasterizer is now the default renderer (Phase 2).** The
+  new rasterizer — fixed-point edges, perspective-correct
+  interpolation, a visibility buffer, tiled rendering with
+  OpenMP, and SSAA — replaces the legacy renderer as the
+  default. The legacy renderer is frozen and remains available
+  as `--renderer legacy`.
+- **Colour pipeline is linear-HDR (Phase 3).** Lighting and
+  shading now run in linear HDR through to tonemapping (see
+  Added above), rather than shading directly in display space.
+- **Typed compiler internals (Phase 6).** The compiler gains a
+  typed IR and a typed AST, with the validator and emitter split
+  into separate units, an incremental compile manifest for
+  incremental compilation, and property tests plus a curated
+  test set replacing baked-corpus-only gating.
+
+### Fixed
+
+- **String builder self-concatenation (Phase 6).** The string
+  builder no longer self-concatenates (self-concat 390→0),
+  removing the quadratic behaviour on large generated output.
+- **`fmt` round-trip (Phase 6).** Formatting a scene and parsing
+  it back now round-trips correctly.
+- **Hardening (Phase 9).** Scene storage is now growable instead
+  of fixed-size, write failures are detected and reported rather
+  than silently dropped, and resource limits and dimension caps
+  bound the input a scene, model or texture can demand.
+
 ## 2.0.0 — Native Edition (2026-11-23)
 
 The compiler is now fully native and the renderer gained the

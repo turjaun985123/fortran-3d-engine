@@ -566,3 +566,69 @@ primitives.
   (legacy 28b6a81d.../090fa22a...; v3 hello-cube 45a5af9d...,
   objects-100 07457fa8..., textured 171e9713..., shadowed
   ec447b1c...).
+- 2026-11-23: Phase 6 finish. Typed AST (`f3dc_ast`) wired
+  through parser, desugar, CLI and optimize. C1 closed at the
+  AST boundary: AST and IR are typed; validate internals still
+  consume `dyn` via typed accessors — stated as-is, not
+  converted. Extension/props bags retained by design.
+- 2026-11-23: Phase 7 complete. Runtime converted to ES
+  modules with per-module size budgets in CI; measured total
+  139,928 B published. Shared math test vectors consumed by
+  the JS runtime (same fixtures as the Fortran tests). README
+  size/fallback wording corrected to measured facts. J3
+  closed. J2 closed, with a correction: the fallback is
+  Canvas2D, not WebGL1.
+- 2026-11-23: Phase 8 complete. Real compressed PNG output;
+  binary PPM (P6); optional `--video` piping to `ffmpeg`;
+  `f3dc profile` counters; SSIM added alongside PSNR for v3
+  goldens; block-wise SHA-256 (replaces the byte-wise path
+  recorded as the Phase 6 cache cost); parallel-build polish.
+- 2026-11-23: Phase 9 complete. Fuzz harnesses under
+  `tests/fuzz/` for the lexer, parser, OBJ, glTF and `.scene`
+  readers. Hardening: growable storage on the remaining
+  paths, output write-failure detection with a non-zero exit
+  (closes the Phase 0 `f3dc bench` observation), resource
+  limits (max triangles, texture size, scene file size) with
+  friendly errors, and remaining fixed caps replaced by
+  diagnostics, never silent drops.
+- 2026-11-23: v3.0 code complete — written in a 50-agent
+  no-test wave by user order 2026-11-23; status UNTESTED: no
+  suite or CI verdict is claimed for the wave's code;
+  verification pass and the v3.0.0 tag/Release await the
+  user's nod.
+
+### Finding-ID closure (2026-11-23)
+
+| ID | Finding | Status | Phase |
+|----|---------|--------|-------|
+| R1 | Perspective-correct interpolation | Closed | P2 |
+| R2 | Sub-pixel fixed-point raster setup | Closed | P2 |
+| R3 | Single render pipeline | Closed | P2 |
+| R4 | Per-material double-sided | Closed | P2 |
+| R5 | Single fragment stage | Closed | P2 |
+| R6 | Visibility buffer / tile binning | Closed | P2 |
+| L1 | Per-light shadow maps | Closed | P3 |
+| L2 | Shadow bias / PCF | Closed | P3 |
+| L3 | Linear HDR / tone mapping | Closed | P3 |
+| L4 | True bloom | Closed | P3 |
+| G1 | Indexed meshes, real UVs | Closed | P1 |
+| G2 | OBJ / glTF 2.0 import | Closed | P1 |
+| G3 | Texture samplers / mipmaps | Closed | P4 |
+| G4 | `Mesh%num_triangles = 0` init | Closed | P0 |
+| S1 | Scene reader caps / format | Closed | P1 (typed format) + P9 (growable legacy reader) |
+| S2 | Capacity-doubling appends | Closed | P0 |
+| S3 | Legacy side effects | Documented | P0 |
+| C1 | Typed AST / IR | Closed (typed IR + typed AST; extension/props bags retained by design) | P6 |
+| C2 | Validator / emitter split | Closed (residues: `add_object` 371 lines, `val_sec_wavee` 192) | P6 |
+| C3 | Property tests vs baked corpus | Closed | P6 |
+| C4 | String-builder (`s = s //` sites) | Closed (390 -> 0) | P6 |
+| C5 | Incremental compile | Closed | P6 |
+| X1 | Preview loopback bind | Closed | P0 |
+| X2 | Preview per-request buffer | Closed | P0 |
+| B1 | CI renders compiled scene | Closed (CI renders compiled scene, G3b/G3c pins) | P0 |
+| B4 | README / docs hygiene | Closed | P0 |
+| M1 | `look_at` up-parallel guard | Closed | P0 + P5 |
+| M2 | Quaternion keyframes / slerp | Closed | P5 |
+| M3 | Per-clip fps / timeline | Closed | P5 |
+| J2 | Stale fallback wording | Closed | P7 |
+| J3 | Runtime size figure (core-only) | Closed | P7 |

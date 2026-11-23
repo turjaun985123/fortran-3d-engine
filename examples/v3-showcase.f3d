@@ -1,0 +1,24 @@
+# v3 showcase (v3.0 release): the v3 feature set in one scene --
+# soft shadows under a directional light plus a point light, ACES
+# tonemapping, linear fog and SSAA antialiasing; a normal-mapped,
+# textured standard-material cube; PBR standard materials (a glossy
+# mover sphere and a spinning cube) on a shadow-receiving ground
+# plane; a keyframe track with a cubic easing on the sphere; and a
+# native PNG render (the animation frames inherit the .png name).
+# Run: f3dc run examples/v3-showcase.f3d
+# (2 seconds at 15 fps = 30 frames, 640x480)
+scene "v3-showcase" size 640 480 background black fog linear near 30 far 80 tonemap aces shadow soft antialias 2
+camera at 5 3 7 look 0 -1 0 fov 60
+light directional dir -0.5 -1 -0.7 strength 1.2
+light point orange at -5 1 4 intensity 40 distance 0 decay 2
+light ambient strength 0.15
+plane ground gray at 0 -2 0 size 16 material standard metalness 0 roughness 0.95
+cube block white at -3.2 -0.5 0 size 3 material standard metalness 0 roughness 0.85 texture "assets/checker.ppm" normalmap "assets/tiles-normal.ppm"
+sphere mover blue at 0 -1.2 0 radius 0.8 material standard metalness 0 roughness 0.25
+cube spinner_cube red at 3.5 -1.25 0 size 1.5 material standard metalness 0 roughness 0.6
+keys mover duration 2 loop pingpong
+key mover at 0 pos 0 -1.2 0 rot 0 0 0 scale 1
+key mover at 1 pos 1.5 -0.2 0 rot 0 90 0 scale 1.2 ease cubic-in-out
+key mover at 2 pos 0 -1.2 0 rot 0 180 0 scale 1
+animate spinner_cube spin y speed 90 duration 2 fps 15
+render "v3-showcase.png" duration 2 fps 15

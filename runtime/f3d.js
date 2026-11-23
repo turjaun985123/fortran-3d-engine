@@ -19,7 +19,7 @@
  * by the host page, not code from a sibling runtime file, so it is
  * deliberately not converted into an import.
  */
-// Forge3D runtime v2.0.0 - dependency-free player for f3dc v2 scenes.
+// Forge3D runtime v3.0.0 - dependency-free player for f3dc v2 scenes.
 // DECISION: Canvas2D only. It renders with the identical math to the
 // Fortran engine (lookAt + perspective, flat per-face normals, Lambert
 // 0.25+0.75*diffuse, painter sort by mean depth = extensions.depth_sort),
@@ -275,7 +275,7 @@ function auto(scene){
   var fb=document.querySelector('#f3d-fallback');if(fb)fb.style.display='none';
   if(el.tagName!=='CANVAS'&&!el.querySelector('canvas')){/* create() appends one */}
   return create(el,scene||g.F3D_SCENE);}
-g.F3D={create:create,auto:auto,worldTris:worldTris,version:'2.0.0'};
+g.F3D={create:create,auto:auto,worldTris:worldTris,version:'3.0.0'};
 // <f3d-view>: uses window.F3D_SCENE, or fetches its src JSON (http only;
 // file:// fetch failures are caught and fallback text stays visible).
 if(typeof customElements!=='undefined'&&!customElements.get('f3d-view')){

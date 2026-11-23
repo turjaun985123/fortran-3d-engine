@@ -7,7 +7,7 @@ Compiler: `f3dc` — native (Fortran modules plus a clang C helper,
 sources in `compiler/`), built with `make -C compiler` and installed as
 `bin/f3dc` by `make f3dc`. Building it requires flang-18 (binary
 `flang-new-18`) and clang-18; the compiler itself has no Python
-dependency. Version: `f3dc 2.0.0`.
+dependency. Version: `f3dc 3.0.0`.
 
 Comments start with `#` or `//`. One statement per line. Names are
 identifiers you choose (`cube spinner red …` names the cube `spinner`).
@@ -72,6 +72,10 @@ light directional dir -0.5 -1 -0.7 strength 1.2
 
 - `scene [name|"name"] [size W H | size WxH] [bg|background colour]`
   — at most one takes effect; a later one replaces an earlier (`W102`).
+- `scene … [antialias N]` — supersampling factor for the v3 renderer
+  (§2.10): `N` is one of `1`, `2`, `4` or `8`. The scene renders at
+  `N`× resolution and is box-downsampled in linear space; `1` (the
+  default when the clause is absent) is no supersampling.
 - `camera [at vec3] [look vec3] [up vec3] [fov n] [near n] [far n]`
   — every clause optional; omitted fields keep the §1 defaults.
 - `light (directional|ambient) [dir vec3 | from vec3] [intensity n | strength n] [colour]`
@@ -127,6 +131,15 @@ Properties (each may appear at most once — duplicates are `E110`):
 | `capped` / `open` | capped (default) or open ends, cylinder/cone |
 | `shading smooth\|flat` | vertex-normal (smooth) or face-normal (flat) shading; default `smooth` for curved primitives (sphere, cylinder, cone, capsule, tube, lathe, torus, torusknot), `flat` otherwise; may also be set once on the `scene` line as the scene default |
 | `mirror x\|y\|z` | reflect the object's geometry across that axis through its own local origin (applied before its scale/rotation/position); winding is corrected automatically, so lighting stays outward |
+| `texture "path"` | base-colour texture image: a `.ppm` or a `.png` file (see “Textures and material keys” below) |
+| `normalmap "path"` | tangent-space normal map (`.ppm`/`.png`), sampled as linear data |
+| `mr "path"` | metallic-roughness map (`.ppm`/`.png`), sampled as linear data |
+| `emissivemap "path"` | emissive map (`.ppm`/`.png`), sampled as sRGB |
+| `occlusionmap "path"` | ambient-occlusion map (`.ppm`/`.png`), sampled as linear data |
+| `emissive colour` | emissive colour added on top of the lit result (any §2.3 spelling) |
+| `opacity n` | opacity, `0`–`1` (default `1`); multiplies the texture alpha |
+| `cutoff n` | alpha-mask threshold, `0`–`1` (default `0.5`) |
+| `alpha opaque\|mask\|blend` | alpha treatment (default `opaque`) — see below |
 
 ```f3d
 cube lambert_cube red at -3 1 0 size 2 material lambert
@@ -134,7 +147,26 @@ sphere basic_ball #FF8800 at 3 1 0 radius 1 material basic
 cylinder phong_pillar rgb 60 220 120 at 3 -2 0 radius 1 height 3 material phong
 ```
 
-Textures are **not** in v1: a `texture` property is a loud diagnostic (`E204`).
+Textures and material keys (v3.0): the base `texture` and the four
+extra slots (`normalmap`, `mr`, `emissivemap`, `occlusionmap`) each
+take a quoted path to a `.ppm` or `.png` file — no other texture
+format is accepted. Paths resolve like an imported part's (against
+the working directory, then the scene file's directory); a missing
+file is error `E501`. PNG files are decoded by the engine itself
+(non-interlaced PNGs; Adam7-interlaced files are rejected), and every
+loaded texture gets a mip chain. The emissive map loads as sRGB; the
+normal, metallic-roughness and occlusion maps load as linear data.
+
+The effective fragment alpha is the base texture's alpha (1 when the
+texture has none) multiplied by `opacity`. The `alpha` key selects
+what the v3 renderer does with it:
+
+- `opaque` (default) — alpha is ignored; the fragment is fully opaque.
+- `mask` — cutout: fragments with alpha below `cutoff` are discarded,
+  so what is behind them shows through (e.g. the slats-and-gaps fence
+  in `examples/alpha-masked.f3d`).
+- `blend` — the fragment is alpha-blended over what is behind it
+  using the effective alpha.
 
 ### Wave D geometries
 
@@ -293,10 +325,33 @@ Animation properties (all optional):
 | `fps int` | `30` | frames per second when baking frames |
 | `amplitude n` | verb default | e.g. `bob` height |
 | `distance n` / `amount n` / `angle n` | verb default | verb-specific magnitude |
-| `ease name` | `linear` | easing curve name (e.g. `linear`) |
+| `ease name` | `linear` | easing curve name: `linear`, `smooth`, `in`, `out`, `cubic-in`, `cubic-out`, `cubic-in-out`, or `bezier(x1,y1,x2,y2)` (a cubic Bézier easing through control points `(x1,y1)`/`(x2,y2)`; `x1`/`x2` are clamped to 0–1, and a malformed `bezier(...)` falls back to `linear`, as does any unknown name) |
 | `loop once\|forever\|pingpong\|repeat(N)` | `forever` | bare `loop` means `forever` |
 
 Animation is closed-form `f(t)`: same `t` ⇒ same pose natively and in JS; frame 0 is the still.
+
+Keyframe tracks — a `keys` header plus one `key` line per keyframe:
+
+```f3d
+keys mover duration 2 loop pingpong
+key mover at 0 pos 0 -1.2 0 rot 0 0 0 scale 1
+key mover at 1 pos 1.5 -0.2 0 rot 0 90 0 scale 1.2 ease smooth
+key mover at 2 pos 0 -1.2 0 rot 0 180 0 scale 1
+```
+
+- `keys <target> [duration n] [loop once|forever|pingpong] [fps n]` —
+  with `fps n` on the header, that track's key times and duration are
+  **frame numbers**, not seconds (each clip carries its own fps; the
+  engine converts `t` internally). Without `fps`, times are seconds,
+  exactly as before.
+- `key <target> at <time> [pos vec3] [rot vec3] [scale n] [ease name]`
+  — `ease` takes the same names as the table above, including the
+  `cubic-in` / `cubic-out` / `cubic-in-out` family.
+- Rotation between keys is interpolated in the engine with
+  quaternions (`quat_slerp`, shortest path): a 350° → 10° turn goes
+  the short way through 0°, and there is no gimbal-lock degeneracy.
+  Keys are still authored as Euler `rot` degrees; the quaternion form
+  is the engine's interpolation form.
 
 ### 2.9 Render and export
 
@@ -330,6 +385,31 @@ Worked examples shipped in `examples/`: `hello-cube.f3d` (the contract),
 (lambert/basic/phong, all three colour spellings), `geometries.f3d`
 (every Wave D geometry, §2.2).
 
+### 2.10 The v3 renderer (default) and the legacy renderer
+
+Since v3.0 the native engine renders with the **v3 rasterizer by
+default**. Compared with the v2 renderer it is perspective-correct
+(attributes are interpolated in homogeneous space, not screen space),
+casts a shadow map per light, and shades into a linear HDR
+framebuffer that is tone-mapped at the end, so highlights roll off
+instead of clipping. The v3 rasterizer is tile-parallel: the
+environment variable `FORGE3D_THREADS` sets how many threads it uses
+(unset = the OpenMP default; the rendered image is identical for any
+thread count). Supersampling is the scene-level `antialias` clause
+(§2.1).
+
+The frozen v2 renderer is still available, unchanged, for exact
+reproduction of v2 output:
+
+- engine flag `--renderer legacy`, or
+- environment variable `FORGE3D_RENDERER=legacy`
+
+(`--renderer v3` / `FORGE3D_RENDERER=v3` selects the default
+explicitly; the flag wins over the environment variable, and an
+unknown value is an error, exit 2.) The legacy path reproduces the
+frozen v2 renderer **bit-exact** — same input, byte-identical PPM —
+which is what the pinned v2 golden is checked against.
+
 
 ## 3. CLI reference: `f3dc`
 
@@ -353,11 +433,12 @@ span and message — after the normal text output; see
 |---|---|---|
 | `new` | `f3dc new <name>` | Write `<name>.f3d` with the 3-line contract. Never overwrites (existing file → exit 3). |
 | `check` | `f3dc check [--explain] [--json] <file>` | Validate only — no files written. `--explain` prints the desugared program summary; `--json` prints diagnostics as JSON. |
-| `build` | `f3dc build [-o DIR] [--explain] <file>` | Compile to `build/` (default) — no native render. |
+| `build` | `f3dc build [-o DIR] [--explain] [--force] <file>` | Compile to `build/` (default) — no native render. Incremental: a plain build whose inputs are byte-identical to the manifest recorded by the previous build (`.f3dc-manifest-<stem>` in the output directory) and whose outputs are all present is skipped and prints `up to date: <file> (manifest match)`. `--force` ignores the manifest check and always rebuilds (it still refreshes the manifest). |
 | `run` | `f3dc run [-o DIR] <file>` | Build, compile the Fortran engine, render, report outputs and animation frames. |
 | `fmt` | `f3dc fmt <file>` | Print the canonical `.f3d` form to stdout. |
 | `preview` | `f3dc preview [--port N] [--no-browser] <file>` | Real-time preview: serve the viewer locally and watch the file — every save recompiles and open browser tabs reload themselves. A broken scene shows its diagnostics in the tab and recovers on the next good save. Default port 8765 (`0` = any free port). The preview page adds a toolbar with a LIVE/ERROR status pill and an FPS meter; orbit/zoom work as in the normal viewer. Tabs poll `/__version` to notice recompiles; `/__status` reports the current preview state as JSON. |
 | `doctor` | `f3dc doctor` | Print version and check python / gfortran / make / convert (optional) / repo + engine sources, with fixes. |
+| `profile` | `f3dc profile [-o DIR] <file>` | Build exactly as `build` does (always a full build — the incremental skip never applies) and print the per-stage compile timings, one line per stage in milliseconds: `parse`, `desugar`, `validate`, `emit`, `write`, and `total`. |
 
 `build/` outputs for input stem `<stem>` (build never overwrites the
 repo-root `scene.json` or `viewer.html`):
@@ -370,6 +451,17 @@ repo-root `scene.json` or `viewer.html`):
 | `<stem>.html` | Single-file viewer (template + inlined scene + runtime), `file://`-safe |
 | `<stem>_scene.f90` | Generated Fortran scene program |
 | `<stem>.ppm` | (from `run`) native render; plus `<stem>_NNNN.ppm` frames for animations (`.png` instead when the render filename ends in `.png`) |
+
+Engine flags and environment (the native renderer `f3dc run` drives;
+the renderer-selection pair `--renderer` / `FORGE3D_RENDERER` is
+covered in §2.10, and `FORGE3D_THREADS` there too):
+
+| Flag / variable | Meaning |
+|---|---|
+| `--binary-ppm` / `FORGE3D_BINARY_PPM` | Write PPM output in binary `P6` form instead of the default ASCII `P3`. The flag wins over the variable; the variable accepts `1`/`true` or `0`/`false` (any other value is an error). |
+| `--video <file.mp4>` | After a multi-frame render, assemble the numbered frame files into `<file.mp4>` with `ffmpeg` (libx264, yuv420p, at the scene fps). Needs `ffmpeg` on `PATH`: if it is missing or fails, a note is printed, the frame files are kept, no video is written, and the exit code is unchanged. Single-image renders are unaffected. |
+| `FORGE3D_MAX_FRAMES` | Maximum frames in one render (default `100000`); a render needing more is refused with an error. Must be ≥ 1. |
+| `FORGE3D_MAX_RESOLUTION` | Maximum frame size in pixels, width × height (default `268435456` = 16384×16384); a larger frame is refused with an error. Must be positive. |
 
 Exit codes:
 
@@ -422,8 +514,12 @@ E4xx structure, E5xx I/O, E8xx security/limits, Wxxx warnings.
 ## 5. The JavaScript viewer
 
 `f3dc build`/`run` generate a single-file HTML viewer per scene, and
-`runtime/f3d.js` is the reusable player (WebGL1, zero dependencies,
-Canvas-2D fallback with the identical API). Embed it yourself:
+`runtime/f3d.js` is the reusable player (zero dependencies). The
+viewer boots **WebGL2-first**: the WebGL2 sidecar
+(`runtime/f3d-webgl2.js`) tries a WebGL2 context and, when WebGL2 is
+unavailable, the viewer falls back to the Canvas2D core player
+(`runtime/f3d.js`) with the identical API. There is **no WebGL1
+path**. Embed it yourself:
 
 ```html
 <script src="f3d.js"></script>
@@ -441,7 +537,7 @@ Canvas-2D fallback with the identical API). Embed it yourself:
   element; returns a player with `play()`, `pause()`, `setTime(t)`,
   `render(t?)`, and `destroy()`. Also exposed: `F3D.auto(scene)` (finds
   the first `<f3d-view>`/canvas and creates a player) and
-  `F3D.version` (`"2.0.0"`). TypeScript declarations: `runtime/f3d.d.ts`.
+  `F3D.version` (`"3.0.0"`). TypeScript declarations: `runtime/f3d.d.ts`.
 - Orbit controls are built in: drag to orbit, wheel to dolly, touch-drag
   on mobile — honouring the scene's `controls` line (§2.7). Shading is
   Lambert, matching the native renderer, and animation uses the same
