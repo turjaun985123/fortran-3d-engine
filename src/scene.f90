@@ -64,7 +64,28 @@ module scene_3d
 
     ! Wave D: raised 40 -> 256 so tube/lathe/extrude object lines can
     ! carry long point lists as trailing tokens (21+).
-    integer, parameter :: MAX_TOKENS = 256
+    !
+    ! v3.0 Phase 9 (S1): 256 is no longer a CAP.  It is only the
+    ! INITIAL capacity of the heap-allocated token scratch below
+    ! (module variable 'tokens'), which scene_load doubles whenever
+    ! a line carries more tokens, so no .scene line can silently
+    ! lose tokens any more.  The scratch is owned by this module,
+    ! reused across loads, and released by scene_free.
+    integer, parameter :: TOKENS_INITIAL_CAP = 256
+    ! Documented format limit: one token is at most TOKEN_LEN
+    ! characters.  This is safe because every field a token can
+    ! feed is itself at most this long in the format: names and
+    ! material/shader/bone names are len=64, SceneText content and
+    ! Scene%output_file are len=256, and every path passes through
+    ! resolve_scene_path, whose result is len=256 by contract (the
+    ! len=512 path fields in SceneObject are only ever assigned
+    ! from that len=256 result).  A longer token is therefore not
+    ! representable anywhere in the format; scene_load now warns
+    ! on stderr when one is truncated to TOKEN_LEN instead of
+    ! truncating it silently (see count_line_tokens use below).
+    integer, parameter :: TOKEN_LEN = 256
+    character(len=TOKEN_LEN), allocatable :: tokens(:)
+    integer :: tokens_cap = 0
 
     type :: SceneObject
         character(len=64) :: name = ''
@@ -253,6 +274,41 @@ contains
     ! ------------------------------------------------------------------
     ! Small parsing helpers
     ! ------------------------------------------------------------------
+
+    ! Count the whitespace (space / tab) separated tokens in a
+    ! line, and the length of the longest one, using exactly
+    ! split_line's tokenisation.  scene_load (Phase 9 S1) counts
+    ! first so it can grow the token scratch BEFORE splitting;
+    ! split_line's own clamp to size(tokens) is then unreachable
+    ! from the reader and remains only as a defensive bound for
+    ! any other caller.
+    subroutine count_line_tokens(line, ncount, longest)
+        character(len=*), intent(in) :: line
+        integer, intent(out) :: ncount, longest
+        integer :: i, n, start
+        logical :: in_tok
+        ncount = 0
+        longest = 0
+        n = len_trim(line)
+        in_tok = .false.
+        start = 1
+        do i = 1, n
+            if (line(i:i) == ' ' .or. line(i:i) == achar(9)) then
+                if (in_tok) then
+                    ncount = ncount + 1
+                    longest = max(longest, i - start)
+                    in_tok = .false.
+                end if
+            else if (.not. in_tok) then
+                in_tok = .true.
+                start = i
+            end if
+        end do
+        if (in_tok) then
+            ncount = ncount + 1
+            longest = max(longest, n - start + 1)
+        end if
+    end subroutine count_line_tokens
 
     ! Split a line into whitespace (space / tab) separated tokens.
     subroutine split_line(line, tokens, ntok)
@@ -653,6 +709,12 @@ contains
         sc%n_tracks = 0; sc%cap_tracks = 0
         if (allocated(sc%shader_defs)) deallocate(sc%shader_defs)
         if (allocated(sc%bones)) deallocate(sc%bones)
+        ! Phase 9 S1: release the heap token scratch owned by this
+        ! module (grown by scene_load; see TOKENS_INITIAL_CAP).
+        ! scene_load re-allocates it at its initial capacity on the
+        ! next load, after its own scene_free reset call.
+        if (allocated(tokens)) deallocate(tokens)
+        tokens_cap = 0
     end subroutine scene_free
 
     ! ------------------------------------------------------------------
@@ -939,6 +1001,16 @@ contains
         logical :: ex
         res = trim(path)
         if (len_trim(path) == 0) return
+        ! Phase 9 S1: the len=256 result is a genuine format limit
+        ! (see TOKEN_LEN); a dir+path that cannot fit is truncated
+        ! by the assignment into res below, so warn on stderr
+        ! instead of truncating silently.
+        if (len_trim(dir) > 0) then
+            if (len_trim(dir) + 1 + len_trim(path) > len(res)) then
+                write(0, *) 'scene: warning: resolved path longer ', &
+                    'than 256 characters, truncated: ', trim(path)
+            end if
+        end if
         if (path(1:1) == '/') return
         inquire(file=trim(path), exist=ex)
         if (ex) return
@@ -952,8 +1024,19 @@ contains
         character(len=*), intent(out) :: errmsg
 
         integer :: u, ios, ntok, lineno, count, i
+        ! Phase 9 S1 audit of reader caps: the 2048-char line buffer
+        ! is a genuine format limit (the longest legitimate line,
+        ! a tube/lathe point list or a shaderdef, is bounded by the
+        ! token storage below, not by any emitter line); a line
+        ! that fills it completely is warned about on stderr in
+        ! the read loop instead of being silently truncated.
         character(len=2048) :: line
-        character(len=256) :: tokens(MAX_TOKENS)
+        ! Phase 9 S1: 'tokens' is the module-owned heap scratch
+        ! declared at module scope (initial capacity
+        ! TOKENS_INITIAL_CAP, doubled on demand in the read loop,
+        ! freed by scene_free).  tok_tmp is the grow-step buffer.
+        character(len=TOKEN_LEN), allocatable :: tok_tmp(:)
+        integer :: ntok_raw, longest_tok, new_tok_cap
         type(SceneObject) :: obj
         type(SceneAnim) :: anim
         type(SceneSprite) :: spr
@@ -964,15 +1047,24 @@ contains
         integer :: cur_track  ! track index receiving 'key' lines
         ! S2: per-track key counts while loading (append_key grows
         ! keys with spare capacity; counts live here until the keys
-        ! are trimmed to exact size after the read loop).  Bounded
-        ! by the same practical track counts the format allows.
-        integer :: key_counts(4096)
+        ! are trimmed to exact size after the read loop).
+        ! Phase 9 S1: was a fixed key_counts(4096), which silently
+        ! stopped recording keys beyond track 4096; now heap
+        ! storage, doubled whenever the track count outgrows it
+        ! (see the 'keys' case), and freed at the end of the load.
+        integer, allocatable :: key_counts(:)
+        integer :: cap_key_counts
         type(vec3) :: cam_pos, cam_tgt, cam_up
         real(dp) :: aspect
         integer :: cur_tris  ! object index receiving 'tri' lines, 0 = none
         ! Wave A locals
         character(len=512) :: scene_dir
-        type(Light3) :: extra_lights(32)
+        ! Phase 9 S1: was extra_lights(32); point/spot lights past
+        ! 32 fell through to warn_line and were dropped.  Now heap
+        ! storage doubled on demand (cap_extra), freed after the
+        ! LightSet assembly below.
+        type(Light3), allocatable :: extra_lights(:)
+        integer :: cap_extra
         type(Light3) :: lt
         integer :: n_extra, slash, oi
         logical :: tex_ok
@@ -980,19 +1072,27 @@ contains
         ! morphs and skins are PENDING (they name objects/bones that
         ! may be defined later in the file) and resolved after the
         ! read loop, before the LightSet assembly.
-        type(SceneShaderDef) :: def_list(64)
-        integer :: n_defs
-        type(SceneBone) :: bone_list(64)
-        integer :: n_bones
-        character(len=64) :: bind_obj(256), bind_shader(256)
-        integer :: n_binds
-        character(len=64) :: morph_obj(256)
-        character(len=32) :: morph_kind(256)
-        real(dp) :: morph_factor(256)
-        integer :: n_morphs
-        character(len=64) :: skin_obj(256), skin_bone(256)
-        integer :: n_skins
-        character(len=64) :: rtoks(512)
+        ! Phase 9 S1: def_list(64), bone_list(64) and the pending
+        ! bind/morph/skin lists (256 each) silently dropped every
+        ! entry past their fixed size (a bare 'if (n < cap)' with
+        ! no else).  All are now heap storage doubled on demand
+        ! (cap_*), freed at the end of the load after resolution.
+        type(SceneShaderDef), allocatable :: def_list(:)
+        integer :: n_defs, cap_defs
+        type(SceneBone), allocatable :: bone_list(:)
+        integer :: n_bones, cap_bones
+        character(len=64), allocatable :: bind_obj(:), bind_shader(:)
+        integer :: n_binds, cap_binds
+        character(len=64), allocatable :: morph_obj(:)
+        character(len=32), allocatable :: morph_kind(:)
+        real(dp), allocatable :: morph_factor(:)
+        integer :: n_morphs, cap_morphs
+        character(len=64), allocatable :: skin_obj(:), skin_bone(:)
+        integer :: n_skins, cap_skins
+        ! Phase 9 S1: was rtoks(512), silently capping a shaderdef
+        ! at 512 RPN tokens; now allocated per line at exactly the
+        ! token count the line declares (bounded by ntok).
+        character(len=64), allocatable :: rtoks(:)
         type(ShaderProg) :: tmp_prog
         logical :: parse_ok
         character(len=256) :: parse_err
@@ -1005,13 +1105,19 @@ contains
         errmsg = ''
         cur_tris = 0
         cur_track = 0
-        key_counts = 0
+        cap_key_counts = 0
         n_extra = 0
+        cap_extra = 0
         n_defs = 0
+        cap_defs = 0
         n_bones = 0
+        cap_bones = 0
         n_binds = 0
+        cap_binds = 0
         n_morphs = 0
+        cap_morphs = 0
         n_skins = 0
+        cap_skins = 0
         scene_dir = ''
         slash = index(trim(path), '/', back=.true.)
         if (slash > 1) scene_dir = path(1:slash - 1)
@@ -1019,6 +1125,11 @@ contains
         ! Reset to format defaults.
         call scene_free(sc)
         sc = Scene()
+        ! Phase 9 S1: scene_free just released the token scratch;
+        ! allocate it at its initial capacity (grown x2 in the
+        ! read loop when a line has more tokens).
+        allocate(tokens(TOKENS_INITIAL_CAP))
+        tokens_cap = TOKENS_INITIAL_CAP
         cam_pos = vec3_create(3.0_dp, 2.5_dp, 4.0_dp)
         cam_tgt = vec3_create(0.0_dp, 0.0_dp, 0.0_dp)
         cam_up = vec3_create(0.0_dp, 1.0_dp, 0.0_dp)
@@ -1041,6 +1152,34 @@ contains
             lineno = lineno + 1
             if (len_trim(line) == 0) cycle
             if (line(1:1) == '#') cycle  ! header stamps / comments
+            ! Phase 9 S1: a line that fills the 2048-char buffer
+            ! exactly may have been truncated by the read; warn on
+            ! stderr (kept cap, see the line declaration) instead
+            ! of parsing a silently shortened line.
+            if (len_trim(line) == len(line)) then
+                write(0, *) 'scene: warning: line ', lineno, &
+                    ' reaches the 2048-character line limit and ', &
+                    'may have been truncated'
+            end if
+            ! Phase 9 S1: grow the token scratch (x2) BEFORE
+            ! splitting, so split_line never clamps a long line.
+            call count_line_tokens(line, ntok_raw, longest_tok)
+            if (longest_tok > TOKEN_LEN) then
+                write(0, *) 'scene: warning: line ', lineno, &
+                    ' has a token longer than 256 characters ', &
+                    '(documented format limit); it will be ', &
+                    'truncated'
+            end if
+            if (ntok_raw > tokens_cap) then
+                new_tok_cap = tokens_cap
+                do while (new_tok_cap < ntok_raw)
+                    new_tok_cap = 2 * new_tok_cap
+                end do
+                allocate(tok_tmp(new_tok_cap))
+                tok_tmp = ''
+                call move_alloc(tok_tmp, tokens)
+                tokens_cap = new_tok_cap
+            end if
             call split_line(line, tokens, ntok)
             if (ntok == 0) cycle
             if (tokens(1)(1:1) == '#') cycle
@@ -1109,8 +1248,7 @@ contains
                     sc%light_intensity = tok_real(tokens, 9)
                     sc%has_dir_light = .true.
                 else if (ntok >= 11 .and. &
-                         trim(tokens(2)) == 'point' .and. &
-                         n_extra < 32) then
+                         trim(tokens(2)) == 'point') then
                     ! light point px py pz R G B intensity distance decay
                     lt = Light3()
                     lt%kind = 1
@@ -1122,12 +1260,26 @@ contains
                     lt%intensity = tok_real(tokens, 9)
                     lt%distance = tok_real(tokens, 10)
                     lt%decay = tok_real(tokens, 11)
+                    if (n_extra >= cap_extra) then
+                        block
+                            type(Light3), allocatable :: tmp_lights(:)
+                            integer :: new_cap
+                            new_cap = max(8, 2 * cap_extra)
+                            allocate(tmp_lights(new_cap))
+                            if (n_extra > 0) &
+                                tmp_lights(1:n_extra) = &
+                                    extra_lights(1:n_extra)
+                            if (allocated(extra_lights)) &
+                                deallocate(extra_lights)
+                            call move_alloc(tmp_lights, extra_lights)
+                            cap_extra = new_cap
+                        end block
+                    end if
                     n_extra = n_extra + 1
                     extra_lights(n_extra) = lt
                     sc%has_env = .true.
                 else if (ntok >= 16 .and. &
-                         trim(tokens(2)) == 'spot' .and. &
-                         n_extra < 32) then
+                         trim(tokens(2)) == 'spot') then
                     ! light spot px py pz dx dy dz R G B intensity
                     !            distance decay angle penumbra
                     lt = Light3()
@@ -1142,6 +1294,21 @@ contains
                     lt%decay = tok_real(tokens, 14)
                     lt%angle_deg = tok_real(tokens, 15)
                     lt%penumbra = tok_real(tokens, 16)
+                    if (n_extra >= cap_extra) then
+                        block
+                            type(Light3), allocatable :: tmp_lights(:)
+                            integer :: new_cap
+                            new_cap = max(8, 2 * cap_extra)
+                            allocate(tmp_lights(new_cap))
+                            if (n_extra > 0) &
+                                tmp_lights(1:n_extra) = &
+                                    extra_lights(1:n_extra)
+                            if (allocated(extra_lights)) &
+                                deallocate(extra_lights)
+                            call move_alloc(tmp_lights, extra_lights)
+                            cap_extra = new_cap
+                        end block
+                    end if
                     n_extra = n_extra + 1
                     extra_lights(n_extra) = lt
                     sc%has_env = .true.
@@ -1530,6 +1697,16 @@ contains
                 txt%color = [tok_int(tokens, 7), tok_int(tokens, 8), &
                              tok_int(tokens, 9)]
                 txt%content = rest_after_tokens(line, 9)
+                ! Phase 9 S1: SceneText%content is len=256, a
+                ! genuine format limit (rest_after_tokens returns
+                ! len=256 too); a content that fills it exactly may
+                ! have been truncated, so warn on stderr.
+                if (len_trim(txt%content) == len(txt%content)) then
+                    write(0, *) 'scene: warning: text content at ', &
+                        'line ', lineno, ' reaches the ', &
+                        '256-character limit and may have been ', &
+                        'truncated'
+                end if
                 call append_text(sc, txt)
                 cur_tris = 0
             case ('particles')
@@ -1572,8 +1749,31 @@ contains
                 call append_track(sc, trk)
                 if (allocated(trk%keys)) deallocate(trk%keys)
                 cur_track = sc%n_tracks
-                if (cur_track >= 1 .and. cur_track <= 4096) &
+                ! Phase 9 S1: grow key_counts (x2) to the track
+                ! count; nested ifs because .and. does not
+                ! short-circuit and key_counts may be unallocated.
+                if (cur_track >= 1) then
+                    if (cur_track > cap_key_counts) then
+                        block
+                            integer, allocatable :: tmp_counts(:)
+                            integer :: new_cap
+                            new_cap = max(64, 2 * cap_key_counts)
+                            do while (new_cap < cur_track)
+                                new_cap = 2 * new_cap
+                            end do
+                            allocate(tmp_counts(new_cap))
+                            tmp_counts = 0
+                            if (cap_key_counts > 0) &
+                                tmp_counts(1:cap_key_counts) = &
+                                    key_counts(1:cap_key_counts)
+                            if (allocated(key_counts)) &
+                                deallocate(key_counts)
+                            call move_alloc(tmp_counts, key_counts)
+                            cap_key_counts = new_cap
+                        end block
+                    end if
                     key_counts(cur_track) = 0
+                end if
                 cur_tris = 0
             case ('key')
                 ! key TIME PX PY PZ RX RY RZ SCALE EASE  (10 tokens)
@@ -1598,9 +1798,14 @@ contains
                 kf%rot_quat = quat_from_euler(vec3_create( &
                     kf%rot_deg(1), kf%rot_deg(2), kf%rot_deg(3)))
                 kf%has_quat = .true.
-                if (cur_track >= 1 .and. cur_track <= 4096) then
-                    call append_key(sc%tracks(cur_track), kf, &
-                                    key_counts(cur_track))
+                ! Nested ifs: .and. does not short-circuit, so
+                ! key_counts(cur_track) must only be indexed once
+                ! cur_track is known to be within its capacity.
+                if (cur_track >= 1) then
+                    if (cur_track <= cap_key_counts) then
+                        call append_key(sc%tracks(cur_track), kf, &
+                                        key_counts(cur_track))
+                    end if
                 end if
             case ('ortho')
                 ! ortho SIZE -- Wave C orthographic camera (row 3).
@@ -1617,10 +1822,20 @@ contains
                     call warn_line(lineno, line)
                     cycle
                 end if
+                ! Phase 9 S1: the 16-entry chain is a genuine
+                ! format limit -- Scene%post_names/post_amounts are
+                ! fixed (16) fields of the Scene type that main
+                ! reads directly -- so the cap stays, but hitting
+                ! it now warns on stderr instead of silently
+                ! dropping the filter.
                 if (sc%n_post < 16) then
                     sc%n_post = sc%n_post + 1
                     sc%post_names(sc%n_post) = trim(tokens(2))
                     sc%post_amounts(sc%n_post) = tok_real(tokens, 3)
+                else
+                    write(0, *) 'scene: warning: post chain is ', &
+                        'full (16 filters, format limit); ', &
+                        'ignoring post at line ', lineno
                 end if
             case ('instance')
                 ! instance NEW SOURCE PX PY PZ RX RY RZ SCALE
@@ -1650,74 +1865,161 @@ contains
                 end block
             case ('shaderdef')
                 ! shaderdef NAME NTOK tok1 ... tokN (Wave E, C2).
-                ! RPN tokens are capped by MAX_TOKENS on the line.
+                ! Phase 9 S1: RPN tokens are bounded only by the
+                ! (growable) tokens on the line; rtoks is allocated
+                ! per line at exactly the declared count.
                 if (ntok < 3) then
                     call warn_line(lineno, line)
                     cycle
                 end if
-                count = max(0, min(tok_int(tokens, 3), ntok - 3, 512))
+                count = max(0, min(tok_int(tokens, 3), ntok - 3))
+                if (allocated(rtoks)) deallocate(rtoks)
+                allocate(rtoks(max(1, count)))
                 rtoks = ''
                 do j = 1, count
                     rtoks(j) = trim(tokens(3 + j))
                 end do
                 call shader_parse(rtoks(1:max(1, count)), tmp_prog, &
                                   parse_ok, parse_err)
+                deallocate(rtoks)
                 if (.not. parse_ok) then
                     call warn_line(lineno, line)
                     cycle
                 end if
-                if (n_defs < 64) then
-                    n_defs = n_defs + 1
-                    def_list(n_defs)%name = trim(tokens(2))
-                    def_list(n_defs)%prog = tmp_prog
+                if (n_defs >= cap_defs) then
+                    block
+                        type(SceneShaderDef), allocatable :: tmp_defs(:)
+                        integer :: new_cap
+                        new_cap = max(8, 2 * cap_defs)
+                        allocate(tmp_defs(new_cap))
+                        if (n_defs > 0) &
+                            tmp_defs(1:n_defs) = def_list(1:n_defs)
+                        if (allocated(def_list)) deallocate(def_list)
+                        call move_alloc(tmp_defs, def_list)
+                        cap_defs = new_cap
+                    end block
                 end if
+                n_defs = n_defs + 1
+                def_list(n_defs)%name = trim(tokens(2))
+                def_list(n_defs)%prog = tmp_prog
             case ('shaderbind')
                 ! shaderbind OBJ SHADER (Wave E, C2; pending).
                 if (ntok < 3) then
                     call warn_line(lineno, line)
                     cycle
                 end if
-                if (n_binds < 256) then
-                    n_binds = n_binds + 1
-                    bind_obj(n_binds) = trim(tokens(2))
-                    bind_shader(n_binds) = trim(tokens(3))
+                if (n_binds >= cap_binds) then
+                    block
+                        character(len=64), allocatable :: tmp_o(:), &
+                            tmp_s(:)
+                        integer :: new_cap
+                        new_cap = max(8, 2 * cap_binds)
+                        allocate(tmp_o(new_cap))
+                        allocate(tmp_s(new_cap))
+                        if (n_binds > 0) then
+                            tmp_o(1:n_binds) = bind_obj(1:n_binds)
+                            tmp_s(1:n_binds) = bind_shader(1:n_binds)
+                        end if
+                        if (allocated(bind_obj)) deallocate(bind_obj)
+                        if (allocated(bind_shader)) &
+                            deallocate(bind_shader)
+                        call move_alloc(tmp_o, bind_obj)
+                        call move_alloc(tmp_s, bind_shader)
+                        cap_binds = new_cap
+                    end block
                 end if
+                n_binds = n_binds + 1
+                bind_obj(n_binds) = trim(tokens(2))
+                bind_shader(n_binds) = trim(tokens(3))
             case ('morph')
                 ! morph OBJ KIND FACTOR (Wave E, C1; pending).
                 if (ntok < 4) then
                     call warn_line(lineno, line)
                     cycle
                 end if
-                if (n_morphs < 256) then
-                    n_morphs = n_morphs + 1
-                    morph_obj(n_morphs) = trim(tokens(2))
-                    morph_kind(n_morphs) = trim(tokens(3))
-                    morph_factor(n_morphs) = tok_real(tokens, 4)
+                if (n_morphs >= cap_morphs) then
+                    block
+                        character(len=64), allocatable :: tmp_o(:)
+                        character(len=32), allocatable :: tmp_k(:)
+                        real(dp), allocatable :: tmp_f(:)
+                        integer :: new_cap
+                        new_cap = max(8, 2 * cap_morphs)
+                        allocate(tmp_o(new_cap))
+                        allocate(tmp_k(new_cap))
+                        allocate(tmp_f(new_cap))
+                        if (n_morphs > 0) then
+                            tmp_o(1:n_morphs) = morph_obj(1:n_morphs)
+                            tmp_k(1:n_morphs) = morph_kind(1:n_morphs)
+                            tmp_f(1:n_morphs) = &
+                                morph_factor(1:n_morphs)
+                        end if
+                        if (allocated(morph_obj)) deallocate(morph_obj)
+                        if (allocated(morph_kind)) &
+                            deallocate(morph_kind)
+                        if (allocated(morph_factor)) &
+                            deallocate(morph_factor)
+                        call move_alloc(tmp_o, morph_obj)
+                        call move_alloc(tmp_k, morph_kind)
+                        call move_alloc(tmp_f, morph_factor)
+                        cap_morphs = new_cap
+                    end block
                 end if
+                n_morphs = n_morphs + 1
+                morph_obj(n_morphs) = trim(tokens(2))
+                morph_kind(n_morphs) = trim(tokens(3))
+                morph_factor(n_morphs) = tok_real(tokens, 4)
             case ('bone')
                 ! bone NAME px py pz rx ry rz radius (Wave E, C1).
                 if (ntok < 9) then
                     call warn_line(lineno, line)
                     cycle
                 end if
-                if (n_bones < 64) then
-                    n_bones = n_bones + 1
-                    bone_list(n_bones)%name = trim(tokens(2))
-                    bone_list(n_bones)%pivot = tok_vec3(tokens, 3)
-                    bone_list(n_bones)%rot_deg = tok_vec3(tokens, 6)
-                    bone_list(n_bones)%radius = tok_real(tokens, 9)
+                if (n_bones >= cap_bones) then
+                    block
+                        type(SceneBone), allocatable :: tmp_bones(:)
+                        integer :: new_cap
+                        new_cap = max(8, 2 * cap_bones)
+                        allocate(tmp_bones(new_cap))
+                        if (n_bones > 0) &
+                            tmp_bones(1:n_bones) = bone_list(1:n_bones)
+                        if (allocated(bone_list)) deallocate(bone_list)
+                        call move_alloc(tmp_bones, bone_list)
+                        cap_bones = new_cap
+                    end block
                 end if
+                n_bones = n_bones + 1
+                bone_list(n_bones)%name = trim(tokens(2))
+                bone_list(n_bones)%pivot = tok_vec3(tokens, 3)
+                bone_list(n_bones)%rot_deg = tok_vec3(tokens, 6)
+                bone_list(n_bones)%radius = tok_real(tokens, 9)
             case ('skin')
                 ! skin OBJ BONENAME (Wave E, C1; pending).
                 if (ntok < 3) then
                     call warn_line(lineno, line)
                     cycle
                 end if
-                if (n_skins < 256) then
-                    n_skins = n_skins + 1
-                    skin_obj(n_skins) = trim(tokens(2))
-                    skin_bone(n_skins) = trim(tokens(3))
+                if (n_skins >= cap_skins) then
+                    block
+                        character(len=64), allocatable :: tmp_o(:), &
+                            tmp_b(:)
+                        integer :: new_cap
+                        new_cap = max(8, 2 * cap_skins)
+                        allocate(tmp_o(new_cap))
+                        allocate(tmp_b(new_cap))
+                        if (n_skins > 0) then
+                            tmp_o(1:n_skins) = skin_obj(1:n_skins)
+                            tmp_b(1:n_skins) = skin_bone(1:n_skins)
+                        end if
+                        if (allocated(skin_obj)) deallocate(skin_obj)
+                        if (allocated(skin_bone)) deallocate(skin_bone)
+                        call move_alloc(tmp_o, skin_obj)
+                        call move_alloc(tmp_b, skin_bone)
+                        cap_skins = new_cap
+                    end block
                 end if
+                n_skins = n_skins + 1
+                skin_obj(n_skins) = trim(tokens(2))
+                skin_bone(n_skins) = trim(tokens(3))
             case ('anim')
                 ! anim KIND TARGET AXIS SPEED DURATION FPS EASE LOOP
                 if (ntok < 9) then
@@ -1827,6 +2129,15 @@ contains
             call free_mesh(new_mesh)
         end do
 
+        ! Phase 9 S1 audit, verified here: object/anim/sprite/
+        ! text/particle/track counts and per-track keyframes were
+        ! already capacity-doubling (Phase 0 S2 append_* above);
+        ! per-object point lists and 'tris' triangle arrays are
+        ! allocated at exactly the count the line declares, and
+        ! shader_defs/bones/LightSet items are allocated at exactly
+        ! n_defs/n_bones/1 + n_extra below.  No other fixed-size
+        ! array remains in the reader path.
+        !
         ! S2: loading is done -- trim every capacity-doubled array
         ! back to its live count (per-track keys first, then the
         ! Scene arrays) so size() equals the count again for all
@@ -1834,8 +2145,11 @@ contains
         ! size(track%keys); main reads the Scene arrays).
         if (allocated(sc%tracks)) then
             do i = 1, sc%n_tracks
-                if (i <= 4096) call trim_key_track(sc%tracks(i), &
-                                                   key_counts(i))
+                ! Nested if: key_counts(i) is only indexed once i
+                ! is known to be within its (grown) capacity.
+                if (i <= cap_key_counts) then
+                    call trim_key_track(sc%tracks(i), key_counts(i))
+                end if
             end do
         end if
         call scene_trim_storage(sc)
@@ -1896,6 +2210,24 @@ contains
                 end associate
             end do
         end if
+
+        ! Phase 9 S1: release every load-local heap array grown
+        ! above (their contents have been copied into the Scene by
+        ! the resolution passes and the LightSet assembly).  The
+        ! token scratch is NOT freed here: it is module-owned and
+        ! is released by scene_free (see TOKENS_INITIAL_CAP).
+        if (allocated(key_counts)) deallocate(key_counts)
+        if (allocated(extra_lights)) deallocate(extra_lights)
+        if (allocated(def_list)) deallocate(def_list)
+        if (allocated(bone_list)) deallocate(bone_list)
+        if (allocated(bind_obj)) deallocate(bind_obj)
+        if (allocated(bind_shader)) deallocate(bind_shader)
+        if (allocated(morph_obj)) deallocate(morph_obj)
+        if (allocated(morph_kind)) deallocate(morph_kind)
+        if (allocated(morph_factor)) deallocate(morph_factor)
+        if (allocated(skin_obj)) deallocate(skin_obj)
+        if (allocated(skin_bone)) deallocate(skin_bone)
+        if (allocated(rtoks)) deallocate(rtoks)
     contains
         subroutine warn_line(ln, text)
             integer, intent(in) :: ln

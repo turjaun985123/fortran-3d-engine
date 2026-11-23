@@ -137,6 +137,20 @@ module texture_3d
     integer, parameter :: HUFF_FAST_BITS = 9
     integer, parameter :: HUFF_FAST_SIZE = 512  ! 2**HUFF_FAST_BITS
 
+    ! Phase 9 hardening caps, enforced by tex_dims_ok BEFORE any
+    ! pixel storage is allocated (in texture_load_ppm, png_decode
+    ! and, defensively, png_to_tex), so a hostile header -- e.g. a
+    ! PNG IHDR claiming 100000x100000, ~30 GB of RGB pixels -- fails
+    ! cleanly with ok=.false. instead of attempting the allocation.
+    ! TEX_MAX_DIM keeps the 16384 per-axis limit these loaders have
+    ! always enforced (no previously accepted file is rejected, and
+    ! no engine texture needs more); TEX_MAX_PIXELS = 2**28 is the
+    ! matching total bound (16384 * 16384) -- tighter than a nominal
+    ! 65536 / 2**30 allowance, and already generous: a max-size RGBA
+    ! image is 1 GiB as bytes and 4 GiB as a real32 mip level.
+    integer, parameter :: TEX_MAX_DIM = 16384
+    integer(int64), parameter :: TEX_MAX_PIXELS = 268435456_int64
+
     type :: HuffTable
         integer :: counts(0:15) = 0
         integer, allocatable :: symbols(:)
@@ -174,6 +188,22 @@ module texture_3d
 
 contains
 
+    ! Phase 9: .true. when (w, h) is within the documented caps.
+    ! The pixel count is formed in int64 (nested ifs, no guarded
+    ! indexing) so the check itself cannot overflow, however large
+    ! the header values are.
+    pure function tex_dims_ok(w, h) result(okd)
+        integer, intent(in) :: w, h
+        logical :: okd
+        okd = .false.
+        if (w < 1) return
+        if (h < 1) return
+        if (w > TEX_MAX_DIM) return
+        if (h > TEX_MAX_DIM) return
+        if (int(w, int64) * int(h, int64) > TEX_MAX_PIXELS) return
+        okd = .true.
+    end function tex_dims_ok
+
     subroutine texture_free(tex)
         type(TextureImage), intent(inout) :: tex
         integer :: i
@@ -204,7 +234,7 @@ contains
         character(len=*), intent(in) :: path
         type(TextureImage), intent(out) :: tex
         logical, intent(out) :: ok
-        integer :: unit, ios, fsize, i
+        integer :: unit, ios, fsize, i, astat
         integer(int8), allocatable :: bytes(:)
         integer :: pos, w, h, maxval, magic
         logical :: good
@@ -220,7 +250,11 @@ contains
             close(unit)
             return
         end if
-        allocate(bytes(fsize))
+        allocate(bytes(fsize), stat=astat)
+        if (astat /= 0) then
+            close(unit)
+            return
+        end if
         read(unit, iostat=ios) (bytes(i), i = 1, fsize)
         close(unit)
         if (ios /= 0) then
@@ -236,12 +270,16 @@ contains
             deallocate(bytes)
             return
         end if
-        if (w <= 0 .or. h <= 0 .or. w > 16384 .or. h > 16384) then
+        if (.not. tex_dims_ok(w, h)) then
             deallocate(bytes)
             return
         end if
 
-        allocate(tex%pixels(3, w, h))
+        allocate(tex%pixels(3, w, h), stat=astat)
+        if (astat /= 0) then
+            deallocate(bytes)
+            return
+        end if
         if (magic == 3) then
             call read_p3_data(bytes, pos, w, h, maxval, tex%pixels, good)
         else
@@ -578,7 +616,7 @@ contains
         character(len=*), intent(in) :: path
         integer(int8), allocatable, intent(out) :: bytes(:)
         logical, intent(out) :: ok
-        integer :: unit, ios, fsize, i
+        integer :: unit, ios, fsize, i, astat
         ok = .false.
         open(newunit=unit, file=path, status='old', action='read', &
              access='stream', form='unformatted', iostat=ios)
@@ -588,7 +626,11 @@ contains
             close(unit)
             return
         end if
-        allocate(bytes(fsize))
+        allocate(bytes(fsize), stat=astat)
+        if (astat /= 0) then
+            close(unit)
+            return
+        end if
         read(unit, iostat=ios) (bytes(i), i = 1, fsize)
         close(unit)
         if (ios /= 0) then
@@ -612,12 +654,16 @@ contains
         type(TextureImage), intent(out) :: tex
         logical, intent(out) :: ok
         integer(int8), allocatable :: head(:)
-        integer :: unit, ios
+        integer :: unit, ios, astat
         ok = .false.
         open(newunit=unit, file=path, status='old', action='read', &
              access='stream', form='unformatted', iostat=ios)
         if (ios /= 0) return
-        allocate(head(8))
+        allocate(head(8), stat=astat)
+        if (astat /= 0) then
+            close(unit)
+            return
+        end if
         head = 0_int8
         read(unit, iostat=ios) head
         close(unit)
@@ -738,10 +784,10 @@ contains
         logical, intent(out) :: ok
         logical, optional, intent(in) :: crc_check
         integer :: pos, n, clen, w, h, bitdepth, ctype, interlace
-        integer :: channels, bps, stride, i
+        integer :: channels, bps, stride, i, astat
         integer(int8), allocatable :: plte(:), idat(:), raw(:), recon(:)
         logical :: have_ihdr, have_plte, good
-        logical :: want_crc, crc_bad
+        logical :: want_crc, crc_bad, alloc_bad
         character(len=4) :: ctype_str
 
         ok = .false.
@@ -758,7 +804,7 @@ contains
             ubyte(bytes(7)) /= 26 .or. ubyte(bytes(8)) /= 10) return
 
         w = 0; h = 0; bitdepth = 0; ctype = -1; interlace = 0
-        have_ihdr = .false.; have_plte = .false.
+        have_ihdr = .false.; have_plte = .false.; alloc_bad = .false.
         allocate(plte(0), idat(0))
         pos = 9
         do while (pos + 7 <= n)
@@ -792,19 +838,35 @@ contains
                 interlace = ubyte(bytes(pos + 20))
                 have_ihdr = .true.
             case ('PLTE')
-                deallocate(plte)
-                allocate(plte(clen))
-                if (clen > 0) plte = bytes(pos + 8:pos + 7 + clen)
-                have_plte = .true.
+                block
+                    integer(int8), allocatable :: new_plte(:)
+                    allocate(new_plte(clen), stat=astat)
+                    if (astat /= 0) then
+                        alloc_bad = .true.
+                    else
+                        if (clen > 0) new_plte = &
+                            bytes(pos + 8:pos + 7 + clen)
+                        deallocate(plte)
+                        call move_alloc(new_plte, plte)
+                        have_plte = .true.
+                    end if
+                end block
+                if (alloc_bad) exit
             case ('IDAT')
                 block
                     integer(int8), allocatable :: tmp(:)
-                    allocate(tmp(size(idat) + clen))
-                    if (size(idat) > 0) tmp(1:size(idat)) = idat
-                    if (clen > 0) tmp(size(idat) + 1:) = &
-                        bytes(pos + 8:pos + 7 + clen)
-                    call move_alloc(tmp, idat)
+                    integer :: bstat
+                    allocate(tmp(size(idat) + clen), stat=bstat)
+                    if (bstat /= 0) then
+                        alloc_bad = .true.
+                    else
+                        if (size(idat) > 0) tmp(1:size(idat)) = idat
+                        if (clen > 0) tmp(size(idat) + 1:) = &
+                            bytes(pos + 8:pos + 7 + clen)
+                        call move_alloc(tmp, idat)
+                    end if
                 end block
+                if (alloc_bad) exit
             case ('IEND')
                 exit
             case default
@@ -816,10 +878,16 @@ contains
         if (crc_bad) then
             deallocate(plte, idat); return
         end if
+        if (alloc_bad) then
+            deallocate(plte, idat); return
+        end if
         if (.not. have_ihdr) then
             deallocate(plte, idat); return
         end if
-        if (w <= 0 .or. h <= 0 .or. w > 16384 .or. h > 16384) then
+        ! Phase 9 caps, checked here -- before inflate sizes any
+        ! output from (w, h) and before recon / pixel storage is
+        ! allocated -- so an oversized IHDR fails cleanly.
+        if (.not. tex_dims_ok(w, h)) then
             deallocate(plte, idat); return
         end if
         if (interlace /= 0) then  ! Adam7 unsupported (documented limit)
@@ -845,6 +913,15 @@ contains
         end if
         bps = bitdepth / 8
         stride = w * channels * bps
+        ! The unfiltered byte count is formed in int64: within the
+        ! caps it can still exceed the default-integer range (16-bit
+        ! RGBA at max size), in which case this decoder's integer
+        ! sizing cannot hold it and the file is rejected cleanly
+        ! rather than overflowing into a bogus allocation size.
+        if (int(h, int64) * (int(stride, int64) + 1_int64) > &
+            int(huge(stride), int64)) then
+            deallocate(plte, idat); return
+        end if
         call inflate_zlib(idat, h * (stride + 1), raw, good)
         if (.not. good) then
             deallocate(plte, idat)
@@ -854,7 +931,10 @@ contains
         if (size(raw) < h * (stride + 1)) then
             deallocate(plte, idat, raw); return
         end if
-        allocate(recon(h * stride))
+        allocate(recon(h * stride), stat=astat)
+        if (astat /= 0) then
+            deallocate(plte, idat, raw); return
+        end if
         call png_unfilter(raw, h, channels * bps, stride, recon, good)
         deallocate(raw)
         if (.not. good) then
@@ -876,10 +956,18 @@ contains
         integer, intent(in) :: w, h, ctype, bps
         type(TextureImage), intent(inout) :: tex
         logical, intent(out) :: good
-        integer :: row, col, base, idx, g, a
+        integer :: row, col, base, idx, g, a, astat
         good = .false.
-        allocate(tex%pixels(3, w, h))
-        allocate(tex%alpha(w, h))
+        ! Defensive re-check of the Phase 9 caps at the allocation
+        ! site itself (png_decode already enforced them upstream).
+        if (.not. tex_dims_ok(w, h)) return
+        allocate(tex%pixels(3, w, h), stat=astat)
+        if (astat /= 0) return
+        allocate(tex%alpha(w, h), stat=astat)
+        if (astat /= 0) then
+            call texture_free(tex)
+            return
+        end if
         tex%alpha = 255
         tex%has_alpha = (ctype == 4 .or. ctype == 6)
         do row = 1, h
@@ -1442,17 +1530,22 @@ contains
         integer(int8), allocatable, intent(out) :: out(:)
         logical, intent(out) :: ok
         type(BitReader) :: br
-        integer :: cmf, flg, outlen
+        integer :: cmf, flg, outlen, astat
         ok = .false.
         if (size(zdata) < 6) return
         cmf = ubyte(zdata(1)); flg = ubyte(zdata(2))
         if (mod(cmf, 16) /= 8) return            ! CM = deflate
         if (mod(cmf * 256 + flg, 31) /= 0) return  ! FCHECK
         if (iand(flg, 32) /= 0) return           ! preset dictionary
-        allocate(br%data(size(zdata) - 2))
+        allocate(br%data(size(zdata) - 2), stat=astat)
+        if (astat /= 0) return
         br%data = zdata(3:)
         br%bytepos = 1; br%bitpos = 0
-        allocate(out(max(1024, expect_hint)))
+        allocate(out(max(1024, expect_hint)), stat=astat)
+        if (astat /= 0) then
+            deallocate(br%data)
+            return
+        end if
         outlen = 0
         call inflate_blocks(br, out, outlen, ok)
         deallocate(br%data)
@@ -1510,8 +1603,8 @@ contains
     ! Idempotent; a no-op on an unloaded texture.
     subroutine texture_build_mips(tex)
         type(TextureImage), intent(inout) :: tex
-        integer :: i, nlev, w, h, nw, nh, x, y, sx, sy, cnt
-        integer :: sx0, sx1, sy0, sy1
+        integer :: i, j, nlev, w, h, nw, nh, x, y, sx, sy, cnt
+        integer :: sx0, sx1, sy0, sy1, astat
         real(real32) :: acc(4)
         if (.not. tex%loaded .or. .not. allocated(tex%pixels)) return
         if (tex%w <= 0 .or. tex%h <= 0) return
@@ -1529,8 +1622,13 @@ contains
             h = max(1, (h + 1) / 2)
             nlev = nlev + 1
         end do
-        allocate(tex%levels(nlev))
-        allocate(tex%levels(1)%rgba(4, tex%w, tex%h))
+        allocate(tex%levels(nlev), stat=astat)
+        if (astat /= 0) return
+        allocate(tex%levels(1)%rgba(4, tex%w, tex%h), stat=astat)
+        if (astat /= 0) then
+            deallocate(tex%levels)
+            return
+        end if
         tex%levels(1)%w = tex%w
         tex%levels(1)%h = tex%h
         do y = 1, tex%h
@@ -1545,7 +1643,17 @@ contains
             nh = max(1, (h + 1) / 2)
             tex%levels(i)%w = nw
             tex%levels(i)%h = nh
-            allocate(tex%levels(i)%rgba(4, nw, nh))
+            allocate(tex%levels(i)%rgba(4, nw, nh), stat=astat)
+            if (astat /= 0) then
+                ! Mip failure leaves the base image untouched and
+                ! usable: drop the partial chain and return.
+                do j = 1, i - 1
+                    if (allocated(tex%levels(j)%rgba)) &
+                        deallocate(tex%levels(j)%rgba)
+                end do
+                deallocate(tex%levels)
+                return
+            end if
             do y = 1, nh
                 sy0 = 2 * (y - 1) + 1
                 sy1 = min(sy0 + 1, h)

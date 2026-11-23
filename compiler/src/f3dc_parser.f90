@@ -106,6 +106,22 @@ module f3dc_parser
                         K_NEWLINE = 7, K_EOF = 8, K_PUNCT = 9, &
                         K_OTHER = 10
 
+  ! Phase 9 hardening caps (all reported as E820, the existing
+  ! security/limit code in f3dc_errors -- no new code was added).
+  ! MAX_ITOKS mirrors the lexer's MAX_TOKENS; MAX_LINES bounds the
+  ! grouped line list; MAX_ERRS bounds the per-parse error list
+  ! (append_err grows it one entry at a time, so an uncapped flood
+  ! is quadratic copying); MAX_REPEAT_COUNT / MAX_GRID_CELLS bound
+  ! repeat/ring/grid expansion counts so rows * cols and downstream
+  ! per-instance work can never overflow int64 or explode.  All are
+  ! far above any real scene and only fire on inputs that would
+  ! previously abort, wrap, or hang.
+  integer, parameter :: MAX_ITOKS = 262144
+  integer, parameter :: MAX_LINES = 65536
+  integer, parameter :: MAX_ERRS = 1024
+  integer(int64), parameter :: MAX_REPEAT_COUNT = 1000000_int64
+  integer(int64), parameter :: MAX_GRID_CELLS = 1000000_int64
+
   type :: itok
     integer :: kind = K_EOF
     character(:), allocatable :: text   ! STRING texts are unquoted
@@ -302,7 +318,20 @@ contains
     integer, allocatable :: d(:, :)
     la = len(a); lb = len(b)
     if (abs(la - lb) > LIMIT) then; dist = LIMIT + 1; return; end if
-    allocate(d(0:la, 0:lb))
+    ! Phase 9: (la+1)*(lb+1) cells are allocated below; refuse
+    ! absurd word lengths instead of attempting a huge allocation
+    ! (real words come from a <= 4096-char line / 16-char vocab).
+    if (la > 8192 .or. lb > 8192) then
+      dist = LIMIT + 1
+      return
+    end if
+    allocate(d(0:la, 0:lb), stat=cost)
+    if (cost /= 0) then
+      ! Reuse `cost` as the stat slot: allocation failed, report
+      ! "no close match" rather than aborting the parse.
+      dist = LIMIT + 1
+      return
+    end if
     do i = 0, la
       d(i, 0) = i
     end do
@@ -708,10 +737,18 @@ contains
     character(*), intent(in) :: code, msg
     integer, intent(in) :: line, col
     type(err_rec), allocatable :: tmp(:)
-    integer :: n
-    if (.not. allocated(p%errs)) allocate(p%errs(0))
+    integer :: n, st
+    ! Phase 9: cap the list (see MAX_ERRS) -- extra diagnostics are
+    ! dropped from this mirror list rather than growing it without
+    ! bound; the error bag still receives them via report_to_bag.
+    if (.not. allocated(p%errs)) then
+      allocate(p%errs(0), stat=st)
+      if (st /= 0) return
+    end if
     n = size(p%errs)
-    allocate(tmp(n + 1))
+    if (n >= MAX_ERRS) return
+    allocate(tmp(n + 1), stat=st)
+    if (st /= 0) return  ! drop this diagnostic instead of aborting
     if (n > 0) tmp(1:n) = p%errs
     tmp(n + 1)%code = code
     tmp(n + 1)%msg = msg
@@ -793,13 +830,37 @@ contains
     r = s
   end function unquote
 
-  subroutine push_itok(arr, n, cap, t)
+  ! Phase 9 hardening (push_itok / push_line): growth is capped
+  ! (MAX_ITOKS / MAX_LINES) so cap * 2 can never overflow, every
+  ! growth allocate carries stat=, and a cap/alloc failure funnels
+  ! into parser_error as E820 and sets p%stopped (via the syntax-
+  ! error stop path's flag, without counting as a syntax error)
+  ! so build_lines abandons grouping instead of aborting.  Once
+  ! stopped, further pushes are silent no-ops (one diagnostic).
+  subroutine push_itok(p, arr, n, cap, t)
+    type(parser_state), intent(inout) :: p
     type(itok), allocatable, intent(inout) :: arr(:)
     integer, intent(inout) :: n, cap
     type(itok), intent(in) :: t
     type(itok), allocatable :: tmp(:)
+    integer :: newcap, st
+    if (p%stopped) return
+    if (n >= MAX_ITOKS) then
+      call parser_error(p, "E820", "too many tokens (limit " &
+                        // "262144)", t%line, t%col)
+      p%stopped = .true.
+      return
+    end if
     if (n >= cap) then
-      allocate(tmp(max(16, cap * 2)))
+      newcap = min(MAX_ITOKS, max(16, cap * 2))
+      allocate(tmp(newcap), stat=st)
+      if (st /= 0) then
+        call parser_error(p, "E820", &
+                          "out of memory while storing tokens", &
+                          t%line, t%col)
+        p%stopped = .true.
+        return
+      end if
       if (n > 0) tmp(1:n) = arr
       call move_alloc(tmp, arr)
       cap = size(arr)
@@ -808,15 +869,31 @@ contains
     arr(n) = t
   end subroutine push_itok
 
-  subroutine push_line(lines, n, cap, no, cur, cn)
+  subroutine push_line(p, lines, n, cap, no, cur, cn)
+    type(parser_state), intent(inout) :: p
     type(line_rec), allocatable, intent(inout) :: lines(:)
     integer, intent(inout) :: n, cap
     integer, intent(in) :: no, cn
     type(itok), intent(in) :: cur(:)
     type(line_rec), allocatable :: tmp(:)
-    integer :: i, m
+    integer :: i, m, newcap, st
+    if (p%stopped) return
+    if (n >= MAX_LINES) then
+      call parser_error(p, "E820", "too many lines (limit " &
+                        // "65536)", no, 1)
+      p%stopped = .true.
+      return
+    end if
     if (n >= cap) then
-      allocate(tmp(max(16, cap * 2)))
+      newcap = min(MAX_LINES, max(16, cap * 2))
+      allocate(tmp(newcap), stat=st)
+      if (st /= 0) then
+        call parser_error(p, "E820", &
+                          "out of memory while storing lines", &
+                          no, 1)
+        p%stopped = .true.
+        return
+      end if
       if (n > 0) tmp(1:n) = lines
       call move_alloc(tmp, lines)
       cap = size(lines)
@@ -828,7 +905,15 @@ contains
     do i = 1, cn
       if (cur(i)%kind /= K_COMMA .and. cur(i)%kind /= K_COLON) m = m + 1
     end do
-    allocate(lines(n)%toks(m))
+    allocate(lines(n)%toks(m), stat=st)
+    if (st /= 0) then
+      allocate(lines(n)%toks(0), stat=st)
+      call parser_error(p, "E820", &
+                        "out of memory while storing a line", &
+                        no, 1)
+      p%stopped = .true.
+      return
+    end if
     m = 0
     do i = 1, cn
       if (cur(i)%kind /= K_COMMA .and. cur(i)%kind /= K_COLON) then
@@ -850,12 +935,28 @@ contains
     type(itok), allocatable :: toks(:), cur(:)
     type(itok) :: t
     integer :: n, cap, cn, ccap, i, cur_no, ln
+    integer :: rcount, st
     logical :: has_nl
     call tokenize(text, p%source, raw, p%bag)
-    allocate(toks(0))
+    ! Phase 9 bounds guard: never trust raw%count past the actual
+    ! items array (nested ifs, not .and. -- no short-circuit).
+    rcount = 0
+    if (allocated(raw%items)) then
+      rcount = min(raw%count, size(raw%items))
+      if (rcount < 0) rcount = 0
+    end if
+    allocate(toks(0), stat=st)
+    if (st /= 0) then
+      call parser_error(p, "E820", &
+                        "out of memory while storing tokens", 1, 1)
+      p%stopped = .true.
+      allocate(lines(0), stat=st)
+      nlines = 0
+      return
+    end if
     n = 0; cap = 0
     has_nl = .false.
-    do i = 1, raw%count
+    do i = 1, rcount
       select case (raw%items(i)%kind)
       case (TK_EOF)
         cycle  ! Python drops EOF tokens before grouping
@@ -877,24 +978,44 @@ contains
       t%line = raw%items(i)%line
       t%col = raw%items(i)%col
       if (t%kind == K_NEWLINE) has_nl = .true.
-      call push_itok(toks, n, cap, t)
+      call push_itok(p, toks, n, cap, t)
+      if (p%stopped) exit
     end do
-    allocate(lines(0))
+    allocate(lines(0), stat=st)
+    if (st /= 0) then
+      call parser_error(p, "E820", &
+                        "out of memory while storing lines", 1, 1)
+      p%stopped = .true.
+      nlines = 0
+      return
+    end if
     nlines = 0; cap = 0
-    allocate(cur(0))
+    allocate(cur(0), stat=st)
+    if (st /= 0) then
+      call parser_error(p, "E820", &
+                        "out of memory while storing a line", 1, 1)
+      p%stopped = .true.
+      return
+    end if
     cn = 0; ccap = 0; cur_no = 0
+    if (p%stopped) then
+      nlines = 0
+      return
+    end if
     if (has_nl) then
       do i = 1, n
         t = toks(i)
         if (t%kind == K_NEWLINE) then
-          call push_line(lines, nlines, cap, cur_no, cur, cn)
+          call push_line(p, lines, nlines, cap, cur_no, cur, cn)
           cn = 0; cur_no = 0
         else
           if (cn == 0 .and. t%line /= 0) cur_no = t%line
-          call push_itok(cur, cn, ccap, t)
+          call push_itok(p, cur, cn, ccap, t)
         end if
+        if (p%stopped) exit
       end do
-      if (cn > 0) call push_line(lines, nlines, cap, cur_no, cur, cn)
+      if (cn > 0) call push_line(p, lines, nlines, cap, cur_no, &
+                                 cur, cn)
     else
       ! Lexer without NEWLINE tokens: split on token line numbers.
       do i = 1, n
@@ -905,13 +1026,23 @@ contains
           if (ln == 0) ln = 1
         end if
         if (cn > 0 .and. ln /= cur_no) then
-          call push_line(lines, nlines, cap, cur_no, cur, cn)
+          call push_line(p, lines, nlines, cap, cur_no, cur, cn)
           cn = 0
         end if
         cur_no = ln
-        call push_itok(cur, cn, ccap, t)
+        call push_itok(p, cur, cn, ccap, t)
+        if (p%stopped) exit
       end do
-      if (cn > 0) call push_line(lines, nlines, cap, cur_no, cur, cn)
+      if (cn > 0) call push_line(p, lines, nlines, cap, cur_no, &
+                                 cur, cn)
+    end if
+    ! Phase 9: a hardening stop above means the grouped lines are
+    ! incomplete; hand the caller an empty list (parse_program
+    ! exits at once on p%stopped) rather than a partial one.
+    if (p%stopped) then
+      if (allocated(lines)) deallocate(lines)
+      allocate(lines(0), stat=st)
+      nlines = 0
     end if
   end subroutine build_lines
 
@@ -924,7 +1055,7 @@ contains
     type(itok), intent(in) :: toks(:)
     integer, intent(in) :: no
     type(line_cur), intent(out) :: lp
-    integer :: i, m
+    integer :: i, m, st
     m = 0
     do i = 1, size(toks)
       if (toks(i)%kind == K_COMMA .or. toks(i)%kind == K_COLON) cycle
@@ -937,7 +1068,19 @@ contains
       end if
       m = m + 1
     end do
-    allocate(lp%toks(m))
+    ! Phase 9: checked allocate; on failure fall back to an empty
+    ! cursor, which every caller reads as end-of-line and reports
+    ! through its normal "expected ..." diagnostic.
+    allocate(lp%toks(m), stat=st)
+    if (st /= 0) then
+      allocate(lp%toks(0), stat=st)
+      lp%i = 1
+      lp%no = no
+      if (lp%no == 0) then
+        if (size(toks) > 0) lp%no = toks(1)%line
+      end if
+      return
+    end if
     m = 0
     do i = 1, size(toks)
       if (toks(i)%kind == K_COMMA .or. toks(i)%kind == K_COLON) cycle
@@ -1068,7 +1211,7 @@ contains
     type(line_cur), intent(in) :: lp
     type(dyn), allocatable, intent(out) :: vals(:)
     integer, intent(out) :: n
-    integer :: j
+    integer :: j, st
     logical :: ok
     n = 0
     j = lp%i
@@ -1077,7 +1220,14 @@ contains
       n = n + 1
       j = j + 1
     end do
-    allocate(vals(n))
+    ! Phase 9: checked allocate; on failure report zero numbers
+    ! ahead, so callers raise their normal E102 diagnostic.
+    allocate(vals(n), stat=st)
+    if (st /= 0) then
+      allocate(vals(0), stat=st)
+      n = 0
+      return
+    end if
     do j = 1, n
       if (allocated(lp%toks(lp%i + j - 1)%text)) then
         call parse_num(lp%toks(lp%i + j - 1)%text, vals(j), ok)
@@ -3559,7 +3709,36 @@ contains
       is_grid = .true.
       call lp_grid_size(p, lp, rows, cols)
       if (p%le_set) return
+      ! Phase 9 overflow guard: bound each factor first (nested
+      ! ifs, no short-circuit), then the product via division, so
+      ! rows * cols can never wrap int64.  E820 = limit violation.
+      if (rows > MAX_GRID_CELLS .or. rows < -MAX_GRID_CELLS) then
+        call raise_line(p, "E820", "'grid' size is too large " &
+                        // "(limit 1000000 rows/cols and cells)")
+        return
+      end if
+      if (cols > MAX_GRID_CELLS .or. cols < -MAX_GRID_CELLS) then
+        call raise_line(p, "E820", "'grid' size is too large " &
+                        // "(limit 1000000 rows/cols and cells)")
+        return
+      end if
+      if (rows > 0_int64) then
+        if (cols > 0_int64) then
+          if (rows > MAX_GRID_CELLS / cols) then
+            call raise_line(p, "E820", "'grid' size is too " &
+                            // "large (limit 1000000 cells)")
+            return
+          end if
+        end if
+      end if
       count = rows * cols
+    end if
+    ! Phase 9: repeat/ring counts are user-controlled multipliers
+    ! for downstream per-instance expansion; cap them cleanly.
+    if (count > MAX_REPEAT_COUNT) then
+      call raise_line(p, "E820", "'" // kind // "' count is too " &
+                      // "large (limit 1000000)")
+      return
     end if
     if (lp_at_end(lp)) then
       call raise_line(p, "E101", "'" // kind &

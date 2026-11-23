@@ -45,7 +45,7 @@ module f3dc_lexer
   public :: token, token_list, tokenize, token_kind_name
   public :: TK_WORD, TK_NUMBER, TK_STRING, TK_COLOR
   public :: TK_COMMA, TK_COLON, TK_NEWLINE, TK_EOF
-  public :: MAX_INPUT_BYTES, MAX_LINE_CHARS
+  public :: MAX_INPUT_BYTES, MAX_LINE_CHARS, MAX_TOKENS
 
   ! Token-kind enum (values are arbitrary; names are the contract).
   integer, parameter :: TK_WORD    = 1
@@ -59,6 +59,14 @@ module f3dc_lexer
 
   integer, parameter :: MAX_INPUT_BYTES = 1024 * 1024  ! 1 MiB
   integer, parameter :: MAX_LINE_CHARS  = 4096
+  ! Phase 9 hardening cap: at most this many tokens per source file.
+  ! Generous for any real scene (the 1 MiB input cap bounds a token
+  ! to >= 1 byte, so pathological comma/newline floods are the only
+  ! way to reach it); exceeding it, or a failed growth allocation,
+  ! is reported as E820 (the existing security/limit code) instead
+  ! of overflowing the doubling arithmetic or crashing on an
+  ! unchecked allocate.
+  integer, parameter :: MAX_TOKENS = 262144
 
   !> One token: mirrors Python Token(kind, text, span), plus parsed
   !! numeric values for NUMBER/COLOR tokens as a convenience for the
@@ -122,9 +130,11 @@ contains
     logical :: has_term, last_has_term
     integer :: last_raw_len
     integer :: eof_line, eof_col
+    logical :: failed
 
     n_tok = 0
     cap = 0
+    failed = .false.
 
     ! -- Security limit: input larger than 1 MiB (lexer.py: the bytes
     !    branch and the utf-8-encoded-length branch both report E820
@@ -135,8 +145,9 @@ contains
                   "input is larger than the 1 MiB limit", &
                   "split the scene into smaller files")
       call push_token(buf, n_tok, cap, &
-                      make_token(TK_EOF, "", source_name, 1, 1, 0))
-      call finish(tokens, buf, n_tok)
+                      make_token(TK_EOF, "", source_name, 1, 1, 0), &
+                      bag, source_name, 1, failed)
+      call finish(tokens, buf, n_tok, bag, source_name, failed)
       return
     end if
 
@@ -191,7 +202,11 @@ contains
       end if
 
       call lex_line(source_text, raw_start, eff_len, line_no, &
-                    source_name, buf, n_tok, cap, bag)
+                    source_name, buf, n_tok, cap, bag, failed)
+      if (failed) then
+        call finish(tokens, buf, n_tok, bag, source_name, failed)
+        return
+      end if
 
       ! NEWLINE token iff the raw line carried a \n / \r terminator;
       ! its text is always "\n" and its span length is the
@@ -200,7 +215,12 @@ contains
       if (has_term) then
         call push_token(buf, n_tok, cap, &
                         make_token(TK_NEWLINE, achar(10), source_name, &
-                                   line_no, eff_len + 1, term_len))
+                                   line_no, eff_len + 1, term_len), &
+                        bag, source_name, line_no, failed)
+        if (failed) then
+          call finish(tokens, buf, n_tok, bag, source_name, failed)
+          return
+        end if
       end if
 
       pos = raw_end + 1
@@ -225,8 +245,9 @@ contains
     end if
     call push_token(buf, n_tok, cap, &
                     make_token(TK_EOF, "", source_name, &
-                               eof_line, eof_col, 0))
-    call finish(tokens, buf, n_tok)
+                               eof_line, eof_col, 0), &
+                    bag, source_name, eof_line, failed)
+    call finish(tokens, buf, n_tok, bag, source_name, failed)
   end subroutine tokenize
 
   ! ------------------------------------------------------------------
@@ -235,12 +256,13 @@ contains
   ! only the first `n` characters of content are lexed.
   ! ------------------------------------------------------------------
   subroutine lex_line(source_text, base, n, line_no, source_name, &
-                      buf, n_tok, cap, bag)
+                      buf, n_tok, cap, bag, failed)
     character(len=*), intent(in) :: source_text, source_name
     integer, intent(in) :: base, n, line_no
     type(token), allocatable, intent(inout) :: buf(:)
     integer, intent(inout) :: n_tok, cap
     type(error_bag_t), intent(inout) :: bag
+    logical, intent(inout) :: failed
 
     integer :: i, start, col, endpos, frac_start
     character(len=1) :: ch
@@ -274,7 +296,9 @@ contains
           call push_token(buf, n_tok, cap, &
                           make_token(TK_COLOR, &
                                      source_text(base+i-1:base+i+5), &
-                                     source_name, line_no, col, 7))
+                                     source_name, line_no, col, 7), &
+                          bag, source_name, line_no, failed)
+          if (failed) return
           i = i + 7
           cycle
         end if
@@ -286,7 +310,9 @@ contains
       if (ch == ",") then
         call push_token(buf, n_tok, cap, &
                         make_token(TK_COMMA, ",", source_name, &
-                                   line_no, col, 1))
+                                   line_no, col, 1), &
+                        bag, source_name, line_no, failed)
+        if (failed) return
         i = i + 1
         cycle
       end if
@@ -296,7 +322,9 @@ contains
       if (ch == ":") then
         call push_token(buf, n_tok, cap, &
                         make_token(TK_COLON, ":", source_name, &
-                                   line_no, col, 1))
+                                   line_no, col, 1), &
+                        bag, source_name, line_no, failed)
+        if (failed) return
         i = i + 1
         cycle
       end if
@@ -312,14 +340,18 @@ contains
                       'add a closing " at the end of the string')
           call push_token(buf, n_tok, cap, &
                           make_token(TK_STRING, lexeme, source_name, &
-                                     line_no, col, len(lexeme)))
+                                     line_no, col, len(lexeme)), &
+                          bag, source_name, line_no, failed)
+          if (failed) return
           done = .true.
           exit
         end if
         lexeme = source_text(base+i-1:base+endpos-1)
         call push_token(buf, n_tok, cap, &
                         make_token(TK_STRING, lexeme, source_name, &
-                                   line_no, col, len(lexeme)))
+                                   line_no, col, len(lexeme)), &
+                        bag, source_name, line_no, failed)
+        if (failed) return
         i = endpos + 1
         cycle
       end if
@@ -388,7 +420,9 @@ contains
         end if
         call push_token(buf, n_tok, cap, &
                         make_token(TK_NUMBER, lexeme, source_name, &
-                                   line_no, start, len(lexeme)))
+                                   line_no, start, len(lexeme)), &
+                        bag, source_name, line_no, failed)
+        if (failed) return
         cycle
       end if
 
@@ -403,7 +437,9 @@ contains
         lexeme = source_text(base+start-1:base+i-2)
         call push_token(buf, n_tok, cap, &
                         make_token(TK_WORD, lexeme, source_name, &
-                                   line_no, start, len(lexeme)))
+                                   line_no, start, len(lexeme)), &
+                        bag, source_name, line_no, failed)
+        if (failed) return
         cycle
       end if
 
@@ -474,25 +510,58 @@ contains
       end if
     case (TK_COLOR)
       ! text is "#RRGGBB": int_value is the 0xRRGGBB value.
+      ! Bounds guard (Phase 9): never index past a short lexeme;
+      ! lex_line only builds COLOR from a verified 7-char span, but
+      ! a future/short caller must not read out of bounds.
       tok%int_value = 0_int64
-      do k = 2, 7
-        digit = hex_value(text(k:k))
-        if (digit < 0) exit
-        tok%int_value = tok%int_value * 16_int64 + digit
-        if (k == 7) tok%has_int = .true.
-      end do
+      if (len(text) >= 7) then
+        do k = 2, 7
+          digit = hex_value(text(k:k))
+          if (digit < 0) exit
+          tok%int_value = tok%int_value * 16_int64 + digit
+          if (k == 7) tok%has_int = .true.
+        end do
+      end if
     end select
   end function make_token
 
   ! Append `tok` to the growable buffer (amortised doubling).
-  subroutine push_token(buf, n_tok, cap, tok)
+  ! Phase 9 hardening: the doubling is capped at MAX_TOKENS, so
+  ! 2 * cap can never overflow (cap <= MAX_TOKENS at all times),
+  ! and the growth allocate carries stat=.  On the cap or on an
+  ! allocation failure an E820 diagnostic is reported, `failed` is
+  ! set, the token is dropped and the caller abandons lexing and
+  ! finishes with the tokens gathered so far -- instead of the
+  ! previous runtime abort on a failed unchecked allocate.
+  subroutine push_token(buf, n_tok, cap, tok, bag, source_name, &
+                        line, failed)
     type(token), allocatable, intent(inout) :: buf(:)
     integer, intent(inout) :: n_tok, cap
     type(token), intent(in) :: tok
+    type(error_bag_t), intent(inout) :: bag
+    character(len=*), intent(in) :: source_name
+    integer, intent(in) :: line
+    logical, intent(inout) :: failed
     type(token), allocatable :: tmp(:)
-    integer :: k
+    integer :: k, newcap, st
+    if (failed) return
+    if (n_tok >= MAX_TOKENS) then
+      call report(bag, "E820", source_name, line, 1, 1, &
+                  "too many tokens (limit 262144)", &
+                  "split the scene into smaller files")
+      failed = .true.
+      return
+    end if
     if (n_tok >= cap) then
-      allocate (tmp(max(16, 2 * cap)))
+      newcap = min(MAX_TOKENS, max(16, 2 * cap))
+      allocate (tmp(newcap), stat=st)
+      if (st /= 0) then
+        call report(bag, "E820", source_name, line, 1, 1, &
+                    "out of memory while storing tokens", &
+                    "split the scene into smaller files")
+        failed = .true.
+        return
+      end if
       do k = 1, n_tok
         tmp(k) = buf(k)
       end do
@@ -504,12 +573,28 @@ contains
   end subroutine push_token
 
   ! Move the first n_tok entries of buf into the token_list result.
-  subroutine finish(tokens, buf, n_tok)
+  ! Phase 9 hardening: the result allocate carries stat=; on
+  ! failure an E820 is reported and an empty (but allocated) list
+  ! is returned, so callers indexing 1..count stay in bounds.
+  subroutine finish(tokens, buf, n_tok, bag, source_name, failed)
     type(token_list), intent(out) :: tokens
     type(token), allocatable, intent(inout) :: buf(:)
     integer, intent(in) :: n_tok
-    integer :: k
-    allocate (tokens%items(n_tok))
+    type(error_bag_t), intent(inout) :: bag
+    character(len=*), intent(in) :: source_name
+    logical, intent(inout) :: failed
+    integer :: k, st
+    allocate (tokens%items(n_tok), stat=st)
+    if (st /= 0) then
+      call report(bag, "E820", source_name, 1, 1, 1, &
+                  "out of memory while storing tokens", &
+                  "split the scene into smaller files")
+      failed = .true.
+      allocate (tokens%items(0), stat=st)
+      tokens%count = 0
+      if (allocated(buf)) deallocate (buf)
+      return
+    end if
     do k = 1, n_tok
       tokens%items(k) = buf(k)
     end do

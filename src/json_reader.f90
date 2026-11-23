@@ -8,8 +8,11 @@
 !
 ! Storage model (node pool):
 !   A document is a flat pool of json_node values (doc%nodes), grown
-!   by capacity doubling -- there are no fixed caps on the number of
-!   nodes or children.  doc%n is the number of live nodes and doc%root
+!   by capacity doubling.  Phase 9 hardening caps (generous, far above
+!   any real engine asset): at most JSON_MAX_NODES nodes per document
+!   and at most JSON_MAX_INPUT bytes of input text; exceeding either
+!   is a clean parse error (ok=.false.), never a crash or an unbounded
+!   allocation.  doc%n is the number of live nodes and doc%root
 !   the pool index (1-based) of the root value; 0 means "no node".
 !   Children of an array or object are chained through first_child /
 !   next_sibling; every child points back through parent.
@@ -51,6 +54,13 @@ module json_reader_3d
     integer, parameter :: K_ARR  = 4
     integer, parameter :: K_OBJ  = 5
 
+    ! Phase 9 hardening caps (see header).  4M nodes is orders of
+    ! magnitude beyond any scene/asset file the engine loads, and
+    ! 256 MiB of input likewise; both exist only so a hostile or
+    ! corrupt file fails cleanly instead of exhausting memory.
+    integer, parameter :: JSON_MAX_NODES = 4000000
+    integer(int64), parameter :: JSON_MAX_INPUT = 268435456_int64
+
     type, public :: json_node
         integer :: kind = 0          ! 0 null, 1 bool, 2 num, 3 str, 4 arr, 5 obj
         logical :: b = .false.
@@ -70,6 +80,10 @@ module json_reader_3d
     character(len=:), allocatable :: p_text
     integer :: p_pos, p_len
     character(len=256) :: p_err
+    ! Phase 9: set by any failed allocation (pool, string buffer);
+    ! parse_value / parse_string consult it and unwind with
+    ! ok=.false. and p_err carrying the message, via json_parse.
+    logical :: p_failed = .false.
 
 contains
 
@@ -79,22 +93,47 @@ contains
 
     subroutine pool_init(doc)
         type(json_doc), intent(inout) :: doc
+        integer :: astat
         if (allocated(doc%nodes)) deallocate(doc%nodes)
-        allocate(doc%nodes(64))
+        allocate(doc%nodes(64), stat=astat)
         doc%n = 0
         doc%root = 0
+        if (astat /= 0) then
+            p_failed = .true.
+            p_err = 'allocation failure: JSON node pool'
+        end if
     end subroutine pool_init
 
+    ! Returns the new node's index, or 0 on failure (node cap hit or
+    ! allocation failure); on failure p_failed is set and p_err holds
+    ! the message, and every caller in parse_value checks for 0 and
+    ! unwinds with ok=.false. -- a failed grow never crashes.
     function pool_add(doc) result(idx)
         type(json_doc), intent(inout) :: doc
         integer :: idx
         type(json_node), allocatable :: tmp(:)
-        integer :: cap, new_cap
+        integer :: cap, new_cap, astat
+        idx = 0
+        if (p_failed) return
+        if (doc%n >= JSON_MAX_NODES) then
+            call set_err('maximum JSON node count exceeded')
+            p_failed = .true.
+            return
+        end if
         cap = 0
         if (allocated(doc%nodes)) cap = size(doc%nodes)
         if (doc%n >= cap) then
-            new_cap = max(64, 2 * cap)
-            allocate(tmp(new_cap))
+            if (cap >= JSON_MAX_NODES) then
+                new_cap = JSON_MAX_NODES
+            else
+                new_cap = min(JSON_MAX_NODES, max(64, 2 * cap))
+            end if
+            allocate(tmp(new_cap), stat=astat)
+            if (astat /= 0) then
+                call set_err('allocation failure: JSON node pool')
+                p_failed = .true.
+                return
+            end if
             if (doc%n > 0) tmp(1:doc%n) = doc%nodes(1:doc%n)
             if (allocated(doc%nodes)) deallocate(doc%nodes)
             call move_alloc(tmp, doc%nodes)
@@ -156,7 +195,7 @@ contains
         integer, intent(inout) :: nbuf
         integer, intent(in) :: cp
         character(len=:), allocatable :: tmp
-        integer :: need, cap
+        integer :: need, cap, astat
         if (cp < 128) then
             need = 1
         else if (cp < 2048) then
@@ -169,7 +208,13 @@ contains
         cap = 0
         if (allocated(buf)) cap = len(buf)
         if (nbuf + need > cap) then
-            allocate(character(len=max(32, 2 * cap, nbuf + need)) :: tmp)
+            allocate(character(len=max(32, 2 * cap, nbuf + need)) :: &
+                     tmp, stat=astat)
+            if (astat /= 0) then
+                call set_err('allocation failure: JSON string')
+                p_failed = .true.
+                return
+            end if
             if (nbuf > 0) tmp(1:nbuf) = buf(1:nbuf)
             if (allocated(buf)) deallocate(buf)
             call move_alloc(tmp, buf)
@@ -235,14 +280,29 @@ contains
         integer :: nbuf, cp, cp2
         logical :: hok
         ok = .false.
-        allocate(character(len=32) :: buf)
+        allocate(character(len=32) :: buf, stat=cp)
+        if (cp /= 0) then
+            call set_err('allocation failure: JSON string')
+            p_failed = .true.
+            return
+        end if
         nbuf = 0
         p_pos = p_pos + 1  ! opening quote
         do while (p_pos <= p_len)
+            if (p_failed) then
+                deallocate(buf)
+                return
+            end if
             select case (p_text(p_pos:p_pos))
             case ('"')
                 p_pos = p_pos + 1
-                allocate(character(len=nbuf) :: out)
+                allocate(character(len=nbuf) :: out, stat=cp)
+                if (cp /= 0) then
+                    call set_err('allocation failure: JSON string')
+                    p_failed = .true.
+                    deallocate(buf)
+                    return
+                end if
                 if (nbuf > 0) out = buf(1:nbuf)
                 deallocate(buf)
                 ok = .true.
@@ -320,16 +380,25 @@ contains
                 end if
                 block
                     character(len=:), allocatable :: tmp2
-                    integer :: cap2
+                    integer :: cap2, astat2
                     cap2 = 0
                     if (allocated(buf)) cap2 = len(buf)
                     if (nbuf + 1 > cap2) then
-                        allocate(character(len=max(32, 2 * cap2)) :: tmp2)
-                        if (nbuf > 0) tmp2(1:nbuf) = buf(1:nbuf)
-                        call move_alloc(tmp2, buf)
+                        allocate(character(len=max(32, 2 * cap2)) :: &
+                                 tmp2, stat=astat2)
+                        if (astat2 /= 0) then
+                            call set_err('allocation failure: ' // &
+                                         'JSON string')
+                            p_failed = .true.
+                        else
+                            if (nbuf > 0) tmp2(1:nbuf) = buf(1:nbuf)
+                            call move_alloc(tmp2, buf)
+                        end if
                     end if
-                    buf(nbuf + 1:nbuf + 1) = p_text(p_pos:p_pos)
-                    nbuf = nbuf + 1
+                    if (.not. p_failed) then
+                        buf(nbuf + 1:nbuf + 1) = p_text(p_pos:p_pos)
+                        nbuf = nbuf + 1
+                    end if
                 end block
                 p_pos = p_pos + 1
             end select
@@ -435,7 +504,7 @@ contains
         integer, intent(out) :: idx
         logical, intent(out) :: ok
         character(len=:), allocatable :: str, key
-        integer :: child, val_idx, hidden
+        integer :: child, val_idx, hidden, astat
         real(real64) :: num
         logical :: vok
         ok = .false.
@@ -448,6 +517,7 @@ contains
         select case (p_text(p_pos:p_pos))
         case ('{')
             idx = pool_add(doc)
+            if (idx == 0) return
             doc%nodes(idx)%kind = K_OBJ
             p_pos = p_pos + 1
             call skip_ws()
@@ -492,6 +562,10 @@ contains
                     ! Keep the string value in a hidden child node so
                     ! the member node's s can hold the key (see header).
                     hidden = pool_add(doc)
+                    if (hidden == 0) then
+                        deallocate(key)
+                        return
+                    end if
                     doc%nodes(hidden)%kind = K_STR
                     call move_alloc(doc%nodes(val_idx)%s, &
                                     doc%nodes(hidden)%s)
@@ -500,7 +574,14 @@ contains
                 else if (allocated(doc%nodes(val_idx)%s)) then
                     deallocate(doc%nodes(val_idx)%s)
                 end if
-                allocate(character(len=len(key)) :: doc%nodes(val_idx)%s)
+                allocate(character(len=len(key)) :: &
+                         doc%nodes(val_idx)%s, stat=astat)
+                if (astat /= 0) then
+                    call set_err('allocation failure: JSON object key')
+                    p_failed = .true.
+                    deallocate(key)
+                    return
+                end if
                 doc%nodes(val_idx)%s = key
                 deallocate(key)
                 call pool_link(doc, idx, val_idx)
@@ -523,6 +604,7 @@ contains
             ok = .true.
         case ('[')
             idx = pool_add(doc)
+            if (idx == 0) return
             doc%nodes(idx)%kind = K_ARR
             p_pos = p_pos + 1
             call skip_ws()
@@ -558,6 +640,10 @@ contains
             call parse_string(str, vok)
             if (.not. vok) return
             idx = pool_add(doc)
+            if (idx == 0) then
+                deallocate(str)
+                return
+            end if
             doc%nodes(idx)%kind = K_STR
             call move_alloc(str, doc%nodes(idx)%s)
             ok = .true.
@@ -565,6 +651,7 @@ contains
             if (lit_at('true')) then
                 p_pos = p_pos + 4
                 idx = pool_add(doc)
+                if (idx == 0) return
                 doc%nodes(idx)%kind = K_BOOL
                 doc%nodes(idx)%b = .true.
                 ok = .true.
@@ -575,6 +662,7 @@ contains
             if (lit_at('false')) then
                 p_pos = p_pos + 5
                 idx = pool_add(doc)
+                if (idx == 0) return
                 doc%nodes(idx)%kind = K_BOOL
                 doc%nodes(idx)%b = .false.
                 ok = .true.
@@ -585,6 +673,7 @@ contains
             if (lit_at('null')) then
                 p_pos = p_pos + 4
                 idx = pool_add(doc)
+                if (idx == 0) return
                 doc%nodes(idx)%kind = K_NULL
                 ok = .true.
             else
@@ -594,6 +683,7 @@ contains
             call parse_number(num, vok)
             if (.not. vok) return
             idx = pool_add(doc)
+            if (idx == 0) return
             doc%nodes(idx)%kind = K_NUM
             doc%nodes(idx)%num = num
             ok = .true.
@@ -608,16 +698,34 @@ contains
         logical, intent(out) :: ok
         character(len=*), intent(out) :: errmsg
         logical :: vok
+        integer :: astat
         ok = .false.
         errmsg = ''
         call json_free(doc)
-        call pool_init(doc)
-        if (allocated(p_text)) deallocate(p_text)
-        allocate(character(len=len(text)) :: p_text)
-        p_text = text
         p_len = len(text)
         p_pos = 1
         p_err = ''
+        p_failed = .false.
+        if (int(p_len, int64) > JSON_MAX_INPUT) then
+            call set_err('input exceeds maximum JSON input size')
+            errmsg = trim(p_err)
+            return
+        end if
+        if (allocated(p_text)) deallocate(p_text)
+        allocate(character(len=len(text)) :: p_text, stat=astat)
+        if (astat /= 0) then
+            call set_err('allocation failure: JSON input copy')
+            errmsg = trim(p_err)
+            return
+        end if
+        p_text = text
+        call pool_init(doc)
+        if (p_failed) then
+            errmsg = trim(p_err)
+            call json_free(doc)
+            if (allocated(p_text)) deallocate(p_text)
+            return
+        end if
         call parse_value(doc, doc%root, vok)
         if (.not. vok) then
             errmsg = trim(p_err)

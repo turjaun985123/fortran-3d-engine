@@ -16,7 +16,7 @@ program main
     use postprocess_3d, only: post_apply_chain
     use camera_ortho_3d, only: ortho_proj_from_size
     use renderer_v3_3d, only: v3_render_scene_fb
-    use, intrinsic :: iso_fortran_env, only: error_unit
+    use, intrinsic :: iso_fortran_env, only: error_unit, int64
     implicit none
 
     type(Mesh) :: cube
@@ -74,6 +74,22 @@ program main
     character(len=1024) :: arg_token
     integer :: scan_i, scene_arg_idx, ff_status, ff_cmdstat, fps_int
     logical :: ff_failed
+    ! v3.0 Phase 9: write-failure detection state.  failed_frames
+    ! counts frame writes that failed after frame 1 (a failed
+    ! first frame is fatal immediately; see the frame loop).
+    integer :: failed_frames
+    logical :: frame_write_ok
+    ! v3.0 Phase 9: resource limits (see the parsing block below).
+    ! FORGE3D_MAX_FRAMES     -- max frames in one render
+    !                           (default 100000)
+    ! FORGE3D_MAX_RESOLUTION -- max width*height in pixels
+    !                           (default 268435456 = 16384x16384)
+    ! There is no usage/help text in this file, so these two
+    ! variables are documented here and at their parsing block.
+    integer :: max_frames_limit
+    integer(int64) :: max_pixels_limit, scene_pixels, lim_val64
+    character(len=64) :: lim_env_val
+    integer :: lim_env_len, lim_env_status, lim_ios
 
     nargs = command_argument_count()
 
@@ -135,6 +151,69 @@ program main
         end if
     end if
 
+    ! Resource limits (v3.0 Phase 9): same env > default pattern
+    ! as FORGE3D_BINARY_PPM above.  Both values must be positive
+    ! integers; an unparsable or non-positive value is a clear
+    ! error, exit 2.  The guards themselves run before rendering
+    ! (below, and in the scene branch once n_frames / the scene
+    ! resolution are known) and also exit 2 when exceeded.
+    max_frames_limit = 100000
+    lim_env_val = ''
+    call get_environment_variable('FORGE3D_MAX_FRAMES', &
+                                  lim_env_val, length=lim_env_len, &
+                                  status=lim_env_status)
+    if (lim_env_status == 0) then
+        if (lim_env_len > 0) then
+            read(lim_env_val(1:min(lim_env_len, 64)), *, &
+                 iostat=lim_ios) lim_val64
+            if (lim_ios /= 0) then
+                write(error_unit, '(A)') &
+                    'error: unknown FORGE3D_MAX_FRAMES value "' &
+                    // trim(lim_env_val(1:min(lim_env_len, 64))) &
+                    // '" (expected a positive integer)'
+                stop 2
+            end if
+            if (lim_val64 < 1_int64) then
+                write(error_unit, '(A)') &
+                    'error: FORGE3D_MAX_FRAMES must be >= 1, got "' &
+                    // trim(lim_env_val(1:min(lim_env_len, 64))) &
+                    // '"'
+                stop 2
+            end if
+            max_frames_limit = &
+                int(min(lim_val64, 2147483647_int64))
+        end if
+    end if
+    max_pixels_limit = 268435456_int64
+    lim_env_val = ''
+    call get_environment_variable('FORGE3D_MAX_RESOLUTION', &
+                                  lim_env_val, length=lim_env_len, &
+                                  status=lim_env_status)
+    if (lim_env_status == 0) then
+        if (lim_env_len > 0) then
+            read(lim_env_val(1:min(lim_env_len, 64)), *, &
+                 iostat=lim_ios) lim_val64
+            if (lim_ios /= 0) then
+                write(error_unit, '(A)') &
+                    'error: unknown FORGE3D_MAX_RESOLUTION ' &
+                    // 'value "' &
+                    // trim(lim_env_val(1:min(lim_env_len, 64))) &
+                    // '" (expected a positive integer, max ' &
+                    // 'width*height pixels)'
+                stop 2
+            end if
+            if (lim_val64 < 1_int64) then
+                write(error_unit, '(A)') &
+                    'error: FORGE3D_MAX_RESOLUTION must be ' &
+                    // '>= 1, got "' &
+                    // trim(lim_env_val(1:min(lim_env_len, 64))) &
+                    // '"'
+                stop 2
+            end if
+            max_pixels_limit = lim_val64
+        end if
+    end if
+
     ! Scan the remaining arguments for '--binary-ppm' and
     ! '--video <file>' (either may appear before or after the
     ! scene path); the first non-flag argument is the scene path.
@@ -182,6 +261,17 @@ program main
         width = 640
         height = 480
         output_file = 'output_render.ppm'
+
+        ! v3.0 Phase 9: resource-limit guard (the demo is a
+        ! single frame, so only the resolution limit can bite).
+        scene_pixels = int(width, int64) * int(height, int64)
+        if (scene_pixels > max_pixels_limit) then
+            write(error_unit, '(A, I0, A, I0, A)') &
+                'error: resolution ', scene_pixels, &
+                ' pixels exceeds FORGE3D_MAX_RESOLUTION limit ' &
+                // 'of ', max_pixels_limit, ' pixels'
+            stop 2
+        end if
 
         print *, '============================================'
         print *, ' Fortran 3D Graphics Engine '
@@ -239,16 +329,28 @@ program main
         ! --binary-ppm / FORGE3D_BINARY_PPM selected it; the
         ! default call below is the unchanged regression anchor)
         print *, '[+] Writing image to ', trim(output_file), '...'
+        ! v3.0 Phase 9: a failed write here is fatal (stop 1) --
+        ! the engine must never exit 0 with its frame missing.
+        ! The binary writer reports its own iostat status; the
+        ! shared framebuffer_save_ppm has no status return, so
+        ! its result is wrapped with check_written_file (see the
+        ! limitation note on that function).
         if (binary_ppm) then
-            call save_ppm_binary(fb, output_file)
+            call save_ppm_binary(fb, output_file, frame_write_ok)
         else
             call framebuffer_save_ppm(fb, output_file)
+            frame_write_ok = check_written_file(output_file)
         end if
+        if (.not. frame_write_ok) stop 1
 
         ! 8. Export 3D Mesh for Interactive Web / 3D Viewers
+        ! The exporters in mesh_3d likewise return no status, so
+        ! they get the same existence/size wrap as above.
         print *, '[+] Exporting scene.json and model.obj...'
         call export_mesh_json(cube, 'scene.json')
+        if (.not. check_written_file('scene.json')) stop 1
         call export_mesh_obj(cube, 'model.obj')
+        if (.not. check_written_file('model.obj')) stop 1
 
         print *, '============================================'
         print *, ' Rendering & Export successfully completed!'
@@ -296,6 +398,33 @@ program main
         n_frames = max(1, sc%frames)
         ! S2: iterate the live count, not the array allocation size.
         n_objects = sc%n_objects
+
+        ! v3.0 Phase 9: resource-limit guards, evaluated before
+        ! any rendering (and before the framebuffer is allocated).
+        ! Exceeding either limit is a clear stderr error, exit 2.
+        if (n_frames > max_frames_limit) then
+            write(error_unit, '(A, I0, A, I0, A)') &
+                'error: scene requires ', n_frames, &
+                ' frames, exceeding the FORGE3D_MAX_FRAMES ' &
+                // 'limit of ', max_frames_limit, ' frames'
+            stop 2
+        end if
+        scene_pixels = int(sc%width, int64) &
+                       * int(sc%height, int64)
+        if (scene_pixels < 1_int64) then
+            write(error_unit, '(A, I0, A, I0, A)') &
+                'error: scene resolution ', sc%width, 'x', &
+                sc%height, ' is not a positive size'
+            stop 2
+        end if
+        if (scene_pixels > max_pixels_limit) then
+            write(error_unit, '(A, I0, A, I0, A)') &
+                'error: scene resolution ', scene_pixels, &
+                ' pixels exceeds the FORGE3D_MAX_RESOLUTION ' &
+                // 'limit of ', max_pixels_limit, ' pixels'
+            stop 2
+        end if
+        failed_frames = 0
 
         ! Frame timing (v3.0 Phase 5, M3): the scene-level fps
         ! wins, then the first animation's fps, default 30.
@@ -554,10 +683,23 @@ program main
             end if
 
             ! Frame 1 (frame 0 in t) always lands in sc%output_file.
-            if (frame_i == 1) call save_frame_image(fb, trim(sc%output_file))
+            ! v3.0 Phase 9: a failed FIRST frame is fatal
+            ! immediately (the specific error was already printed
+            ! by save_frame_image / its helpers).
+            if (frame_i == 1) then
+                call save_frame_image(fb, trim(sc%output_file), &
+                                      frame_write_ok)
+                if (.not. frame_write_ok) stop 1
+            end if
 
             ! Multi-frame renders also write every frame, frame 1 included,
             ! as '<base>_0001.ppm', '<base>_0002.ppm', ... (P03 pattern).
+            ! v3.0 Phase 9: later-frame failures are counted, not
+            ! immediately fatal, so the run reports how many frames
+            ! were lost (see the failed_frames check after the
+            ! loop, which exits stop 1 before any video assembly);
+            ! a numbered frame-1 failure is still a first-frame
+            ! failure and is fatal at once.
             if (n_frames > 1) then
                 dot_pos = index(trim(sc%output_file), '.', back=.true.)
                 if (dot_pos > 1) then
@@ -569,9 +711,25 @@ program main
                 end if
                 write(numbered_file, '(A, A, I4.4, A)') trim(base_name), '_', &
                     frame_i, trim(ext_name)
-                call save_frame_image(fb, trim(numbered_file))
+                call save_frame_image(fb, trim(numbered_file), &
+                                      frame_write_ok)
+                if (.not. frame_write_ok) then
+                    failed_frames = failed_frames + 1
+                    if (frame_i == 1) stop 1
+                end if
             end if
         end do
+
+        ! v3.0 Phase 9: any counted write failure makes the whole
+        ! render a failure -- report the count and exit nonzero
+        ! instead of the historic silent exit 0 with frames
+        ! missing (e.g. on a full filesystem).
+        if (failed_frames > 0) then
+            write(error_unit, '(A, I0, A)') 'error: ', &
+                failed_frames, &
+                ' frame(s) failed to write; render incomplete'
+            stop 1
+        end if
 
         ! v3.0 Phase 8: '--video <file.mp4>' -- assemble the
         ! numbered frame files just written into a video with
@@ -650,36 +808,96 @@ contains
     ! binary_ppm is set: header "P6\n<w> <h>\n255\n" followed by
     ! the raw RGB bytes, written with access='stream' so no
     ! record markers intervene.
-    subroutine save_ppm_binary(fb_arg, filename)
+    ! v3.0 Phase 9: every open / write / close below carries an
+    ! iostat; the first failure sets ok_out = .false., prints
+    ! 'error: failed to write <file> (...)' to stderr, and the
+    ! caller decides between stop 1 (first frame / single image)
+    ! and counting the loss (later animation frames).
+    subroutine save_ppm_binary(fb_arg, filename, ok_out)
         type(FrameBuffer), intent(in) :: fb_arg
         character(len=*), intent(in) :: filename
-        integer :: u, x, y, ios
+        logical, intent(out) :: ok_out
+        integer :: u, x, y, ios, close_ios
         character(len=32) :: dim_buf
 
+        ok_out = .false.
         open(newunit=u, file=filename, status='replace', &
              action='write', access='stream', form='unformatted', &
              iostat=ios)
         if (ios /= 0) then
-            write(error_unit, '(A)') 'error: cannot open "' &
-                // trim(filename) // '" for binary PPM writing'
+            write(error_unit, '(A, A, A, I0, A)') &
+                'error: failed to write "', trim(filename), &
+                '" (open failed, iostat ', ios, ')'
             return
         end if
-        write(u) 'P6' // char(10)
-        write(dim_buf, '(I0, 1X, I0)') fb_arg%width, fb_arg%height
-        write(u) trim(dim_buf) // char(10)
-        write(u) '255' // char(10)
+        write(u, iostat=ios) 'P6' // char(10)
+        if (ios == 0) then
+            write(dim_buf, '(I0, 1X, I0)') fb_arg%width, &
+                fb_arg%height
+            write(u, iostat=ios) trim(dim_buf) // char(10)
+        end if
+        if (ios == 0) write(u, iostat=ios) '255' // char(10)
         do y = 1, fb_arg%height
+            if (ios /= 0) exit
             do x = 1, fb_arg%width
-                write(u) char(min(255, max(0, &
+                if (ios /= 0) exit
+                write(u, iostat=ios) char(min(255, max(0, &
                     fb_arg%pixels(1, x, y))))
-                write(u) char(min(255, max(0, &
-                    fb_arg%pixels(2, x, y))))
-                write(u) char(min(255, max(0, &
-                    fb_arg%pixels(3, x, y))))
+                if (ios == 0) write(u, iostat=ios) &
+                    char(min(255, max(0, &
+                        fb_arg%pixels(2, x, y))))
+                if (ios == 0) write(u, iostat=ios) &
+                    char(min(255, max(0, &
+                        fb_arg%pixels(3, x, y))))
             end do
         end do
-        close(u)
+        close(u, iostat=close_ios)
+        if (ios == 0) ios = close_ios
+        if (ios /= 0) then
+            write(error_unit, '(A, A, A, I0, A)') &
+                'error: failed to write "', trim(filename), &
+                '" (write/close failed, iostat ', ios, ')'
+            return
+        end if
+        ok_out = .true.
     end subroutine save_ppm_binary
+
+    ! v3.0 Phase 9: existence/size wrap for writers that return
+    ! no status.  LIMITATION (documented, not hidden): the shared
+    ! writers framebuffer_save_image / framebuffer_save_ppm /
+    ! framebuffer_save_png in renderer_3d (and png_save_file in
+    ! png_write_3d behind them) and the export_mesh_json /
+    ! export_mesh_obj exporters in mesh_3d take no status
+    ! argument and their internal open/write statements carry no
+    ! iostat, so this file cannot see their errors directly.
+    ! What can be checked at the call level is done here: after
+    ! the call the file must exist and be non-empty.  A mid-write
+    ! failure that leaves a non-empty partial file behind (disk
+    ! filling up part-way through a frame) is NOT detectable this
+    ! way; fixing that requires a status return from the shared
+    ! writers themselves, which are outside this slice.
+    function check_written_file(filename) result(chk_ok)
+        character(len=*), intent(in) :: filename
+        logical :: chk_ok
+        logical :: chk_exists
+        integer :: chk_ios, chk_size
+
+        chk_ok = .false.
+        chk_exists = .false.
+        chk_size = 0
+        inquire(file=trim(filename), exist=chk_exists, &
+                size=chk_size, iostat=chk_ios)
+        if (chk_ios == 0) then
+            if (chk_exists) then
+                if (chk_size > 0) chk_ok = .true.
+            end if
+        end if
+        if (.not. chk_ok) then
+            write(error_unit, '(A, A, A)') &
+                'error: failed to write "', trim(filename), &
+                '" (file missing or empty after write)'
+        end if
+    end function check_written_file
 
     ! True when filename ends in '.png' (case-insensitive), the
     ! same dispatch rule framebuffer_save_image uses.  The length
@@ -709,17 +927,25 @@ contains
     ! framebuffer_save_image; .ppm outputs go to the P6 writer
     ! when binary_ppm is set, else to the same shared writer
     ! (which writes the historic P3 for them).
-    subroutine save_frame_image(fb_arg, filename)
+    ! v3.0 Phase 9: ok_out reports the write result to the
+    ! caller (see save_ppm_binary / check_written_file).  The
+    ! shared-writer branch is wrapped with the existence/size
+    ! check because framebuffer_save_image returns no status;
+    ! see the limitation note on check_written_file.
+    subroutine save_frame_image(fb_arg, filename, ok_out)
         type(FrameBuffer), intent(in) :: fb_arg
         character(len=*), intent(in) :: filename
+        logical, intent(out) :: ok_out
 
+        ok_out = .false.
         if (binary_ppm) then
             if (.not. is_png_filename(filename)) then
-                call save_ppm_binary(fb_arg, filename)
+                call save_ppm_binary(fb_arg, filename, ok_out)
                 return
             end if
         end if
         call framebuffer_save_image(fb_arg, filename)
+        ok_out = check_written_file(filename)
     end subroutine save_frame_image
 
     ! Wave B entities (coordinator integration): build each sprite /
