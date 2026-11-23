@@ -1,6 +1,6 @@
 FC = gfortran
-FFLAGS = -O3 -Wall -Wextra -Jinclude
-DEBUG_FFLAGS = -O3 -Wall -Wextra -fcheck=all -Jinclude
+FFLAGS = -O3 -Wall -Wextra -fopenmp -Jinclude
+DEBUG_FFLAGS = -O3 -Wall -Wextra -fcheck=all -fopenmp -Jinclude
 
 SRC_DIR = src
 OBJ_DIR = obj

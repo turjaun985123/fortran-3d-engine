@@ -15,6 +15,8 @@ program main
     use tonemapping_3d
     use postprocess_3d, only: post_apply_chain
     use camera_ortho_3d, only: ortho_proj_from_size
+    use renderer_v3_3d, only: v3_render_scene_fb
+    use, intrinsic :: iso_fortran_env, only: error_unit
     implicit none
 
     type(Mesh) :: cube
@@ -46,10 +48,49 @@ program main
     integer :: track_i, ti
     real(dp) :: k_pos(3), k_rot(3), k_scale
     real(dp) :: sh_near, sh_far, sh_rad, sh_d
+    ! v3.0 Phase 2: renderer selection state.
+    character(len=64) :: renderer_name, arg_buf, env_val
+    integer :: arg_offset, env_len, env_status
+    logical :: use_v3
+    type(Scene) :: demo_sc
+    type(mat4), allocatable :: demo_models(:)
 
     nargs = command_argument_count()
 
-    if (nargs == 0) then
+    ! Renderer selection: an optional leading '--renderer v3|legacy'
+    ! flag wins over the FORGE3D_RENDERER environment variable;
+    ! the default is v3.  An unknown value is a clear error, exit 2.
+    renderer_name = 'v3'
+    env_val = ''
+    call get_environment_variable('FORGE3D_RENDERER', env_val, &
+                                  length=env_len, status=env_status)
+    if (env_status == 0 .and. env_len > 0) &
+        renderer_name = env_val(1:min(env_len, 64))
+    arg_offset = 0
+    if (nargs >= 1) then
+        call get_command_argument(1, arg_buf)
+        if (trim(arg_buf) == '--renderer') then
+            if (nargs < 2) then
+                write(error_unit, '(A)') &
+                    'error: --renderer requires a value (v3|legacy)'
+                stop 2
+            end if
+            call get_command_argument(2, renderer_name)
+            arg_offset = 2
+        end if
+    end if
+    select case (trim(renderer_name))
+    case ('v3')
+        use_v3 = .true.
+    case ('legacy')
+        use_v3 = .false.
+    case default
+        write(error_unit, '(A)') 'error: unknown --renderer value "' &
+            // trim(renderer_name) // '" (expected v3|legacy)'
+        stop 2
+    end select
+
+    if (nargs - arg_offset == 0) then
         ! ================================================================
         ! Legacy demo: no command argument.
         ! This path is the byte-for-byte regression anchor -- do not
@@ -98,7 +139,28 @@ program main
 
         ! 6. Render
         print *, '[+] Rasterizing mesh to FrameBuffer with Z-buffering & shading...'
-        call framebuffer_render_mesh(fb, cube, model_matrix, cam, light_dir)
+        if (use_v3) then
+            ! v3 path: the same cube / camera / light / model, via a
+            ! one-object scene through renderer_v3_3d.
+            demo_sc%width = width
+            demo_sc%height = height
+            demo_sc%bg = [25, 25, 35]
+            demo_sc%cam = cam
+            demo_sc%light_dir = light_dir
+            demo_sc%ambient = 0.25_dp
+            allocate(demo_sc%objects(1))
+            demo_sc%n_objects = 1
+            demo_sc%cap_objects = 1
+            demo_sc%objects(1)%prim = 'cube'
+            demo_sc%objects(1)%name = 'cube'
+            demo_sc%objects(1)%mesh = cube
+            allocate(demo_models(1))
+            demo_models(1) = model_matrix
+            call v3_render_scene_fb(fb, demo_sc, demo_models)
+            deallocate(demo_models)
+        else
+            call framebuffer_render_mesh(fb, cube, model_matrix, cam, light_dir)
+        end if
 
         ! 7. Save output PPM image
         print *, '[+] Writing image to ', trim(output_file), '...'
@@ -120,12 +182,26 @@ program main
         ! ================================================================
         ! Scene mode: one argument = path to a .scene file.
         ! ================================================================
-        call get_command_argument(1, scene_path)
+        call get_command_argument(1 + arg_offset, scene_path)
 
         call scene_load(trim(scene_path), sc, ok, errmsg)
         if (.not. ok) then
             write(*, '(A)') 'error: cannot load scene: ' // trim(errmsg)
             stop 1
+        end if
+
+        ! v3.0 Phase 2 hybrid fallback (coordinator integration):
+        ! the v3 visibility-buffer path does not draw sprites, text
+        ! or particles yet.  Rather than silently dropping them on
+        ! the default path, scenes that use them render through the
+        ! legacy renderer (with a note on stderr) until v3 covers
+        ! them.  Geometry-only scenes are unaffected.
+        if (use_v3 .and. (sc%n_sprites > 0 .or. sc%n_texts > 0 &
+            .or. sc%n_parts > 0)) then
+            write(error_unit, '(A)') 'note: scene uses sprites/' &
+                // 'text/particles, which the v3 renderer does ' &
+                // 'not draw yet -- rendering with --renderer legacy'
+            use_v3 = .false.
         end if
 
         ! Wave C: orthographic camera (row 3). Replace the
@@ -148,7 +224,7 @@ program main
         if (fps_r <= 0.0_dp) fps_r = 30.0_dp
 
         call framebuffer_init(fb, sc%width, sc%height)
-        if (sc%has_env) allocate(models(max(1, n_objects)))
+        if (sc%has_env .or. use_v3) allocate(models(max(1, n_objects)))
 
         do frame_i = 1, n_frames
             t_sec = real(frame_i - 1, dp) / fps_r
@@ -177,7 +253,7 @@ program main
                     rot_v = vec3_create(k_rot(1), k_rot(2), k_rot(3))
                     scl_v = vec3_create(k_scale, k_scale, k_scale)
                     model = mat4_compose_trs(pos_v, rot_v, scl_v)
-                    if (sc%has_env) then
+                    if (sc%has_env .or. use_v3) then
                         models(obj_i) = model
                     else if (sc%objects(obj_i)%has_shader) then
                         ! Wave E (C2): custom shader path.
@@ -229,7 +305,7 @@ program main
                                     sc%objects(obj_i)%scl%z * scale_factor)
                 model = mat4_compose_trs(pos_v, rot_v, scl_v)
 
-                if (sc%has_env) then
+                if (sc%has_env .or. use_v3) then
                     models(obj_i) = model
                 else if (sc%objects(obj_i)%has_shader) then
                     ! Wave E (C2): custom shader path.
@@ -246,9 +322,17 @@ program main
 
             ! Wave B entities on the plain path (the env path renders
             ! them after its object loop, before fog/tonemap).
-            if (.not. sc%has_env) call render_waveb(sc, fb, t_sec)
+            ! v3 note: sprites/text/particles are not part of the v3
+            ! visibility-buffer path yet (Phase 2 limitation).
+            if (.not. use_v3 .and. .not. sc%has_env) &
+                call render_waveb(sc, fb, t_sec)
 
-            if (sc%has_env) then
+            ! v3.0 Phase 2: the v3 renderer draws all scene objects
+            ! in one deferred pass from the per-frame models; the
+            ! env shadow/fog/tonemap block below is legacy-only.
+            if (use_v3) call v3_render_scene_fb(fb, sc, models)
+
+            if (sc%has_env .and. .not. use_v3) then
                 ! Wave A: shadow map from the first shadow-casting
                 ! light (spot/point position, else the directional
                 ! placed opposite its direction), then env rendering,

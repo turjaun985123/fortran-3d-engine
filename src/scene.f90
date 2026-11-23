@@ -157,6 +157,11 @@ module scene_3d
         real(dp) :: light_intensity = 1.0_dp
         real(dp) :: ambient = 0.25_dp
         integer :: frames = 1
+        ! v3.0 Phase 2: SSAA factor for the v3 renderer (1 = off).
+        ! The legacy renderer ignores this field entirely; the .scene
+        ! line is optional and defaults to 1, so frozen-path scenes
+        ! are unaffected.
+        integer :: antialias = 1
         character(len=256) :: output_file = 'output_render.ppm'
         type(SceneObject), allocatable :: objects(:)
         type(SceneAnim), allocatable :: anims(:)
@@ -1156,6 +1161,8 @@ contains
                 sc%has_env = .true.
             case ('frames')
                 if (ntok >= 2) sc%frames = tok_int(tokens, 2)
+            case ('antialias')
+                if (ntok >= 2) sc%antialias = tok_int(tokens, 2)
             case ('output')
                 if (ntok >= 2) sc%output_file = trim(tokens(2))
             case ('object')
