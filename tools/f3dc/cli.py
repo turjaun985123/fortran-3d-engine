@@ -52,7 +52,7 @@ except ImportError:  # flat module layout: tools/f3dc on sys.path (f3dc.py shim)
 __all__ = ["main", "compile_pipeline"]
 
 VERSION = "0.1.0"
-_COMMANDS = ("run", "build", "check", "new", "fmt", "doctor")
+_COMMANDS = ("run", "build", "check", "new", "fmt", "doctor", "preview")
 _INPUT_EXTS = (".f3d", ".json", ".obj")
 # State from the most recent compile_pipeline() call, for --explain.
 _LAST: dict = {}
@@ -983,6 +983,14 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("new", help="create <name>.f3d from the starter "
                                     "template")
     sp.add_argument("name", help="scene name, with or without .f3d")
+    sp = sub.add_parser("preview", help="real-time preview in the browser "
+                                        "-- recompiles and reloads on save")
+    sp.add_argument("file", help="scene file (.f3d, .json or .obj)")
+    sp.add_argument("--port", type=int, default=8765,
+                    help="local port to serve on (default: 8765; "
+                         "0 picks a free one)")
+    sp.add_argument("--no-browser", action="store_true",
+                    help="do not open a browser tab automatically")
     sp = sub.add_parser("fmt", help="print the canonical .f3d form to stdout")
     sp.add_argument("file", help="scene file (.f3d, .json or .obj)")
     sub.add_parser("doctor", help="check python / gfortran / make / "
@@ -1038,6 +1046,13 @@ def _dispatch(argv: list[str]) -> int:
         return _do_fmt(args.file)
     if args.command == "doctor":
         return _do_doctor()
+    if args.command == "preview":
+        mod = _import_sibling("preview")
+        if mod is None:
+            print("error E9000: preview module unavailable", file=sys.stderr)
+            return 70
+        return mod.serve(args.file, port=args.port,
+                         open_browser=not args.no_browser)
     parser.error(f"unknown command {args.command!r}")
     return 2
 

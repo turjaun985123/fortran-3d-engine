@@ -315,6 +315,7 @@ formatting; `F3DC_DEBUG` enables tracebacks for internal errors.
 | `build` | `f3dc build [-o DIR] [--explain] <file>` | Compile to `build/` (default) — no native render. |
 | `run` | `f3dc run [-o DIR] <file>` | Build, compile the Fortran engine, render, report outputs and animation frames. |
 | `fmt` | `f3dc fmt <file>` | Print the canonical `.f3d` form to stdout. |
+| `preview` | `f3dc preview [--port N] [--no-browser] <file>` | Real-time preview: serve the viewer locally and watch the file — every save recompiles and open browser tabs reload themselves. A broken scene shows its diagnostics in the tab and recovers on the next good save. Default port 8765 (`0` = any free port). The preview page adds a toolbar with a LIVE/ERROR status pill and an FPS meter; orbit/zoom work as in the normal viewer. |
 | `doctor` | `f3dc doctor` | Print version and check python / gfortran / make / convert (optional) / repo + engine sources, with fixes. |
 
 `build/` outputs for input stem `<stem>` (build never overwrites the
