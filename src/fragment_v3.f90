@@ -1,4 +1,4 @@
-! fragment_v3.f90 -- Forge3D v3.0 Phase 2: the ONE fragment stage.
+! fragment_v3.f90 -- Forge3D v3.0: the ONE fragment stage.
 !
 ! Module fragment_v3_3d collapses the legacy renderer's three
 ! per-object shading paths (renderer.f90: framebuffer_render_mesh_mat,
@@ -8,7 +8,7 @@
 ! visibility-buffer rasterizer (renderer_v3).  The three legacy
 ! behaviours survive as three STAGES behind that one entry point:
 !
-!   1. shader stage  (fin%shader_id > 0)
+!   1. shader stage  (fin%shader_id > 0) -- UNCHANGED in Phase 3.
 !        Mirrors framebuffer_render_mesh_shader / draw_triangle_shader
 !        in renderer.f90: the scene's RPN program (shader_3d) is
 !        evaluated once per channel with c = that channel of the base
@@ -18,43 +18,125 @@
 !        clamped to 0..1 and NOT pre-scaled by ambient/intensity (the
 !        legacy shader path deliberately leaves lighting to the
 !        program; that is what makes the identity shader `c` reproduce
-!        the unlit flat render).
+!        the unlit flat render).  This stage defines its own colour
+!        semantics, so Phase 3's lighting rewrite does not touch it.
 !        Two deliberate v3 differences from the legacy path, both
 !        forced by the pinned frag_shade API:
 !          * u/v are the fragment's interpolated texture coordinates
 !            (fin%uv).  The legacy path passed the second/third
-!            BARYCENTRIC weights as u/v (draw_triangle_shader:
-!            u_interp = w1, v_interp = w2) -- a quirk, not a UV.
+!            BARYCENTRIC weights as u/v -- a quirk, not a UV.
 !          * t is 0: frag_in carries no time and frag_shade takes no
 !            time argument, so time-animated shaders are frozen at
 !            t = 0 until the API grows a time field.
 !   2. env stage     (object's PBR material is MAT_STANDARD, or the
 !                     object carries a loaded texture)
-!        Mirrors framebuffer_render_mesh_env / draw_triangle_env in
-!        renderer.f90: per-pixel lighting_3d shade_rgb with the
-!        object's MaterialPBR, and -- when a texture is loaded -- the
-!        base colour REPLACED by texture_3d's nearest/repeat sample
-!        at fin%uv (the legacy env path ignores the material/triangle
-!        colour for textured objects in exactly this way).
 !        Trigger mirror: scene_load routes a scene to the env path
 !        when any object has a loaded texture or mat_name 'standard'
 !        (scene.f90, end of scene_load); per fragment the same two
 !        conditions on the fragment's own object select this stage.
+!        When a texture is loaded the base colour is REPLACED by
+!        texture_3d's nearest/repeat sample at fin%uv (the legacy
+!        env path ignores the material/triangle colour for textured
+!        objects in exactly this way).  Lighting is the Phase 3
+!        model below.
 !   3. material stage (everything else)
-!        Mirrors framebuffer_render_mesh_mat: Lambert diffuse with
-!        ambient floor intensity = ambient + (1 - ambient) * diffuse,
-!        mode 1 (basic) unlit, mode 2 (phong) Lambert + specular.
-!        It is evaluated through the SAME shared routine as the env
-!        stage (shade_lit below, i.e. lighting_3d's shade_rgb with
-!        the object's PBR view of its legacy Material): lighting.f90's
-!        header documents that shade_rgb reproduces the _mat formula
-!        exactly for the legacy single-directional case, and
-!        pbr_specular supplies the phong/standard specular, so there
-!        is exactly ONE light-accumulation loop in the v3 pipeline
-!        and it lives in lighting_3d.  The genuine per-pixel (vs
-!        legacy per-triangle) difference: the normal is the
-!        interpolated fin%nrm and the view direction uses fin%wp,
-!        not the triangle face normal / centroid.
+!        The object's PBR record, which scene_build_object_mesh
+!        derived from the legacy Material via pbr_from_material
+!        (metalness 0, roughness 1), so mode 0 = lambert, mode 1 =
+!        basic (unlit), mode 2 = phong.  With no object, that same
+!        PBR view is synthesised from fin%mat_id (legacy material
+!        ids: 0 lambert, 1 basic, 2 phong, 3 standard) and fin%col.
+!        The genuine per-pixel (vs legacy per-triangle) difference:
+!        the normal is the interpolated fin%nrm and the view
+!        direction uses fin%wp, not the triangle face normal /
+!        centroid.
+!
+! =====================================================================
+! Phase 3 lighting model (stages 2+3; replaces the Phase 2 delegation
+! to lighting_3d's shade_rgb -- ADR-1 freezes shade_rgb itself, other
+! callers depend on it, so the v3 model is implemented locally here)
+! =====================================================================
+! All accumulation is real32 linear (ADR-4); there is NO 8-bit
+! quantisation anywhere on this path (the Phase 2 /255 round-trip
+! through shade_rgb's integer return is gone) and NO output clamp:
+! with an intense light the result exceeds 1.0 (HDR) and tone mapping
+! is the post pipeline's job.
+!
+! Per light i (directional / point / spot with lighting.f90's
+! LightSet semantics: light_attenuation for distance/decay,
+! spot_factor for the cone -- those two pure helpers are reused
+! verbatim, they do not quantise):
+!
+!   L     = unit direction towards the light
+!   ndl   = max(0, n . L)
+!   sfac  = shadow_v3_factor(i, wp, n)        (per-light, L1 fix)
+!   diff  = albedo * (1 - metalness if MAT_STANDARD else 1)
+!           * ndl * atten * spot * sfac * intensity * light_colour
+!   spec  = GGX (below) * atten * spot * sfac * intensity * colour
+!
+! Lambert convention (energy-conserving form, exposure-matched):
+! the diffuse BRDF is f_d = albedo / pi and each light's irradiance
+! is defined as E = pi * intensity * (colour/255), so the pi factors
+! cancel and the diffuse radiance is albedo * ndl * intensity *
+! colour -- exactly the per-light diffuse scale the legacy formula
+! used BEFORE its (1 - ambient) weighting.  Phase 3 retires that
+! weighting on the v3 path (docs/V3-PLAN.md Phase 3), and the flat
+! ambient term is replaced by hemisphere ambient (below), so the
+! overall exposure delta vs legacy at the reference configuration
+! (ambient 0.25, one unit white directional, up-facing white
+! surface) is: legacy 1.00 -> v3 1.25, i.e. a factor (1 + ambient);
+! in general v3 = legacy + ambient * albedo for a fully lit
+! up-facing fragment, and multi-light sums grow by the same
+! retirement (each light now contributes unweighted).
+!
+! GGX specular (MAT_STANDARD only), Cook-Torrance form:
+!   H = normalize(V + L);  alpha = roughness^2 (roughness clamped
+!   to [0.05, 1], the ggx_distribution convention in material_pbr);
+!   D = alpha^2 / (pi * (ndoth^2 * (alpha^2 - 1) + 1)^2)
+!       (Trowbridge-Reitz)
+!   G = G1(ndotv) * G1(ndotl),  G1(x) = x / (x*(1-k) + k),
+!       k = (roughness + 1)^2 / 8   (Smith via Schlick-GGX)
+!   F = F0 + (1 - F0) * (1 - vdoth)^5   (Schlick)
+!   F0 = mix(0.04, albedo, metalness)   (dielectrics 0.04, metals
+!       tinted by the base colour -- the base_f0 convention)
+!   spec = D * G * F / (4 * ndotv * ndl) * E * ndl
+!        = D * G * F * pi / (4 * ndotv) * intensity * colour * ...
+! Unlike material_pbr_3d's pbr_specular, the result is NOT passed
+! through a 1e4 clamp: the HDR pipeline wants the true highlight
+! value (at roughness 0.05 head-on, D alone is ~5.1e4 and the
+! dielectric specular peak is ~1.6e3 for a unit light).
+! The math is factored locally (real32) rather than calling
+! pbr_specular because pbr_specular omits the irradiance factor
+! (pi * ndl) and applies that clamp; its D/F0 conventions are
+! followed exactly.
+!
+! Phong materials (mode 2) keep the LEGACY specular scale on
+! purpose: factor = specular * max(0, R . V)^shininess with
+! R = 2*ndl*n - L, added as factor * atten * spot * sfac *
+! intensity * colour (no pi, no ndl weighting) -- byte-for-byte
+! the scale shade_rgb gave them, so phong scenes do not change
+! brightness under the v3 lighting rewrite.
+!
+! Hemisphere ambient (replaces the flat ambient term):
+!   sky    = lights%ambient_color / 255   (the scene's ambient
+!          colour; scene_load and effective_lights both set it to
+!          white -- there is no dedicated hemi pair in Scene)
+!   ground = 0.3 * sky                    (documented derivation)
+!   t      = 0.5 + 0.5 * n.y              (world up is +Y)
+!   amb    = albedo * lights%ambient * mix(ground, sky, t)
+! An up-facing fragment therefore receives exactly the legacy flat
+! ambient; a down-facing one receives 0.3x it; a zero normal gets
+! t = 0.5 (0.65x).  Shadows never touch the ambient term.
+!
+! Shadows (L1 fix): shadow_v3_3d's shadow_v3_factor is queried
+! PER LIGHT inside the accumulation and multiplies only that
+! light's diffuse + specular.  The renderer builds the maps first
+! (shadow_v3_build, not this module's job); with no maps built the
+! factor is 1 (fully lit).  The index passed is the light's index
+! in the effective LightSet, which IS sc%lights when the scene
+! carries one (the pinned indexing), and 1 for the single
+! directional light effective_lights rebuilds from the legacy
+! fields of a hand-built scene.
 !
 ! Shared post-stage: fog.  The legacy paths apply fog as a
 ! framebuffer post-pass (main.f90 calls fog_apply after the env
@@ -68,39 +150,26 @@
 ! formulas are restated locally (two lines each) rather than by
 ! using fog_3d, because fog_3d depends on the legacy renderer_3d
 ! FrameBuffer and the v3 pipeline must not pull the frozen renderer
-! in.  The legacy fog_blend rounds to integers; here the mix is done
-! in float, differing by less than 1/255.
+! in.  The legacy fog_blend rounds to integers; here the mix is
+! done in float.
 !
-! Backface: fin%backface negates the (unnormalised) interpolated
-! normal before any lighting, giving two-sided lighting.  The legacy
-! paths never see backfaces (screen-space winding culling in every
+! Backface: fin%backface negates the interpolated normal before
+! any lighting, giving two-sided lighting.  The legacy paths never
+! see backfaces (screen-space winding culling in every
 ! rasteriser), so there is no legacy behaviour to mirror; this is
 ! the v3 double-sided rule (Phase 2 R4).
 !
-! SHADOW LIMITATION (L1, knowingly carried in Phase 2): the legacy
-! env path takes ONE shadow factor for the whole fragment from the
-! single shadow map of the key light (draw_triangle_env: shadow_mode
-! 1 -> shadow_factor, >= 2 -> shadow_factor_pcf, bias 0.002, applied
-! inside shade_rgb to every light).  frag_shade's pinned signature
-! receives no ShadowMap and Scene carries none, so no map can be
-! queried here and the factor is 1 (fully lit) in Phase 2.  Phase 3
-! replaces this with per-light shadow maps; the factor already
-! enters through the single sfac argument of shade_lit, so that
-! change is local to this module.
-!
-! Colour: inputs and output are linear RGB 0..1 (real32 at the API
-! boundary, per ADR-4's real32 v3 pipeline).  Internally the legacy
-! dp helpers are used, and shade_rgb's 0..255 integer return is
-! divided back by 255, so lit results carry the legacy 8-bit
-! quantisation (truncation) -- matching legacy semantics was the
-! Phase 2 brief; Phase 3's linear pipeline retires it.
+! Colour: inputs are linear RGB 0..1; the output is linear RGB
+! real32, NOT clamped above (HDR, see above) and floored at 0.
 module fragment_v3_3d
     use, intrinsic :: iso_fortran_env, only: real32
     use math_3d, only: dp, vec3, vec3_create, vec3_sub, vec3_dot, &
                        vec3_norm, vec3_normalize, vec3_negate
     use scene_3d, only: Scene
     use material_pbr_3d, only: MaterialPBR, MAT_STANDARD, pbr_default
-    use lighting_3d, only: Light3, LightSet, shade_rgb
+    use lighting_3d, only: Light3, LightSet, light_attenuation, &
+                           spot_factor
+    use shadow_v3_3d, only: shadow_v3_factor
     use texture_3d, only: texture_sample
     use shader_3d, only: ShaderProg, shader_eval
     implicit none
@@ -118,12 +187,14 @@ module fragment_v3_3d
        logical :: backface = .false.
     end type frag_in
 
+    real(real32), parameter :: PI32 = 3.14159265_real32
+
 contains
 
     subroutine frag_shade(fin, sc, rgb)
         type(frag_in), intent(in) :: fin
         type(Scene), intent(in) :: sc        ! from scene_3d (src/scene.f90)
-        real(real32), intent(out) :: rgb(3)  ! linear RGB out
+        real(real32), intent(out) :: rgb(3)  ! linear RGB out (HDR: may exceed 1)
 
         type(vec3) :: wp, n
         real(dp) :: base01(3), out01(3)
@@ -185,8 +256,7 @@ contains
             !                     scene_build_object_mesh derived from
             !                     the legacy Material via
             !                     pbr_from_material (metalness 0,
-            !                     roughness 1), so shade_rgb reproduces
-            !                     the _mat lambert/basic/phong modes.
+            !                     roughness 1).
             ! With no object, synthesise that same PBR view from
             ! fin%mat_id (legacy material ids: 0 lambert, 1 basic,
             ! 2 phong, 3 standard -- material_id_from_name plus
@@ -207,7 +277,9 @@ contains
         call apply_fog(sc, wp, out01)
 
         do k = 1, 3
-            rgb(k) = real(clamp01d(out01(k)), real32)
+            ! HDR: floor at 0 only -- NO upper clamp on the v3 path
+            ! (tone mapping lives in the post pipeline).
+            rgb(k) = real(max(out01(k), 0.0_dp), real32)
         end do
     end subroutine frag_shade
 
@@ -281,12 +353,13 @@ contains
     end subroutine shade_shader_stage
 
     ! ------------------------------------------------------------------
-    ! Stages 2+3 shared light accumulation: lighting_3d's shade_rgb
-    ! over the scene's effective LightSet.  sfac is the single shadow
-    ! factor for the key light (Phase 2: 1 -- see the L1 note in the
-    ! header); shade_rgb applies it to every light's diffuse and
-    ! specular but never to the ambient term, exactly as the legacy
-    ! env path's draw_triangle_env arranged.
+    ! Stages 2+3 shared light accumulation: the Phase 3 v3 lighting
+    ! model documented in the module header (energy-conserving
+    ! Lambert + GGX, per-light shadow factors, hemisphere ambient),
+    ! accumulated in real32 throughout -- no shade_rgb, no /255
+    ! round-trip, no clamp.  base01 / n / wp arrive as dp (the
+    ! shader stage's types); they are narrowed to real32 once here
+    ! and everything below is real32.
     ! ------------------------------------------------------------------
     subroutine shade_lit(sc, base01, n, wp, pbr, out01)
         type(Scene), intent(in) :: sc
@@ -296,20 +369,213 @@ contains
         real(dp), intent(out) :: out01(3)
 
         type(LightSet) :: lights
-        integer :: base_rgb(3), lit_rgb(3), k
-        real(dp), parameter :: sfac = 1.0_dp  ! L1: Phase 3 per-light maps
+        real(real32) :: base(3), wp32(3), nrm32(3), accum(3)
+        integer :: k
 
-        call effective_lights(sc, lights)
         do k = 1, 3
-            base_rgb(k) = nint(clamp01d(base01(k)) * 255.0_dp)
+            base(k) = real(clamp01d(base01(k)), real32)
         end do
-        lit_rgb = shade_rgb(base_rgb, n, wp, sc%cam%position, &
-                            lights, pbr, sfac)
+        wp32 = [real(wp%x, real32), real(wp%y, real32), &
+                real(wp%z, real32)]
+        nrm32 = [real(n%x, real32), real(n%y, real32), &
+                 real(n%z, real32)]
+
+        if (pbr%mode == 1) then
+            ! basic: unlit, base colour as-is (legacy _mat mode 1;
+            ! shadow/ambient do not apply).
+            accum = base
+        else
+            call effective_lights(sc, lights)
+            call accumulate_v3(sc, lights, base, wp32, nrm32, pbr, &
+                               accum)
+            if (allocated(lights%items)) deallocate(lights%items)
+        end if
+
         do k = 1, 3
-            out01(k) = real(lit_rgb(k), dp) / 255.0_dp
+            out01(k) = real(accum(k), dp)
         end do
-        if (allocated(lights%items)) deallocate(lights%items)
     end subroutine shade_lit
+
+    ! The Phase 3 accumulation proper.  See the module header for
+    ! the equations and conventions.
+    subroutine accumulate_v3(sc, lights, base, wp, nrm, pbr, accum)
+        type(Scene), intent(in) :: sc
+        type(LightSet), intent(in) :: lights
+        real(real32), intent(in) :: base(3), wp(3), nrm(3)
+        type(MaterialPBR), intent(in) :: pbr
+        real(real32), intent(out) :: accum(3)
+
+        real(real32) :: n(3), v(3), cam(3)
+        real(real32) :: sky(3), gnd(3), hemi_t, amb
+        real(real32) :: metal, kd
+        integer :: i, k
+
+        n = normalize3(nrm)
+        cam = [real(sc%cam%position%x, real32), &
+               real(sc%cam%position%y, real32), &
+               real(sc%cam%position%z, real32)]
+        v = normalize3(cam - wp)
+
+        ! ---- Hemisphere ambient (never shadowed). ----
+        do k = 1, 3
+            sky(k) = real(lights%ambient_color(k), real32) / 255.0_real32
+            gnd(k) = 0.3_real32 * sky(k)
+        end do
+        hemi_t = 0.5_real32 + 0.5_real32 * n(2)
+        amb = real(lights%ambient, real32)
+        do k = 1, 3
+            accum(k) = base(k) * amb * &
+                       (gnd(k) + (sky(k) - gnd(k)) * hemi_t)
+        end do
+
+        metal = real(min(1.0_dp, max(0.0_dp, pbr%metalness)), real32)
+        kd = 1.0_real32
+        if (pbr%mode == MAT_STANDARD) kd = 1.0_real32 - metal
+
+        if (.not. allocated(lights%items)) return
+
+        do i = 1, size(lights%items)
+            call accumulate_light(lights%items(i), i, base, wp, n, v, &
+                                  pbr, kd, metal, accum)
+        end do
+    end subroutine accumulate_v3
+
+    ! One light's diffuse + specular contribution, multiplied by
+    ! that light's own shadow factor only (the L1 fix).
+    subroutine accumulate_light(lt, light_index, base, wp, n, v, &
+                                pbr, kd, metal, accum)
+        type(Light3), intent(in) :: lt
+        integer, intent(in) :: light_index
+        real(real32), intent(in) :: base(3), wp(3), n(3), v(3)
+        type(MaterialPBR), intent(in) :: pbr
+        real(real32), intent(in) :: kd, metal
+        real(real32), intent(inout) :: accum(3)
+
+        real(real32) :: l(3), lcol(3), to_light(3)
+        real(real32) :: dist, atten, spotf, sfac, ndl, common
+        real(real32) :: spec(3)
+        integer :: k
+
+        do k = 1, 3
+            lcol(k) = real(lt%color(k), real32) / 255.0_real32
+        end do
+
+        select case (lt%kind)
+        case (1, 2)  ! point / spot
+            to_light = [real(lt%pos%x, real32) - wp(1), &
+                        real(lt%pos%y, real32) - wp(2), &
+                        real(lt%pos%z, real32) - wp(3)]
+            dist = sqrt(dot3(to_light, to_light))
+            if (dist <= 1.0e-6_real32) return  ! light at fragment: no L
+            l = to_light / dist
+            atten = real(light_attenuation(real(dist, dp), &
+                                           lt%distance, lt%decay), &
+                         real32)
+            ! Direction from the light to the fragment is -L.
+            spotf = real(spot_factor(lt, vec3_create( &
+                -real(l(1), dp), -real(l(2), dp), -real(l(3), dp))), &
+                real32)
+        case default  ! 0 directional (unknown kinds act directional)
+            l = normalize3([-real(lt%dir%x, real32), &
+                            -real(lt%dir%y, real32), &
+                            -real(lt%dir%z, real32)])
+            atten = 1.0_real32
+            spotf = 1.0_real32
+        end select
+
+        ndl = max(0.0_real32, dot3(n, l))
+        if (ndl <= 0.0_real32) return  ! GGX and phong both vanish here
+
+        ! Per-light shadow factor (1 = fully lit; no maps built -> 1).
+        sfac = shadow_v3_factor(light_index, wp, n)
+        sfac = min(1.0_real32, max(0.0_real32, sfac))
+
+        common = atten * spotf * sfac * real(lt%intensity, real32)
+
+        spec = specular_v3(l, n, v, pbr, base, metal, ndl)
+
+        do k = 1, 3
+            accum(k) = accum(k) &
+                + base(k) * kd * ndl * common * lcol(k) &
+                + spec(k) * common * lcol(k)
+        end do
+    end subroutine accumulate_light
+
+    ! Specular BRDF times the light's irradiance factor, WITHOUT
+    ! the atten/spot/shadow/intensity/colour terms (the caller
+    ! applies those via `common` and lcol):
+    !   MAT_STANDARD: GGX -- returns D*G*F*pi/(4*ndotv), i.e. the
+    !     Cook-Torrance BRDF times E/pi-normalised irradiance with
+    !     the ndl of L_o = BRDF * E * ndl already folded in.
+    !   mode 2 (phong): the legacy-scale factor
+    !     specular * max(0, R.V)^shininess (white, untinted).
+    !   anything else: 0.
+    function specular_v3(l, n, v, pbr, base, metal, ndl) &
+            result(spec)
+        real(real32), intent(in) :: l(3), n(3), v(3), base(3)
+        type(MaterialPBR), intent(in) :: pbr
+        real(real32), intent(in) :: metal, ndl
+        real(real32) :: spec(3)
+
+        real(real32) :: h(3), rvec(3)
+        real(real32) :: ndotv, ndoth, vdoth, rough, alpha, alpha2
+        real(real32) :: dterm, gterm, kg, f0(3), m5, factor
+        integer :: k
+
+        spec = 0.0_real32
+        if (dot3(v, v) <= 0.0_real32) return  ! camera at fragment
+
+        if (pbr%mode == MAT_STANDARD) then
+            ndotv = dot3(n, v)
+            if (ndotv <= 0.0_real32) return
+            h = normalize3(v + l)
+            ndoth = min(1.0_real32, max(0.0_real32, dot3(n, h)))
+            vdoth = min(1.0_real32, max(0.0_real32, dot3(v, h)))
+            rough = min(1.0_real32, &
+                        max(0.05_real32, real(pbr%roughness, real32)))
+            alpha = rough * rough
+            alpha2 = alpha * alpha
+            dterm = alpha2 / (PI32 * &
+                (ndoth * ndoth * (alpha2 - 1.0_real32) &
+                 + 1.0_real32) ** 2)
+            kg = (rough + 1.0_real32) ** 2 / 8.0_real32
+            gterm = (ndotv / (ndotv * (1.0_real32 - kg) + kg)) * &
+                    (ndl / (ndl * (1.0_real32 - kg) + kg))
+            m5 = (1.0_real32 - vdoth) ** 5
+            do k = 1, 3
+                f0(k) = 0.04_real32 * (1.0_real32 - metal) &
+                        + base(k) * metal
+                factor = dterm * gterm * &
+                         (f0(k) + (1.0_real32 - f0(k)) * m5)
+                spec(k) = factor * PI32 / (4.0_real32 * ndotv)
+            end do
+        else if (pbr%mode == 2) then
+            ! Phong, legacy scale (see header): R = 2*ndl*n - L.
+            rvec = 2.0_real32 * ndl * n - l
+            factor = real(pbr%specular, real32) * &
+                max(0.0_real32, dot3(rvec, v)) ** &
+                real(pbr%shininess, real32)
+            spec = factor
+        end if
+    end function specular_v3
+
+    pure function dot3(a, b) result(d)
+        real(real32), intent(in) :: a(3), b(3)
+        real(real32) :: d
+        d = a(1) * b(1) + a(2) * b(2) + a(3) * b(3)
+    end function dot3
+
+    pure function normalize3(a) result(u)
+        real(real32), intent(in) :: a(3)
+        real(real32) :: u(3)
+        real(real32) :: len
+        len = sqrt(dot3(a, a))
+        if (len > 1.0e-12_real32) then
+            u = a / len
+        else
+            u = 0.0_real32
+        end if
+    end function normalize3
 
     ! The scene's effective LightSet.  A scene built by scene_load
     ! already carries sc%lights (directional first from the legacy
