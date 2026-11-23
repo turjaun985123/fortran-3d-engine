@@ -18,6 +18,28 @@
  *       the Fortran serve loop can shut down gracefully and print
  *       Python's "preview stopped" line (serve_once returns -2).
  *
+ *       Bind-address policy (v3.0 X1 -- safe by default):
+ *       the preview is a local development server, so the default
+ *       policy binds LOOPBACK ONLY and never falls back to
+ *       INADDR_ANY:
+ *         - NULL or empty host          -> 127.0.0.1
+ *         - literal IPv4 in 127.0.0.0/8 -> that address
+ *         - any other literal IPv4 (including 0.0.0.0)
+ *                                       -> REFUSED (EADDRNOTAVAIL)
+ *         - a hostname (e.g. "localhost") is resolved with
+ *           getaddrinfo(); the first result in 127.0.0.0/8 is
+ *           bound.  If it resolves to no loopback address, or
+ *           does not resolve at all, the open is REFUSED --
+ *           never silently widened to all interfaces.
+ *       Binding a non-loopback address requires an explicit
+ *       opt-in in the host string itself: prefix the address
+ *       with "ext:", e.g. "ext:0.0.0.0" or "ext:192.168.1.10".
+ *       The current Fortran caller (f3dc_preview.f90) passes the
+ *       literal "127.0.0.1" and needs no change; if an external
+ *       bind is ever wanted, that is the side that would pass
+ *       the "ext:"-prefixed host (and surface the exposure in
+ *       its own UI/CLI), keeping this signature unchanged.
+ *
  *   typedef void (*f3d_preview_handler_fn)(
  *       const char *method, int method_len,
  *       const char *path,   int path_len,
@@ -78,6 +100,7 @@
 
 #include <arpa/inet.h>
 #include <errno.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <poll.h>
 #include <signal.h>
@@ -105,6 +128,52 @@ static void on_sigint(int sig) {
     g_got_sigint = 1;
 }
 
+static int is_loopback_v4(struct in_addr a) {
+    return (ntohl(a.s_addr) >> 24) == 127; /* 127.0.0.0/8 */
+}
+
+/* Resolve `host` into the address to bind, enforcing the policy
+ * documented above preview_http_open.  Returns 0 on success, -1
+ * with errno set on failure (refusals use EADDRNOTAVAIL). */
+static int resolve_bind_addr(const char *host, struct in_addr *out) {
+    int external = 0;
+    if (host && strncmp(host, "ext:", 4) == 0) {
+        external = 1; /* explicit opt-in to a non-loopback bind */
+        host += 4;
+    }
+    if (!host || host[0] == '\0') {
+        if (external) { out->s_addr = htonl(INADDR_ANY); return 0; }
+        out->s_addr = htonl(INADDR_LOOPBACK);
+        return 0;
+    }
+    struct in_addr literal;
+    if (inet_pton(AF_INET, host, &literal) == 1) {
+        if (external || is_loopback_v4(literal)) { *out = literal; return 0; }
+        errno = EADDRNOTAVAIL; /* non-loopback literal, no opt-in */
+        return -1;
+    }
+    /* Hostname: resolve it; never guess, never widen. */
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    struct addrinfo *res = NULL;
+    if (getaddrinfo(host, NULL, &hints, &res) != 0 || !res) {
+        if (res) freeaddrinfo(res);
+        errno = EADDRNOTAVAIL;
+        return -1;
+    }
+    int rc = -1;
+    for (struct addrinfo *ai = res; ai; ai = ai->ai_next) {
+        struct in_addr a = ((struct sockaddr_in *)ai->ai_addr)->sin_addr;
+        if (external) { *out = a; rc = 0; break; }
+        if (is_loopback_v4(a)) { *out = a; rc = 0; break; }
+    }
+    freeaddrinfo(res);
+    if (rc != 0) errno = EADDRNOTAVAIL; /* resolved, but not loopback */
+    return rc;
+}
+
 int preview_http_open(const char *host, int port, int *actual_port,
                       char *errbuf, int errcap, int *errlen) {
     struct sigaction sa;
@@ -114,19 +183,17 @@ int preview_http_open(const char *host, int port, int *actual_port,
     sa.sa_flags = 0; /* no SA_RESTART: poll/accept must wake up */
     sigaction(SIGINT, &sa, NULL);
 
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((unsigned short)port);
+    if (resolve_bind_addr(host, &addr.sin_addr) != 0) goto fail;
+
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) goto fail;
     int one = 1;
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
 
-    struct sockaddr_in addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons((unsigned short)port);
-    if (inet_pton(AF_INET, host, &addr.sin_addr) != 1) {
-        /* Fall back to INADDR_ANY for a non-literal host string. */
-        addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    }
     if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) goto fail_close;
     if (listen(fd, 16) < 0) goto fail_close;
 
@@ -155,6 +222,16 @@ fail:
         *errlen = 0;
     }
     return -1;
+}
+
+/* Bounded substring search over exactly `len` bytes (a
+ * memmem-style scan that never reads past the given region). */
+static int buf_contains(const char *buf, size_t len,
+                        const char *pat, size_t plen) {
+    if (plen == 0 || len < plen) return 0;
+    for (size_t i = 0; i + plen <= len; i++)
+        if (memcmp(buf + i, pat, plen) == 0) return 1;
+    return 0;
 }
 
 static const char *reason_phrase(int status) {
@@ -203,27 +280,36 @@ int preview_http_serve_once(int fd, f3d_preview_handler_fn handler,
     int conn = accept(fd, NULL, NULL);
     if (conn < 0) return g_got_sigint ? -2 : -1;
 
-    /* Read the request head (request line + headers). */
-    static char req[65536];
+    /* Read the request head (request line + headers).
+     * Per-request buffer (v3.0 X2): on this connection's stack,
+     * never a static shared across connections.  One extra byte
+     * is reserved so req[used] can always hold a NUL terminator;
+     * header-completion is a bounded scan of exactly the `used`
+     * bytes received for THIS request, so stale bytes from an
+     * earlier, longer request can never be seen. */
+    enum { REQ_CAP = 65536 };
+    char req[REQ_CAP + 1];
     size_t used = 0;
+    req[0] = '\0';
     int head_done = 0;
     struct timeval tv;
     tv.tv_sec = 5;
     tv.tv_usec = 0;
     setsockopt(conn, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    while (used < sizeof(req)) {
-        ssize_t n = recv(conn, req + used, sizeof(req) - used, 0);
+    while (used < REQ_CAP) {
+        ssize_t n = recv(conn, req + used, REQ_CAP - used, 0);
         if (n < 0) {
             if (errno == EINTR && !g_got_sigint) continue;
             break;
         }
         if (n == 0) break;
         used += (size_t)n;
-        if (used >= 4 && strstr(req, "\r\n\r\n") != NULL) {
+        req[used] = '\0';
+        if (buf_contains(req, used, "\r\n\r\n", 4)) {
             head_done = 1;
             break;
         }
-        if (strstr(req, "\n\n") != NULL) { head_done = 1; break; }
+        if (buf_contains(req, used, "\n\n", 2)) { head_done = 1; break; }
     }
     if (!head_done && used == 0) { close(conn); return 1; }
 
