@@ -3315,9 +3315,9 @@ contains
     type(dyn), intent(out) :: stmt
     logical, intent(out) :: has_stmt
     character(:), allocatable :: target, w, v, s
-    type(dyn) :: duration, loopv, props, node
+    type(dyn) :: duration, loopv, fpsv, props, node
     type(str_set) :: seen
-    logical :: hasid, hasw, hasv, has_duration, has_loop
+    logical :: hasid, hasw, hasv, has_duration, has_loop, has_fps
     has_stmt = .false.
     stmt = dyn_null()
     call lp_next(lp)  ! keys
@@ -3331,6 +3331,8 @@ contains
     has_duration = .false.
     loopv = dyn_null()
     has_loop = .false.
+    fpsv = dyn_null()
+    has_fps = .false.
     seen%n = 0
     do while (.not. lp_at_end(lp))
       call lp_peek_word(lp, w, hasw)
@@ -3341,6 +3343,14 @@ contains
         call lp_number(p, lp, "duration", duration)
         if (p%le_set) return
         has_duration = .true.
+      else if (hasw .and. w == "fps") then
+        ! v3.0 Phase 5 (M3): per-clip fps for this track.
+        call lp_next(lp)
+        call lp_dup(p, seen, "fps")
+        if (p%le_set) return
+        call lp_number(p, lp, "fps", fpsv)
+        if (p%le_set) return
+        has_fps = .true.
       else if (hasw .and. w == "loop") then
         call lp_next(lp)
         call lp_dup(p, seen, "loop")
@@ -3371,9 +3381,11 @@ contains
     props = dyn_dict()
     if (has_duration) call dset(props, "duration", dyn_copy(duration))
     if (has_loop) call dset(props, "loop", dyn_copy(loopv))
+    if (has_fps) call dset(props, "fps", dyn_copy(fpsv))
     call dset(props, "target", dyn_str(target))
     node = dyn_dict()
     call dset(node, "target", dyn_str(target))
+    if (has_fps) call dset(node, "fps", fpsv)
     if (has_duration) then
       call dset(node, "duration", duration)
     else

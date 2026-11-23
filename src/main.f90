@@ -5,7 +5,7 @@ program main
     use renderer_3d
     use scene_3d
     use animation_3d
-    use keyframe_3d, only: key_eval
+    use keyframe_3d, only: key_eval_q
     use sprite_3d, only: sprite_build_mesh
     use text_render_3d, only: text_build_mesh
     use particles_3d, only: particles_build_mesh
@@ -46,7 +46,8 @@ program main
     integer :: li
     ! Wave B state (scene mode only)
     integer :: track_i, ti
-    real(dp) :: k_pos(3), k_rot(3), k_scale
+    real(dp) :: k_pos(3), k_scale3(3)
+    type(quat) :: k_quat
     real(dp) :: sh_near, sh_far, sh_rad, sh_d
     ! v3.0 Phase 2: renderer selection state.
     character(len=64) :: renderer_name, arg_buf, env_val
@@ -223,9 +224,11 @@ program main
         ! S2: iterate the live count, not the array allocation size.
         n_objects = sc%n_objects
 
-        ! Frame timing comes from the first animation's fps (default 30).
+        ! Frame timing (v3.0 Phase 5, M3): the scene-level fps
+        ! wins, then the first animation's fps, default 30.
         fps_r = 30.0_dp
         if (sc%n_anims > 0) fps_r = real(sc%anims(1)%fps, dp)
+        if (sc%fps > 0) fps_r = real(sc%fps, dp)
         if (fps_r <= 0.0_dp) fps_r = 30.0_dp
 
         call framebuffer_init(fb, sc%width, sc%height)
@@ -239,8 +242,11 @@ program main
             do obj_i = 1, n_objects
                 ! Wave B: a keyframe track targeting this object
                 ! REPLACES its base pose and closed-form animations
-                ! for this frame (absolute pos/rot/scale from
-                ! key_eval; scale is the track's uniform scale).
+                ! for this frame (absolute pos/rot/scale from the
+                ! track).  v3.0 Phase 5 (M2): evaluation is
+                ! key_eval_q -- rotation SLERPs between the keys'
+                ! quaternions (Euler is only the authored form)
+                ! and scale is per-axis.
                 track_i = 0
                 if (allocated(sc%tracks)) then
                     do ti = 1, sc%n_tracks
@@ -252,12 +258,15 @@ program main
                     end do
                 end if
                 if (track_i > 0) then
-                    call key_eval(sc%tracks(track_i), t_sec, k_pos, &
-                                  k_rot, k_scale)
-                    pos_v = vec3_create(k_pos(1), k_pos(2), k_pos(3))
-                    rot_v = vec3_create(k_rot(1), k_rot(2), k_rot(3))
-                    scl_v = vec3_create(k_scale, k_scale, k_scale)
-                    model = mat4_compose_trs(pos_v, rot_v, scl_v)
+                    call key_eval_q(sc%tracks(track_i), t_sec, &
+                                    k_pos, k_quat, k_scale3)
+                    model = mat4_mult( &
+                        mat4_translation(k_pos(1), k_pos(2), &
+                                         k_pos(3)), &
+                        mat4_mult(quat_to_mat4(k_quat), &
+                                  mat4_scale(k_scale3(1), &
+                                             k_scale3(2), &
+                                             k_scale3(3))))
                     if (sc%has_env .or. use_v3) then
                         models(obj_i) = model
                     else if (sc%objects(obj_i)%has_shader) then

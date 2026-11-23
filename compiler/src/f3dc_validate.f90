@@ -2945,6 +2945,13 @@ contains
               call vfield(snode, sprops, [character(12) :: &
                            "loop"], dv)
               call dyn_dict_set(hdr, "loop", dv)
+              ! v3.0 Phase 5 (M3): per-clip fps, forwarded only
+              ! when the keys header carries it (zero drift).
+              call vfield(snode, sprops, [character(12) :: &
+                           "fps"], dv)
+              call get_num(dv, dur, has_dur)
+              if (has_dur) &
+                call dyn_dict_set(hdr, "fps", dyn_real(dur))
               call dyn_dict_set(headers, v%s, hdr)
             end block
           end if

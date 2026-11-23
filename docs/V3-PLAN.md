@@ -463,3 +463,51 @@ primitives.
   custom shaders get t = 0, sprites/text/particles via legacy
   fallback, Adam7 PNGs rejected, mask fall-through search is
   O(tris) per discarded pixel.
+- 2026-11-23: Phase 5 complete. M1 closed in full, M2, M3
+  closed. Math core (math_3d +603 lines, purely additive):
+  quat (x,y,z,w; Hamilton; Euler order matched to
+  mat4_compose_trs), mat3, vec4, general mat4_inverse
+  (adjugate; singular -> ok=.false. + identity; agrees with
+  mat4_inverse_rigid <= 1e-9), minimal operator overloads for
+  the new types, quat_slerp (shortest path, nlerp fallback near
+  parallel). Shared golden fixtures tests/fixtures/
+  math_vectors.json (17 cases) are read by the Fortran test via
+  json_reader_3d — the Phase 7 JS tests will consume the same
+  file. test_math_quat 246/246. Keyframes: KeyFrame gains
+  rot_quat/has_quat + scale3/has_scale3; scene_load converts
+  authored Euler to quaternions at parse (Euler stays the file
+  form); key_eval_q SLERPs rotation and lerps scale per-axis —
+  main now evaluates tracks through key_eval_q and composes
+  T * R(quat) * S (coordinator wiring), while key_eval itself
+  keeps the frozen legacy semantics byte-identical (its
+  350->10 midpoint is asserted to be exactly 180, where
+  key_eval_q gives 0). Easing: cubic-in/out/in-out + CSS-style
+  cubic-bezier in ease_value (pure; malformed -> linear).
+  M3: KeyTrack%fps (key times as frame numbers when > 0),
+  carried end-to-end: .f3d `keys ... fps N` -> .scene
+  `keys ... fps N` -> engine; Scene%fps + `fps N` scene line,
+  and main's frame-timing chain is now scene fps -> first
+  anim fps -> 30 (coordinator wiring; parser/validate fps
+  forwarding also landed at integration — present-only, zero
+  corpus drift). M1 diagnostic path: camera_view_status
+  classifier + optional status on camera_init_checked
+  (reporting only, matrices bit-identical); both scene loaders
+  warn once, located, on a degenerate camera; the compiler
+  warns W302 on the ext-camera path (the main camera line
+  already errors E401 for at == look); corpus swept — no case
+  affected. test_keyframe 79/79 (40 frozen assertions
+  untouched), test_camera_diag 21/21. Goldens: every pin
+  reproduces exactly (legacy 28b6a81d…/090fa22a…; v3
+  hello-cube 45a5af9d…, objects-100 07457fa8…, textured
+  171e9713…, shadowed ec447b1c…) — Phase 5 moved no pixels.
+  PERF: bench medians this session (v3 vs legacy: hello-cube
+  211.0 vs 169.1, objects-100 278.0 vs 166.3, textured 205.4
+  vs 213.9, shadowed 277.2 vs 264.0) are within session noise
+  of Phase 4 (legacy itself swung 144 -> 169 on hello-cube);
+  no Phase 5-attributable change — the raster path is
+  untouched. Suite: full run_tests.sh PASS (Fortran layer now
+  41 programs). Known limits entering Phase 6: KeyFrame%ease
+  is 16 chars, so a bezier(...) ease cannot be stored on a key
+  (ease_value accepts it where a full string reaches it);
+  near-plane-crossing triangles still dropped in v3; custom
+  shaders still get t = 0.
