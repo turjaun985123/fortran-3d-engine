@@ -14,6 +14,18 @@
 !     integer, intent(in), optional   :: level   ! <=0: unmodified copy
 !     type(dyn), intent(out)          :: scene_out
 !
+! Typed-AST entry (v3.0 Phase 6 / C1, twin of desugar_program_ast):
+!
+!   subroutine optimize_ast(ast_in, bag, level, ast_out, ok)
+!     type(ast_program), intent(in)   :: ast_in   ! from f3dc_ast
+!     type(error_bag_t), intent(inout) :: bag
+!     integer, intent(in), optional    :: level
+!     type(ast_program), intent(out)  :: ast_out
+!     logical, intent(out)             :: ok  ! no new errors in bag
+!
+! plus one AST-native pass, pass_o5_palette_ast, which runs the O5
+! palette rule directly on ast_stmt fields (see its section).
+!
 ! IR is dyn dicts with the ir_nodes.py keys (scene: objects,
 ! animations, extensions, ...; object: name, prim, color, pos, rotate,
 ! scale, size, ..., triangles, extensions).  The Python module is
@@ -48,6 +60,7 @@ module f3dc_optimize
   use, intrinsic :: iso_fortran_env, only: int64, real64
   use f3dc_dyn, only: dyn, dyn_null, dyn_bool, dyn_int, dyn_real, &
                       dyn_str, dyn_list, dyn_dict, dyn_copy, &
+                      dyn_assign, &
                       dyn_list_push, dyn_list_len, dyn_list_at, &
                       dyn_list_set_at, dyn_dict_set, dyn_dict_get, &
                       dyn_dict_has, dyn_dict_len, dyn_dict_key_at, &
@@ -55,11 +68,15 @@ module f3dc_optimize
                       DYN_K_STR, DYN_K_LIST, DYN_K_DICT
   use f3dc_str, only: fmt_int, fmt_real, to_lower, str_builder, &
                       sb_init, sb_add, sb_text
-  use f3dc_errors, only: error_bag_t, make_diagnostic, error_bag_add
+  use f3dc_errors, only: error_bag_t, make_diagnostic, error_bag_add, &
+                         error_bag_error_count
+  use f3dc_ast, only: ast_program, ast_stmt, ast_program_from_dyn, &
+                      ast_program_to_dyn
   implicit none
   private
 
-  public :: optimize, register_pass, pass_iface
+  public :: optimize, optimize_ast, pass_o5_palette_ast
+  public :: register_pass, pass_iface
   public :: pass_count, pass_name_at, get_default_color
   public :: W_DROPPED_OBJECT, W_DEGENERATE_TRI
 
@@ -1017,5 +1034,104 @@ contains
       call pass_registry(k)%fn(scene_out, bag)
     end do
   end subroutine optimize
+
+  ! ------------------------------------------------------------------
+  ! Typed AST entry (v3.0 Phase 6 / C1)
+  !
+  ! optimize_ast is the typed twin of optimize above, in the same
+  ! shape as f3dc_desugar's desugar_program_ast: it lowers the
+  ! typed ast_program to the dyn shape optimize works on
+  ! (ast_program_to_dyn), runs the unchanged dyn optimizer, and
+  ! raises the result back to a typed ast_program
+  ! (ast_program_from_dyn).  No optimization logic lives here, so
+  ! the typed and dyn entries can never drift apart.  level plays
+  ! exactly the role it plays for optimize (absent means 1).
+  ! ok is .true. when the run added no error diagnostics to bag
+  ! (optimize only ever adds W5xx warnings, so ok is expected to
+  ! stay .true.; it is reported anyway, mirroring the other typed
+  ! entries); on .false. ast_out still carries the converted
+  ! result, mirroring optimize, which always returns a scene.
+  ! ------------------------------------------------------------------
+
+  subroutine optimize_ast(ast_in, bag, level, ast_out, ok)
+    type(ast_program), intent(in) :: ast_in
+    type(error_bag_t), intent(inout) :: bag
+    integer, intent(in), optional :: level
+    type(ast_program), intent(out) :: ast_out
+    logical, intent(out) :: ok
+    type(dyn) :: dyn_in, dyn_out
+    integer :: nerr0
+    nerr0 = error_bag_error_count(bag)
+    call dyn_assign(dyn_in, ast_program_to_dyn(ast_in))
+    call optimize(dyn_in, bag, level, dyn_out)
+    ast_out = ast_program_from_dyn(dyn_out)
+    ok = error_bag_error_count(bag) == nerr0
+  end subroutine optimize_ast
+
+  ! ------------------------------------------------------------------
+  ! O5 -- palette normalisation, AST-native variant
+  !
+  ! Of the O1-O7 passes, O5 is the one that maps cleanly onto
+  ! ast_stmt fields, so it is the one pass with an AST-native
+  ! variant: the dyn pass matches IR objects by their "color" /
+  ! "prim" keys, and a parser ObjectStmt carries exactly those
+  ! keys verbatim in its fields bag, under its typed class tag
+  ! (stmt%kind == "object").  The rule is O5's, unchanged: an
+  ! object whose colour is explicitly null (the parser stores
+  ! null "color"/"colour" when the statement named no colour)
+  ! and whose prim is not "cube" receives DEFAULT_COLOR.  The
+  ! parser keeps "colour" as an alias of "color" on the node, so
+  ! both keys are written when present, preserving that alias.
+  ! Objects nested in group / repeat children are visited
+  ! recursively; the dyn pass sees the same objects flat, after
+  ! desugaring has expanded the groups.  No dyn round-trip
+  ! happens inside this pass: it reads and writes ast_stmt
+  ! components (fields bag via dyn_dict_* on stmt%fields) only.
+  ! ------------------------------------------------------------------
+
+  subroutine pass_o5_palette_ast(prog, bag)
+    type(ast_program), intent(inout) :: prog
+    type(error_bag_t), intent(inout) :: bag
+    integer :: i
+    if (bag%n < 0) return  ! bag unused in this pass (as in O5)
+    do i = 1, prog%n
+      call o5_palette_ast_stmt(prog%stmts(i))
+    end do
+  end subroutine pass_o5_palette_ast
+
+  recursive subroutine o5_palette_ast_stmt(stmt)
+    type(ast_stmt), intent(inout) :: stmt
+    type(dyn) :: color, prim, defc
+    logical :: is_cube
+    integer :: k
+    if (trim(stmt%kind) == "object") then
+      if (stmt%fields%kind == DYN_K_DICT) then
+        if (dyn_dict_has(stmt%fields, "color")) then
+          call dyn_assign(color, dyn_dict_get(stmt%fields, "color"))
+          if (color%kind == DYN_K_NULL) then
+            is_cube = .false.
+            if (dyn_dict_has(stmt%fields, "prim")) then
+              call dyn_assign(prim, &
+                              dyn_dict_get(stmt%fields, "prim"))
+              if (prim%kind == DYN_K_STR) then
+                if (allocated(prim%s)) then
+                  if (to_lower(prim%s) == "cube") is_cube = .true.
+                end if
+              end if
+            end if
+            if (.not. is_cube) then
+              call get_default_color(defc)
+              call dyn_dict_set(stmt%fields, "color", defc)
+              if (dyn_dict_has(stmt%fields, "colour")) &
+                call dyn_dict_set(stmt%fields, "colour", defc)
+            end if
+          end if
+        end if
+      end if
+    end if
+    do k = 1, stmt%n_children
+      call o5_palette_ast_stmt(stmt%children(k))
+    end do
+  end subroutine o5_palette_ast_stmt
 
 end module f3dc_optimize

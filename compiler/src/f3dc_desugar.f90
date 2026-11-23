@@ -76,10 +76,13 @@ module f3dc_desugar
   use f3dc_errors, only: error_bag_t, make_diagnostic, error_bag_add, &
                          error_bag_error_count
   use f3dc_parser, only: f3dc_parse
+  use f3dc_ast, only: ast_program, ast_program_from_dyn, &
+                      ast_program_to_dyn
   implicit none
   private
 
   public :: desugar
+  public :: desugar_program_ast
   public :: desugar_max_placements, desugar_default_scene, &
             desugar_default_camera, desugar_default_light, &
             desugar_demo_pose, desugar_anim_defaults
@@ -2064,6 +2067,39 @@ contains
     if (dyn_list_len(import_deps) > 0) &
       call dyn_dict_set(program_out, "_import_deps", import_deps)
   end subroutine desugar
+
+  ! ==================================================================
+  ! Typed AST entry (v3.0 Phase 6 / C1)
+  !
+  !   desugar_program_ast is the typed twin of desugar above: it
+  !   lowers the typed ast_program to the dyn dict shape desugar
+  !   works on (ast_program_to_dyn), runs the unchanged dyn pass,
+  !   and raises the flattened result back to a typed ast_program
+  !   (ast_program_from_dyn).  No desugaring logic lives here, so
+  !   the typed and dyn entries can never drift apart.  base_dir
+  !   plays exactly the role it plays for desugar (import paths
+  !   resolve against it; it is also the containment root), and
+  !   diagnostics land in bag exactly as desugar leaves them.
+  !   ok is .true. when the pass added no error diagnostics to
+  !   bag (warnings, e.g. the W101 default-injection notes, do not
+  !   clear it); on .false. ast_out still carries the converted
+  !   result, mirroring desugar, which always returns a program.
+  ! ==================================================================
+
+  subroutine desugar_program_ast(ast_in, bag, base_dir, ast_out, ok)
+    type(ast_program), intent(in) :: ast_in
+    type(error_bag_t), intent(inout) :: bag
+    character(len=*), intent(in) :: base_dir
+    type(ast_program), intent(out) :: ast_out
+    logical, intent(out) :: ok
+    type(dyn) :: dyn_in, dyn_out
+    integer :: nerr0
+    nerr0 = error_bag_error_count(bag)
+    call dyn_assign(dyn_in, ast_program_to_dyn(ast_in))
+    call desugar(dyn_in, bag, base_dir, dyn_out)
+    ast_out = ast_program_from_dyn(dyn_out)
+    ok = error_bag_error_count(bag) == nerr0
+  end subroutine desugar_program_ast
 
   !> One ANIM_DEFAULTS entry: set props[key] when the key is absent
   !! from props and the node's own attribute is None.

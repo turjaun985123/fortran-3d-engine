@@ -26,6 +26,26 @@
 ! CPython's json error messages ("Expecting value: line .. column ..
 ! (char ..)" etc.), which ast_from_legacy_json embeds in E101.
 !
+! v3.0 Phase 6 (C1): the validated triangle payload of both readers
+! crosses the typed IR at this module's output boundary
+! (tris_program -> tris_via_typed_ir): it becomes the `triangles`
+! member of a typed f3dc_ir ir_object (prim "tris") via
+! ir_object_from_dict and is read back via ir_object_to_dict, so
+! the payload has exactly one typed owner.  f3dc_ir carries an
+! object's triangles verbatim by design (see that module's
+! header), so the payload survives the round trip unchanged.
+! Deliberately NOT routed through the typed converters (they are
+! lossless-defaulting readers, not validators, and routing these
+! would change the documented malformed-input behaviour below):
+! the private JSON parser (CPython error fidelity), the
+! is_legacy_json shape probe (a legacy dict is not an IR scene:
+! ir_scene_from_dict would default/coerce instead of rejecting),
+! the per-triangle validation in ast_from_legacy_json (as_vec3's
+! int->real coercion, colour truncation and the E101/E301 checks
+! have no typed-converter counterpart), and the OBJ reader's
+! vertex/face walking and fan triangulation (geometry
+! construction, not IR field reading).
+!
 ! Known divergences from the Python (reported, never silent):
 !  * JSON integers beyond int64 fall back to real64 (Python ints are
 !    arbitrary precision); likewise int(color channel) for a float
@@ -50,11 +70,14 @@ module f3dc_compat
                       ieee_quiet_nan
   use f3dc_dyn, only: dyn, dyn_null, dyn_bool, dyn_int, dyn_real, &
                       dyn_str, dyn_list, dyn_dict, dyn_copy, &
+                      dyn_assign, &
                       dyn_list_push, dyn_list_len, dyn_list_at, &
                       dyn_dict_set, dyn_dict_get, dyn_dict_has, &
                       dyn_dict_key_at, &
                       DYN_K_NULL, DYN_K_BOOL, DYN_K_INT, DYN_K_REAL, &
                       DYN_K_STR, DYN_K_LIST, DYN_K_DICT
+  use f3dc_ir, only: ir_object, ir_object_from_dict, &
+                     ir_object_to_dict
   use f3dc_str, only: fmt_int, fmt_real, char_list, char_list_append, &
                       char_list_len, char_list_at, &
                       str_builder, sb_init, sb_add, sb_text
@@ -112,16 +135,39 @@ contains
   ! _tris_program / empty program
   ! ------------------------------------------------------------------
 
+  !> Route a validated triangle payload through the typed IR
+  !! (C1): build the boundary dict of a "tris" object carrying
+  !! only the payload, convert it with ir_object_from_dict, and
+  !! read the payload back from ir_object_to_dict.  The typed
+  !! layer retains an object's triangles verbatim (documented in
+  !! f3dc_ir's header), so {v, color[, id]} legacy triangles and
+  !! {v} OBJ triangles come back in reader order, unchanged; the
+  !! typed object's other (defaulted) fields are discarded here,
+  !! at this module's dyn output boundary.
+  function tris_via_typed_ir(triangles) result(out)
+    type(dyn), intent(in) :: triangles
+    type(dyn) :: out
+    type(dyn) :: boundary, roundtrip
+    type(ir_object) :: typed_obj
+    boundary = dyn_dict()
+    call dyn_dict_set(boundary, "prim", dyn_str("tris"))
+    call dyn_dict_set(boundary, "triangles", triangles)
+    typed_obj = ir_object_from_dict(boundary)
+    roundtrip = ir_object_to_dict(typed_obj)
+    call dyn_assign(out, dyn_dict_get(roundtrip, "triangles"))
+  end function tris_via_typed_ir
+
   function tris_program(triangles) result(prog)
     type(dyn), intent(in) :: triangles
     type(dyn) :: prog
-    type(dyn) :: stmt, props, stmts
+    type(dyn) :: stmt, props, stmts, payload
+    call dyn_assign(payload, tris_via_typed_ir(triangles))
     stmt = dyn_dict()
     call dyn_dict_set(stmt, "prim", dyn_str("tris"))
     call dyn_dict_set(stmt, "name", dyn_null())
     call dyn_dict_set(stmt, "color_raw", dyn_null())
     props = dyn_dict()
-    call dyn_dict_set(props, "triangles", triangles)
+    call dyn_dict_set(props, "triangles", payload)
     call dyn_dict_set(stmt, "props", props)
     call dyn_dict_set(stmt, "span", dyn_null())
     stmts = dyn_list()

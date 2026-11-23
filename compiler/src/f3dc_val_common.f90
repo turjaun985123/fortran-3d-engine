@@ -38,6 +38,8 @@ module f3dc_val_common
   public :: is_ws
   public :: get_int
   public :: get_vec3
+  public :: vget_scalar
+  public :: vget_vec3_typed
   public :: vec3_or
   public :: finite_vec
   public :: node_span
@@ -598,6 +600,86 @@ contains
     call get_vec3(val, vec, has)
     if (.not. has) vec = def
   end subroutine vec3_or
+
+
+  ! ================================================================
+  ! Typed accessor bridge (v3.0 Phase 6 C1)
+  !
+  ! A strict, kind-tagged layer over the dyn readers above, for
+  ! callers that want the value's own type instead of the Python
+  ! coercions in get_num / get_int (which accept numeric strings).
+  ! No coercion happens here: kind_tag is the stored value's kind,
+  ! mirroring f3dc_dyn's DYN_K_* constants (DYN_K_NULL / _BOOL /
+  ! _INT / _REAL / _STR / _LIST / _DICT), and only the output slot
+  ! matching kind_tag is meaningful -- the other slots keep the
+  ! defaults set on entry (0 / 0.0 / .false. / "").  Lookup mirrors
+  ! vget for a single key: node must be a dict, and a key that is
+  ! absent or stored null counts as not found.  LIST / DICT values
+  ! report found with their kind_tag and no scalar payload, so a
+  ! caller can branch on the tag and fall back to the dyn helpers.
+  ! ================================================================
+
+  subroutine vget_scalar(node, key, kind_tag, ival, rval, bval, &
+                         sval, found)
+    type(dyn), intent(in) :: node
+    character(*), intent(in) :: key
+    integer, intent(out) :: kind_tag
+    integer(int64), intent(out) :: ival
+    real(real64), intent(out) :: rval
+    logical, intent(out) :: bval
+    character(:), allocatable, intent(out) :: sval
+    logical, intent(out) :: found
+    type(dyn) :: val
+    kind_tag = DYN_K_NULL
+    ival = 0_int64
+    rval = 0.0_real64
+    bval = .false.
+    sval = ""
+    found = .false.
+    if (node%kind /= DYN_K_DICT) return
+    if (.not. dyn_dict_has(node, key)) return
+    val = dyn_dict_get(node, key)
+    if (val%kind == DYN_K_NULL) return
+    kind_tag = val%kind
+    found = .true.
+    select case (val%kind)
+    case (DYN_K_BOOL)
+      bval = val%b
+    case (DYN_K_INT)
+      ival = val%i
+    case (DYN_K_REAL)
+      rval = val%r
+    case (DYN_K_STR)
+      if (allocated(val%s)) then
+        sval = val%s
+      end if
+    case default
+      ! LIST / DICT: kind_tag alone is the result; the scalar
+      ! slots keep their defaults above.
+    end select
+  end subroutine vget_scalar
+
+
+  !> Typed vec3 sibling of vget_scalar: the value under key on
+  !! node, read as three scalar components through get_vec3 (a
+  !! 3+ list of numbers / numeric strings, or an x/y/z dict).
+  !! vals is all-zero when found is .false. -- unlike get_vec3,
+  !! which can leave earlier components set on a partial read.
+  subroutine vget_vec3_typed(node, key, vals, found)
+    type(dyn), intent(in) :: node
+    character(*), intent(in) :: key
+    real(real64), intent(out) :: vals(3)
+    logical, intent(out) :: found
+    type(dyn) :: val
+    vals = 0.0_real64
+    found = .false.
+    if (node%kind /= DYN_K_DICT) return
+    if (.not. dyn_dict_has(node, key)) return
+    val = dyn_dict_get(node, key)
+    if (val%kind == DYN_K_NULL) return
+    call get_vec3(val, vals, found)
+    if (.not. found) vals = 0.0_real64
+  end subroutine vget_vec3_typed
 
 
   pure logical function finite_vec(vec)

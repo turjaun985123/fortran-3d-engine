@@ -19,7 +19,13 @@
 !                        ir, ok)      ! validate.validate(...)
 !   f3dc_optimize :: subroutine optimize(scene_in, bag, level,
 !                        scene_out)   ! optimize.optimize(scene,bag)
+!   f3dc_parser   :: subroutine parse_program_ast(text, source_name,
+!                        bag, prog_ast, ok)   ! v3.0 C1 typed AST entry
 !   f3dc_desugar  :: subroutine desugar(prog_in, bag, base_dir, prog_out)
+!                    subroutine desugar_program_ast(prog_ast_in, bag,
+!                        base_dir, prog_ast_out, ok)  ! v3.0 C1 typed
+!   f3dc_ast      :: type ast_program
+!                    function ast_program_to_dyn(prog_ast) result(dyn)
 !   f3dc_compat   :: function is_legacy_json(text) result(logical)
 !                    subroutine ast_from_legacy_json(text, bag, prog)
 !                    subroutine ast_from_obj(text, bag, prog)
@@ -57,7 +63,7 @@ program f3dc
   use f3dc_str, only: fmt_int, fmt_real, to_lower, path_stem, &
        path_dirname, path_basename, path_extension
   use f3dc_dyn, only: dyn, dyn_null, dyn_bool, dyn_int, dyn_real, &
-       dyn_str, dyn_list, dyn_dict, dyn_copy, dyn_list_push, &
+       dyn_str, dyn_list, dyn_dict, dyn_copy, dyn_assign, dyn_list_push, &
        dyn_list_len, dyn_list_at, dyn_dict_set, dyn_dict_get, &
        dyn_dict_has, dyn_dict_len, dyn_dict_key_at, &
        DYN_K_NULL, DYN_K_BOOL, DYN_K_INT, DYN_K_REAL, DYN_K_STR, &
@@ -67,12 +73,13 @@ program f3dc
        error_bag_len, error_bag_has_errors, error_bag_fail_code, &
        error_bag_format_text, error_bag_format_json, &
        error_bag_use_color, error_bag_debug_text
-  use f3dc_parser, only: f3dc_parse
+  use f3dc_parser, only: parse_program_ast
+  use f3dc_ast, only: ast_program, ast_program_to_dyn
   use f3dc_validate, only: validate_program, &
        f3dc_validate_import_deps
   use f3dc_ext_geometry, only: eg_estimate => estimate_triangles
   use f3dc_optimize, only: optimize
-  use f3dc_desugar, only: desugar
+  use f3dc_desugar, only: desugar, desugar_program_ast
   use f3dc_compat, only: ast_from_obj, ast_from_legacy_json, &
        is_legacy_json
   use f3dc_ir, only: ir_from_json
@@ -647,6 +654,60 @@ contains
   end subroutine print_diagnostics
 
   ! ------------------------------------------------------------------
+  ! Typed-AST front end (v3.0 Phase 6 / C1)
+  !
+  ! .f3d sources no longer parse straight into dyn dicts here:
+  ! parse_program_ast (f3dc_parser) builds a typed ast_program,
+  ! desugar_program_ast (f3dc_desugar) rewrites that typed tree,
+  ! and ast_program_to_dyn (f3dc_ast) converts it to dyn ONCE.
+  !
+  ! DYN BOUNDARY (intentional, do not "fix" by converting further):
+  ! everything past that single conversion still consumes dyn --
+  ! validate_program (which still runs its own dyn desugar pass
+  ! internally, exactly as before) and the Fortran / JSON / JS /
+  ! HTML emitters.  The boundary therefore sits between
+  ! desugar_program_ast and validate_program in compile_pipeline.
+  ! The .obj / legacy-.json compat loaders have no typed entry
+  ! point, so they still enter directly at the dyn side of the
+  ! boundary, unchanged.
+  ! ------------------------------------------------------------------
+
+  ! Parse only, via the typed AST, converted once to dyn.  Used by
+  ! do_fmt, which prints the program as written and must NOT see a
+  ! desugared tree (groups/repeats/defaults would change its output).
+  subroutine parse_typed_to_dyn(text, source_name, bag, prog)
+    character(len=*), intent(in) :: text, source_name
+    type(error_bag_t), intent(inout) :: bag
+    type(dyn), intent(out) :: prog
+    type(ast_program) :: prog_ast
+    logical :: ast_ok
+    call parse_program_ast(text, source_name, bag, prog_ast, ast_ok)
+    call dyn_assign(prog, ast_program_to_dyn(prog_ast))
+  end subroutine parse_typed_to_dyn
+
+  ! Parse + desugar, both on the typed AST, converted once to dyn.
+  ! On a parse error the desugar step is skipped (nested tests, not
+  ! a compound .and.: Fortran does not short-circuit) and the raw
+  ! typed tree is converted instead, so last_program and the error
+  ! path in compile_pipeline see the same shape as before.
+  subroutine compile_typed_to_dyn(text, source_name, base_dir, &
+                                  bag, prog)
+    character(len=*), intent(in) :: text, source_name, base_dir
+    type(error_bag_t), intent(inout) :: bag
+    type(dyn), intent(out) :: prog
+    type(ast_program) :: prog_ast, desugared_ast
+    logical :: ast_ok
+    call parse_program_ast(text, source_name, bag, prog_ast, ast_ok)
+    if (error_bag_has_errors(bag)) then
+       call dyn_assign(prog, ast_program_to_dyn(prog_ast))
+    else
+       call desugar_program_ast(prog_ast, bag, base_dir, &
+                                desugared_ast, ast_ok)
+       call dyn_assign(prog, ast_program_to_dyn(desugared_ast))
+    end if
+  end subroutine compile_typed_to_dyn
+
+  ! ------------------------------------------------------------------
   ! The compile pipeline (cli.py compile_pipeline)
   ! ------------------------------------------------------------------
   subroutine compile_pipeline(path, bag, ir, ok)
@@ -703,11 +764,18 @@ contains
        end if
        call ast_from_legacy_json(text, bag, prog)
     else
-       call f3dc_parse(text, path, bag, prog)
+       ! .f3d: typed pipeline -- parse_program_ast, then
+       ! desugar_program_ast, then ONE ast_program_to_dyn
+       ! conversion (see compile_typed_to_dyn above).
+       call compile_typed_to_dyn(text, path, path_dirname(path), &
+                                 bag, prog)
     end if
     last_program = dyn_copy(prog)
     last_program_set = .true.
     if (error_bag_has_errors(bag)) return
+    ! DYN BOUNDARY: prog is dyn from here on.  validate_program and
+    ! the emitters still consume dyn by design (C1 remainder), so
+    ! this call and everything downstream are unchanged.
     call validate_program(prog, bag, path_dirname(path), ir, vok)
     if (.not. vok .or. error_bag_has_errors(bag)) return
     call optimize(ir, bag, 1, ir_opt)
@@ -726,6 +794,14 @@ contains
     integer :: i
     out = ""
     if (.not. last_program_set) return
+    ! This call site stays on the dyn desugar on purpose: it runs
+    ! on last_program, which is already past the dyn boundary (the
+    ! .f3d path stored the converted typed-desugared tree; the
+    ! .obj/.json paths stored a raw compat dyn tree), and f3dc_ast
+    ! provides no dyn -> ast_program converter to re-enter the
+    ! typed pipeline from here.  For .f3d inputs this re-applies
+    ! desugar to an already-desugared program; for compat inputs
+    ! it is the only desugar --explain performs, as before.
     if (allocated(last_path)) then
        call desugar(last_program, tmp_bag, path_dirname(last_path), &
                     desugared)
@@ -2509,7 +2585,11 @@ contains
     else if (ext == ".json") then
        call ast_from_legacy_json(text, bag, prog)
     else
-       call f3dc_parse(text, path, bag, prog)
+       ! Typed parse + one conversion to dyn (parse_typed_to_dyn);
+       ! deliberately NO desugar here -- fmt prints the source
+       ! program, and the dyn formatter below is past the same
+       ! intentional dyn boundary as validate / the emitters.
+       call parse_typed_to_dyn(text, path, bag, prog)
     end if
     if (error_bag_has_errors(bag)) then
        call print_diagnostics(bag, .false.)

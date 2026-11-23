@@ -19,6 +19,21 @@
 ! appended to bag AND mirrored into the Program node's "errors" field,
 ! exactly as Python's Parser.errors list.
 !
+! Typed-AST entry point (Phase 6 / C1, purely additive):
+!
+!   subroutine parse_program_ast(text, source_name, bag, ast, ok)
+!     character(*), intent(in)    :: text, source_name
+!     type(error_bag_t), intent(inout) :: bag
+!     type(ast_program), intent(out)   :: ast  ! from f3dc_ast
+!     logical, intent(out)        :: ok
+!
+! parse_program_ast runs f3dc_parse unchanged to the dyn Program node
+! and converts that node via f3dc_ast's ast_program_from_dyn.  ok is
+! .true. only when the parse recorded no error: the Program node's
+! "errors" list is empty and bag holds no error diagnostic.  On a
+! failed parse ast still holds the converted (partial) program, so
+! callers may inspect it, but must check ok before trusting it.
+!
 ! ---------------------------------------------------------------------
 ! AST representation (per compiler/DESIGN.md): every node is a dyn DICT
 ! whose keys are exactly the Python node's __dict__ keys, in Python
@@ -71,15 +86,19 @@ module f3dc_parser
                       DYN_K_STR, DYN_K_LIST, DYN_K_DICT
   use f3dc_errors, only: error_bag_t, make_span, &
                          make_diagnostic_span, error_bag_add, &
+                         error_bag_has_errors, &
                          err_did_you_mean => did_you_mean
   use f3dc_str, only: char_list, char_list_append, str_builder, &
                       sb_init, sb_add, sb_text
   use f3dc_lexer, only: token, token_list, tokenize, TK_WORD, &
                         TK_NUMBER, TK_STRING, TK_COLOR, TK_COMMA, &
                         TK_COLON, TK_NEWLINE, TK_EOF
+  use f3dc_ast, only: ast_program, ast_stmt, ast_program_from_dyn, &
+                      ast_program_to_dyn
   implicit none
   private
   public :: f3dc_parse
+  public :: parse_program_ast
 
   ! Internal token kinds (mirror the Python kind strings).
   integer, parameter :: K_WORD = 1, K_NUMBER = 2, K_STRING = 3, &
@@ -3861,5 +3880,32 @@ contains
     call build_lines(p, text, lines, nlines)
     call parse_program(p, lines, nlines, program)
   end subroutine f3dc_parse
+
+  ! Typed-AST entry point (Phase 6 / C1): the same parse as
+  ! f3dc_parse, with the resulting dyn Program node converted to the
+  ! typed f3dc_ast representation.  No parse behaviour changes: the
+  ! dyn node is built by f3dc_parse itself, diagnostics go to bag and
+  ! to the node's "errors" field exactly as there, and the typed
+  ! tree can be turned back into that node with ast_program_to_dyn.
+  ! ok is set sequentially below (never with .and./.or., which do
+  ! not short-circuit): it starts .true. for a dict Program node and
+  ! is cleared by a non-empty "errors" list or an error in bag.
+  subroutine parse_program_ast(text, source_name, bag, ast, ok)
+    character(*), intent(in) :: text, source_name
+    type(error_bag_t), intent(inout), target :: bag
+    type(ast_program), intent(out) :: ast
+    logical, intent(out) :: ok
+    type(dyn) :: program, errs
+    call f3dc_parse(text, source_name, bag, program)
+    ast = ast_program_from_dyn(program)
+    ok = .false.
+    if (program%kind /= DYN_K_DICT) return
+    ok = .true.
+    errs = dyn_dict_get(program, "errors")
+    if (errs%kind == DYN_K_LIST) then
+      if (dyn_list_len(errs) > 0) ok = .false.
+    end if
+    if (error_bag_has_errors(bag)) ok = .false.
+  end subroutine parse_program_ast
 
 end module f3dc_parser

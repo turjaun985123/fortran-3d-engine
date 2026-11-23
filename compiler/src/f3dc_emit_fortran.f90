@@ -9,6 +9,10 @@
 !   emit_fortran_program(ir, text) -- the standalone <stem>_scene.f90
 !                                     program (static frame 0 only).
 !   emit_scene / emit_fortran      -- the Python aliases.
+!   emit_scene_text_typed / emit_fortran_program_typed
+!                                  -- C1 typed entries: convert an
+!                                     ir_scene via ir_scene_to_dict
+!                                     and delegate to the dyn entries.
 !
 ! Free subroutines only (no type-bound procedures), per the port rules.
 !
@@ -62,6 +66,7 @@ module f3dc_emit_fortran
                       int_list, int_list_append, int_list_at, &
                       fmt_int, fmt_real, to_lower, str_replace, &
                       str_builder, sb_init, sb_add, sb_text
+  use f3dc_ir, only: ir_scene, ir_scene_to_dict
   use f3dc_ext_shader, only: shader_scene_lines, shader_binding_line
   use f3dc_ext_materials, only: mat_objmat => objmat_line, &
                                 mat_extra => material_extra_lines
@@ -78,6 +83,9 @@ module f3dc_emit_fortran
 
   public :: emit_scene_text, emit_fortran_program
   public :: emit_scene, emit_fortran
+  ! C1: typed entry points (convert via ir_scene_to_dict and
+  ! delegate to the dyn entries; the dyn entries are unchanged).
+  public :: emit_scene_text_typed, emit_fortran_program_typed
 
   character(len=*), parameter :: NL = achar(10)
   character(len=*), parameter :: DEFAULT_OUTPUT = "output_render.ppm"
@@ -1606,6 +1614,19 @@ contains
     text = join_lines(lines)
   end subroutine emit_scene_text
 
+  !> Typed entry point (C1): emit_scene_text from a typed ir_scene.
+  !! Converts once via ir_scene_to_dict and delegates to the dyn
+  !! implementation above, so typed and dyn callers produce
+  !! identical text for the same scene.
+  subroutine emit_scene_text_typed(scene_typed, text)
+    type(ir_scene), intent(in) :: scene_typed
+    character(len=:), allocatable, intent(out) :: text
+    type(dyn) :: ir
+
+    ir = ir_scene_to_dict(scene_typed)
+    call emit_scene_text(ir, text)
+  end subroutine emit_scene_text_typed
+
   ! ----------------------------------------------------------------
   ! emit_scene_text feature blocks (Phase 6 C2 split; each appends
   ! its lines to the shared list, in the original order).
@@ -2856,6 +2877,19 @@ contains
     end do
     text = join_lines(wrapped)
   end subroutine emit_fortran_program
+
+  !> Typed entry point (C1): emit_fortran_program from a typed
+  !! ir_scene.  Converts once via ir_scene_to_dict and delegates
+  !! to the dyn implementation above, so typed and dyn callers
+  !! produce identical text for the same scene.
+  subroutine emit_fortran_program_typed(scene_typed, text)
+    type(ir_scene), intent(in) :: scene_typed
+    character(len=:), allocatable, intent(out) :: text
+    type(dyn) :: ir
+
+    ir = ir_scene_to_dict(scene_typed)
+    call emit_fortran_program(ir, text)
+  end subroutine emit_fortran_program_typed
 
   ! ----------------------------------------------------------------
   ! emit_fortran_program feature blocks (Phase 6 C2 split).

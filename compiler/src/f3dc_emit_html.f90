@@ -44,16 +44,20 @@
 ! WebGL2 with the core Canvas2D player as fallback.
 module f3dc_emit_html
   use, intrinsic :: iso_fortran_env, only: int64, real64
-  use f3dc_dyn, only: dyn, dyn_dict_get, dyn_kind, &
+  use f3dc_dyn, only: dyn, dyn_dict_get, dyn_kind, dyn_free, &
                       DYN_K_NULL, DYN_K_BOOL, DYN_K_INT, DYN_K_REAL, &
                       DYN_K_STR, DYN_K_LIST, DYN_K_DICT
   use f3dc_str, only: fmt_int, fmt_real, to_lower, str_replace, &
                       str_builder, sb_init, sb_add, sb_text
-  use f3dc_emit_js, only: emit_js
+  use f3dc_emit_js, only: emit_js, emit_js_typed
+  use f3dc_ir, only: ir_scene, ir_scene_to_dict
   implicit none
   private
 
   public :: emit_html, emit_html_repo_root, emit_html_runtime_js
+  ! C1: typed entry point (the dyn emit_html below remains the
+  ! implementation; emit_html_typed converts once and delegates).
+  public :: emit_html_typed
   public :: emit_html_webgl2_js
   public :: FALLBACK_COMMENT
 
@@ -656,5 +660,35 @@ contains
     out = str_replace(out, "{{TITLE}}", html_escape(scene_name(ir)))
     text = out
   end subroutine emit_html
+
+  !> emit_html.emit_html (typed, C1): same arguments and output
+  !! as emit_html, but the scene arrives as a typed ir_scene.
+  !! The scene is converted once via ir_scene_to_dict for the
+  !! dict-based implementation above (which only reads the scene
+  !! name from it); when no scene_js payload is supplied, the
+  !! embedded scene JS is produced by f3dc_emit_js's typed entry
+  !! (emit_js_typed) directly from the typed scene, so the HTML
+  !! path does not round-trip through the dyn emit_js wrapper.
+  !! A caller-supplied scene_js is passed through unchanged,
+  !! exactly as in emit_html.
+  subroutine emit_html_typed(scene, runtime_js, scene_js, &
+                             template_arg, repo_root, text)
+    type(ir_scene), intent(in) :: scene
+    character(len=*), intent(in) :: runtime_js, scene_js
+    character(len=*), intent(in) :: template_arg, repo_root
+    character(len=:), allocatable, intent(out) :: text
+    type(dyn) :: ir
+    character(len=:), allocatable :: scene_payload
+
+    if (len(scene_js) > 0) then
+      scene_payload = scene_js
+    else
+      call emit_js_typed(scene, scene_payload)
+    end if
+    ir = ir_scene_to_dict(scene)
+    call emit_html(ir, runtime_js, scene_payload, template_arg, &
+                   repo_root, text)
+    call dyn_free(ir)
+  end subroutine emit_html_typed
 
 end module f3dc_emit_html
