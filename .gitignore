@@ -13,6 +13,5 @@ include/
 Thumbs.db
 
 # Forge3D generated artefacts
-__pycache__/
 runtime/f3d.min.js
 build/

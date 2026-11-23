@@ -138,7 +138,9 @@ Invoke it as `bin/f3dc <command> …` (build and install it first with
 make test
 ```
 
-This runs `tests/run_tests.py`, covering the compiler tests, the Fortran
+This runs `tests/run_tests.sh` (POSIX shell; the harness is shell +
+Fortran + Node — there is no Python anywhere in this repo), covering
+the native-compiler black-box tests, the JS runtime tests, the Fortran
 tests, the golden-image checks, and the end-to-end CLI tests.
 
 ## Roadmap

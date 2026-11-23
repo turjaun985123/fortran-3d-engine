@@ -40,10 +40,8 @@ jobs:
           flang-new-18 --version
           clang-18 --version
 
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      # No Python anywhere: the compiler is native and the whole test
+      # harness is shell + Fortran + Node (see compiler/REPLACEMENT.md).
 
       # G1: the engine builds clean from the shipped Makefile.
       - name: G1 - Build engine (make)
@@ -62,7 +60,7 @@ jobs:
       # G2: compiler + Fortran test suites (missing layers SKIP inside the
       # runner; a real failure exits non-zero and fails this step).
       - name: G2 - Run tests
-        run: python3 tests/run_tests.py
+        run: ./tests/run_tests.sh
 
       # G3 (portable tier): compile the example scene, then render a still by
       # running the freshly built engine with no args in a temp dir (it writes
@@ -78,8 +76,9 @@ jobs:
           work="$(mktemp -d)"
           (cd "$work" && "$GITHUB_WORKSPACE/bin/engine3d")
           test -s "$work/output_render.ppm"
+          gfortran -O2 -o "$RUNNER_TEMP/check_image" tests/golden/check_image.f90
           set -o pipefail
-          python3 tests/golden/check_image.py "$work/output_render.ppm" \
+          "$RUNNER_TEMP/check_image" "$work/output_render.ppm" \
             --expect-nonflat --expect-bg 25 25 35 --min-distinct 4 --hash \
             | tee "$RUNNER_TEMP/golden.txt"
           hash="$(grep -oiE '[0-9a-f]{64}' "$RUNNER_TEMP/golden.txt" | head -n 1 || true)"
@@ -137,19 +136,19 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           test "$size" -le 15360
 
-      # The compiler is native Fortran+clang (compiler/ -> bin/f3dc): the old
-      # Python compiler tree must be gone, and no Python may creep back into
-      # the compiler path. (Python is still used for the test harness.)
-      - name: No Python in the compiler path
+      # Zero Python in the entire repository: the compiler is native
+      # Fortran+clang (compiler/ -> bin/f3dc) and the test harness is
+      # shell + Fortran + Node.  Any tracked .py file fails the build.
+      - name: No Python anywhere in the repo
         run: |
           if [ -e tools/f3dc ]; then
             echo "tools/f3dc still exists; the Python compiler must be deleted" >&2
             exit 1
           fi
-          py_files="$(find compiler -name '*.py' -print)"
+          py_files="$(git ls-files '*.py')"
           if [ -n "$py_files" ]; then
-            echo "Python files found under compiler/:" >&2
+            echo "Python files tracked in the repo (zero-Python policy):" >&2
             printf '%s\n' "$py_files" >&2
             exit 1
           fi
-          echo "no-Python guard: OK (no tools/f3dc, no *.py under compiler/)"
+          echo "no-Python guard: OK (git ls-files '*.py' is empty)"

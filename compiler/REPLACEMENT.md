@@ -164,3 +164,65 @@ step that builds `bin/f3dc` via `make f3dc` when missing):
 - Strict golden untouched: repo-root `output_render.ppm` sha256
   `28b6a81dd052a740f3a395ea41b3e0dd37e02eeff585a56fa90e05ac7697cec1`,
   and `output_render.png` unmodified.
+
+---
+
+## Addendum 2026-11-23 — zero Python in the whole repo (user-ordered)
+
+The replacement above removed the Python *compiler*. This addendum
+records the follow-up order — "Rewrite the test harness too — zero
+Python in the repo" — which removed the remaining ~7,000 lines of
+Python test/tooling code (25 tracked `.py` files). After this change
+`git ls-files '*.py'` is **empty**, and the full suite passes with
+`python3` removed from PATH entirely.
+
+### Port map (Python → replacement)
+
+| Was | Now | Tech |
+|---|---|---|
+| `tests/run_tests.py` (orchestrator) | `tests/run_tests.sh` | POSIX shell; same 5 layers, same PASS/FAIL/SKIP semantics and exit codes |
+| `tests/native/test_native_compiler.py` | `tests/native/test_native_compiler.f90` + `tests/native/json_parse.f90` | Fortran driver (own JSON DOM parser + in-program SHA-256); corpus/examples/cli_battery JSON data files unchanged |
+| `tests/compiler/test_f3d_*_js.py` (14 files) | `tests/compiler/test_f3d_*_js.js` | Node.js (builtins only), sidecars loaded in-process |
+| `tests/compiler/test_parity_coverage.py` | `tests/compiler/test_parity_coverage.js` | Node.js; same independent MASTER-PLAN §3 parser |
+| `tests/e2e/*.py` (6 files) | `tests/e2e/*.sh` | POSIX shell driving `bin/f3dc` |
+| `tests/golden/check_image.py` | `tests/golden/check_image.f90` | Fortran; own SHA-256 (FIPS 180-4), banker's-rounding scaling, PSNR; differentially verified on 103 CLI cases byte-for-byte (stdout/stderr/exit) |
+| `tools/parity_matrix.py` | `tools/parity_matrix.f90` + `tools/json_read.f90` | Fortran; regenerates `docs/parity-matrix.json` byte-identically (verified by empty `git diff`), stdout and all tested error cases identical to the Python original |
+| `Makefile` `test` target + `minjs` Python fallback | `./tests/run_tests.sh`; sed fallback | — |
+| CI `setup-python` + `python3` steps | removed; G2 runs `./tests/run_tests.sh`, G3 builds the Fortran checker; the guard is now a hard assert that `git ls-files '*.py'` is empty | — |
+
+### Assertion counts, before → after (measured)
+
+| Layer | Before (Python) | After | Verdict |
+|---|---|---|---|
+| native (black-box) | 5 unittest sections: corpus 896 cases / 546 artifact hashes; examples 66 artifact hashes; CLI battery 28 cases; determinism; preview cycle | identical sections and counts in the Fortran driver (measured, printed per section) | PASS |
+| compiler-js + governance | 151 tests (144 JS-runtime + 7 parity-coverage) | 151 tests (144 Node + 7 Node) | PASS |
+| e2e | 55 checks | 55 checks | PASS |
+| fortran | 29 test programs | 29 test programs | PASS |
+| golden | SKIP (no golden image committed) | SKIP (same reason) | SKIP |
+
+Full suite: **PASS (4 passed, 0 failed, 1 skipped), exit 0** — both
+with a normal PATH and under `env -i PATH=<no python3>`. Strict
+golden untouched: repo-root `output_render.ppm` sha256
+`28b6a81dd052a740f3a395ea41b3e0dd37e02eeff585a56fa90e05ac7697cec1`.
+
+### Named substitutions / losses (nothing silent)
+
+- The brief's "72 example artifact hashes" figure was wrong; the
+  measured count in `examples.json` is **66** (9 scenes × 6 artifacts
+  + multi-scene × 12). The Fortran driver counts actual comparisons.
+- Native driver failure reporting prints the first 8 failures per
+  section instead of unittest subTest entries; every case and hash is
+  still compared.
+- e2e `test_cli` mtime check uses `stat -c %y` (ns-resolution string)
+  instead of Python's `st_mtime_ns`; Wave A PBR compares integer pixel
+  sums instead of float means (equal pixel counts ⇒ equivalent).
+  e2e pixel statistics are computed by an embedded awk PPM parser
+  rather than by importing the golden checker.
+- `check_image.f90 --help` body text is byte-identical to the Python
+  argparse output at the default 80-column width; at exotic terminal
+  widths Python reflows the help body and the Fortran text may differ
+  (the usage line wraps identically at all widths tested). No test or
+  CI step depends on `--help`.
+- Historical documents (`docs/BUILD-REPORT.md`, `docs/WAVE-*-REPORT.md`,
+  `docs/plan/`) still mention the Python harness — they are dated
+  records of past runs and were left as written.

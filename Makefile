@@ -205,15 +205,15 @@ run: $(TARGET)
 	@which convert >/dev/null 2>&1 && convert output_render.ppm output_render.png && echo "[+] Converted to output_render.png" || true
 
 test:
-	python3 tests/run_tests.py
+	./tests/run_tests.sh
 
 minjs:
 	@if command -v npx >/dev/null 2>&1 && npx --no-install terser --version >/dev/null 2>&1; then \
 		echo "[+] Minifying runtime/f3d.js with terser (via npx)"; \
 		npx --no-install terser runtime/f3d.js -o runtime/f3d.min.js; \
 	else \
-		echo "[+] terser not available; using python fallback (strip full-line comments and blank lines)"; \
-		python3 -c "import pathlib; lines = pathlib.Path('runtime/f3d.js').read_text().splitlines(); out = [l for l in lines if l.strip() and not l.lstrip().startswith('//')]; pathlib.Path('runtime/f3d.min.js').write_text('\n'.join(out) + '\n')"; \
+		echo "[+] terser not available; using sed fallback (strip full-line comments and blank lines)"; \
+		sed -e '/^[[:space:]]*\/\//d' -e '/^[[:space:]]*$$/d' runtime/f3d.js > runtime/f3d.min.js; \
 	fi
 	@size=$$(wc -c < runtime/f3d.min.js); echo "runtime/f3d.min.js: $$size bytes (budget 15360)"; \
 	if [ $$size -gt 15360 ]; then echo "[-] minjs OVER BUDGET: $$size > 15360" >&2; exit 1; fi
