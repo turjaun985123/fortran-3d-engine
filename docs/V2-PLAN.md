@@ -442,17 +442,17 @@ on the remote (`gh release list` empty for v2.0).
 
 ## 9. Release checklist (v2.0.0)
 
-- [ ] P1–P6 merged on `main`, each phase committed + pushed,
+- [x] P1–P6 merged on `main`, each phase committed + pushed,
       CI green on the final head.
-- [ ] `./tests/run_tests.sh` PASS on a clean checkout.
-- [ ] Strict golden sha256 =
+- [x] `./tests/run_tests.sh` PASS on a clean checkout.
+- [x] Strict golden sha256 =
       `28b6a81dd052a740f3a395ea41b3e0dd37e02eeff585a56fa90e05ac7697cec1`.
-- [ ] `git ls-files '*.py'` empty.
-- [ ] Hash-change manifest (§10) complete: every regenerated
+- [x] `git ls-files '*.py'` empty.
+- [x] Hash-change manifest (§10) complete: every regenerated
       expectation listed with its phase + cause.
-- [ ] `docs/BENCHMARKS.md`, `CHANGELOG.md`,
+- [x] `docs/BENCHMARKS.md`, `CHANGELOG.md`,
       `docs/releases/v2.0.md` in place.
-- [ ] XR kit (`examples/xr-check.html`, `docs/XR-CHECK.md`)
+- [x] XR kit (`examples/xr-check.html`, `docs/XR-CHECK.md`)
       ready; C4 still honestly marked Blocked pending the
       user's device check.
 - [ ] GitHub Release + tag: **user approval required** (not
@@ -680,3 +680,48 @@ behaviour; no assertion dropped):
   sidecar inlined into `.html`; guarded rebake, non-HTML
   diffs abort): corpus 91, examples 12, cli 2 `.html` hashes.
 - Golden byte-identical; full suite PASS (JS 170 tests).
+
+### P6 — Benchmarks, version 2.0.0, release prep (shipped)
+
+- **Benchmarks** (`docs/BENCHMARKS.md`): Python oracle
+  (commit `ea40376`, checked out to a temp dir outside the
+  repo and removed afterwards) vs native `bin/f3dc`, median
+  of 5 runs after a warm-up, byte-identical sources for the
+  10 Python-era examples. Totals — `check`: Python 1.1131 s
+  vs native 0.6714 s (**1.66× native**); `build`: Python
+  1.2528 s vs native 1.3642 s (**0.92× — rough parity, Python
+  slightly ahead in aggregate on this 1.5-vCPU VM; stated
+  plainly in the doc, no build-speed win claimed**). Sizes:
+  native `bin/f3dc` 4,275,512 B; `bin/engine3d` 931,792 B;
+  minified JS runtime 15,335 B; Python side 29 `.py` files =
+  598,909 B plus the shared `/usr/bin/python3.12`
+  interpreter (8,020,928 B, caveated). rocket-parts excluded
+  (v2.0 syntax the Python compiler cannot parse).
+- **Version 2.0.0**: `f3dc_cli` VERSION (stale cli.py comment
+  fixed), JS `F3D.version` + runtime banner, manual version
+  mentions. `tests/native/cli_battery.json`: `--version` and
+  `doctor` case expectations updated (text + sha256 + len).
+  Note: the `doctor` case's stored values were previously
+  computed over raw text (the file's only raw-based case; the
+  driver skips capture checks for it) — they are now stored
+  canonicalized like every other case.
+- **CHANGELOG.md**: user-facing 2.0.0 entry (P1–P5) + a
+  compact 1.x history from `git log`.
+- **XR kit (prep only)**: `examples/xr-check.f3d` (baked into
+  `examples.json` like every example) +
+  `examples/xr-check.html` (generated page + the
+  `runtime/f3d-xr.js` sidecar and an Enter-VR glue block) +
+  `docs/XR-CHECK.md` instructions. **C4 remains Blocked** —
+  the check has NOT been run; parity stays 39/40 until the
+  user's real-device session succeeds.
+- **Release notes**: `docs/releases/v2.0.md` draft +
+  maintainer checklist (tag `v2.0.0` and GitHub Release only
+  after the user's approval; CI should attach Linux
+  `bin/f3dc` + `bin/engine3d`). **No tag or Release was
+  created.**
+- Hash changes (cause: version strings inlined into `.html`
+  via the runtime; guarded rebake): corpus 91, examples 12,
+  cli 2 `.html` hashes, plus the two cli_battery capture
+  updates above and the new xr-check example entry.
+- Golden byte-identical; full suite PASS on the final tree
+  (12 examples now baked).

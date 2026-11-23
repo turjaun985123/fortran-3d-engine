@@ -11,12 +11,12 @@
    "build_artifacts": false,
    "expect": {
     "exit": 0,
-    "stdout_sha256": "e8d3263a7142aa0f58b229d96ad7e214fbc23fc59492c7beeba75a2a05fa873f",
+    "stdout_sha256": "ed8b286b04d0197386fb024c738d6217fca28504459ce250a3ab1c45053cf315",
     "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "stdout_len": 11,
     "stderr_len": 0,
     "codes": [],
-    "stdout_text": "f3dc 0.1.0\n",
+    "stdout_text": "f3dc 2.0.0\n",
     "stderr_text": ""
    }
   },
@@ -558,7 +558,7 @@
     "stdout_text": "out/scene.scene\nout/scene.json\nout/scene.legacy.json\nout/scene.js\nout/scene.html\nout/scene_scene.f90\n",
     "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n",
     "artifacts": {
-     "scene.html": "636267e9683c6f07387d902afd20f6e80d7797ce7f148a148ab369cf5293a84c",
+     "scene.html": "d4aa5a6402ed2585d2d764840a7340647f07d1dfa87529298c534f730ada2284",
      "scene.js": "c5f409cba7f8fc95bde84a54037041f178fcf3de9edbdc02d9fa6514461101ef",
      "scene.json": "d3980294aaf012c2b380df2c1f06744dc0ac8572963d22d0a473eedca27031d8",
      "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
@@ -590,7 +590,7 @@
     "stdout_text": "out/scene.scene\nout/scene.json\nout/scene.legacy.json\nout/scene.js\nout/scene.html\nout/scene_scene.f90\n",
     "stderr_text": "",
     "artifacts": {
-     "scene.html": "71f8f42174b826d0cf7bf6d6897fe0783a59f3aa0782bc5089102000cc7dcff0",
+     "scene.html": "39ac1f07549029e8547f967fa1f3c2eeabdf4f8c87b118334b2c5f18d90ca144",
      "scene.js": "c23b188ffb359f99f7788b4408ea6aee5874a5d07d9b4ed941039709c4da2577",
      "scene.json": "087e0d65343d5b027fb50c4b293279adc66fb272335cd21215bd666afcbd2962",
      "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
@@ -630,12 +630,12 @@
    "build_artifacts": false,
    "expect": {
     "exit": 0,
-    "stdout_sha256": "6c2f2eb730290bd24f3c76d6e1c61193b297c8a0c48cd413b5dc98b307152697",
+    "stdout_sha256": "4f27cf7ad3f78784fec91249d650c332d3df68be8bc2a23dc1a1bc6077ce413a",
     "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "stdout_len": 242,
+    "stdout_len": 176,
     "stderr_len": 0,
     "codes": [],
-    "stdout_text": "f3dc 0.1.0\npython: 3.12.3 (/usr/bin/python3)\ngfortran: /usr/bin/gfortran\nmake: /usr/bin/make\nconvert: MISSING (optional)\nrepo root: /home/hatch/workspace/fortran-3d-engine\nengine sources: /home/hatch/workspace/fortran-3d-engine/src (present)\n",
+    "stdout_text": "f3dc 2.0.0\npython: 3.12.3 (/usr/bin/python3)\ngfortran: /usr/bin/gfortran\nmake: /usr/bin/make\nconvert: MISSING (optional)\nrepo root: /home/hatch/workspace/fortran-3d-engine\nengine sources: /home/hatch/workspace/fortran-3d-engine/src (present)\n",
     "stderr_text": ""
    }
   }

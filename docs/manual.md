@@ -7,7 +7,7 @@ Compiler: `f3dc` — native (Fortran modules plus a clang C helper,
 sources in `compiler/`), built with `make -C compiler` and installed as
 `bin/f3dc` by `make f3dc`. Building it requires flang-18 (binary
 `flang-new-18`) and clang-18; the compiler itself has no Python
-dependency. Version: `f3dc 0.1.0`.
+dependency. Version: `f3dc 2.0.0`.
 
 Comments start with `#` or `//`. One statement per line. Names are
 identifiers you choose (`cube spinner red …` names the cube `spinner`).
@@ -441,7 +441,7 @@ Canvas-2D fallback with the identical API). Embed it yourself:
   element; returns a player with `play()`, `pause()`, `setTime(t)`,
   `render(t?)`, and `destroy()`. Also exposed: `F3D.auto(scene)` (finds
   the first `<f3d-view>`/canvas and creates a player) and
-  `F3D.version` (`"1.0.0"`). TypeScript declarations: `runtime/f3d.d.ts`.
+  `F3D.version` (`"2.0.0"`). TypeScript declarations: `runtime/f3d.d.ts`.
 - Orbit controls are built in: drag to orbit, wheel to dolly, touch-drag
   on mobile — honouring the scene's `controls` line (§2.7). Shading is
   Lambert, matching the native renderer, and animation uses the same

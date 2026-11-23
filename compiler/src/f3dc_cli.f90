@@ -8,7 +8,8 @@
 ! Exit codes (cli.py): 0 ok, 1 scene errors, 2 usage (argparse),
 ! 3 IO, 4 toolchain, 70 unexpected internal error.
 !
-! VERSION must match VERSION in tools/f3dc/cli.py ("0.1.0").
+! The compiler version is defined here (the VERSION parameter
+! below); it is the single source of truth for the version string.
 !
 ! ---------------------------------------------------------------------
 ! Sibling entry points this file uses (all LANDED in compiler/src
@@ -85,7 +86,7 @@ program f3dc
   use f3dc_preview, only: preview_serve
   implicit none
 
-  character(len=*), parameter :: VERSION = "0.1.0"
+  character(len=*), parameter :: VERSION = "2.0.0"
   ! _COMMANDS in cli.py, in cli.py's order (used in the error text).
   character(len=*), parameter :: COMMAND_LIST = &
        "run, build, check, new, fmt, doctor, preview"

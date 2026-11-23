@@ -1,0 +1,19 @@
+# Forge3D example: XR device-check scene (see docs/XR-CHECK.md).
+# A few animated primitives arranged in front of the viewer for the
+# WebXR session test (parity item C4). XR has no .f3d form: the same
+# scene renders flat in the generated page, and the page's XR glue
+# (runtime/f3d-xr.js, window.Forge3DXR) presents it immersively.
+# Objects sit around z=-2.5, roughly at eye height, so they are in
+# comfortable view from the reference-space origin in a headset.
+# No `controls` line on purpose: the generated viewer then boots
+# its WebGL2 path, which the XR session needs.
+scene "xr-check" size 640 480 background black
+camera at 0 1.4 1.5 look 0 1 -2.5
+light directional dir -0.5 -1 -0.7 strength 1.2
+cube spinner red at -1.2 1 -2.5
+sphere bouncer blue at 0 1 -2.5
+pyramid pulser green at 1.2 1 -2.5
+animate spinner spin y speed 90 duration 4 fps 30
+bob bouncer amplitude 0.3 duration 2 fps 30
+pulse pulser duration 2 fps 30
+render duration 2 fps 30

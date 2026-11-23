@@ -1,0 +1,1230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>xr-check</title>
+<style>
+:root{--bg:#191923;--panel:#23232f;--text:#f4f4f8;--muted:#a7a7b8;--border:#3a3a4a;--accent:#38bdf8}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:#191923;background:rgb(25,25,35);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;flex-direction:column;min-height:100vh}
+header{display:flex;align-items:baseline;gap:1rem;flex-wrap:wrap;padding:.6rem 1rem;background:var(--panel);border-bottom:1px solid var(--border)}
+header h1{font-size:1.05rem;font-weight:600;color:var(--text)}
+header .hint{font-size:.82rem;color:var(--muted)}
+main{flex:1;display:flex;flex-direction:column;min-height:0}
+#f3d-canvas{display:block;flex:1;width:100%;min-height:0;background:#191923}
+#f3d-fallback{margin:1rem;padding:1rem;border:1px solid var(--border);border-radius:8px;background:var(--panel);color:var(--muted);font-size:.9rem;line-height:1.5}
+#f3d-fallback strong{color:var(--text)}
+noscript p{margin:1rem;padding:1rem;border:1px solid var(--border);border-radius:8px;color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+<h1>xr-check</h1>
+<span class="hint">drag to orbit - scroll to zoom</span>
+</header>
+<main>
+<canvas id="f3d-canvas" width="640" height="480"></canvas>
+<div id="f3d-fallback" role="alert"><strong>Could not render this scene.</strong> Neither the WebGL2 renderer nor the Canvas 2D fallback could start in this browser. Try a recent browser with hardware acceleration enabled.</div>
+<noscript><p>JavaScript is disabled, so this 3D scene cannot run. Please enable JavaScript and reload the page.</p></noscript>
+</main>
+<script>// Forge3D runtime v2.0.0 - dependency-free player for f3dc v2 scenes.
+// DECISION: Canvas2D only. It renders with the identical math to the
+// Fortran engine (lookAt + perspective, flat per-face normals, Lambert
+// 0.25+0.75*diffuse, painter sort by mean depth = extensions.depth_sort),
+// so stills are deterministic and match native output. A WebGL1 path is
+// deliberately NOT shipped in v1: correct and small beats fast and
+// wrong; WebGL acceleration is a later wave. Minified by the Makefile.
+// Scene (v2): {objects:[{prim,color,pos,rotate,scale,mirror,size,size3,radius,
+// height,segments,material,triangles}],camera,lights,animations,bg,
+// width,height}; legacy v1 {triangles:[{v,color}]} also loads.
+// Anim closed forms mirror src/animation.f90 exactly (see animState):
+// te = loop-mapped t (forever: t mod duration; pingpong: triangle;
+// once: clamp), p = clamp(te/duration), ep = ease(p) in {linear,
+// smooth: p*p*(3-2p), in: p*p, out: 1-(1-p)^2}. spin: angle =
+// speed*t if forever+linear else speed*duration*ep; turn: the latter;
+// bob: pos.y += 0.5*sin(2*pi*p); pulse: scale *= 1+0.2*sin(2*pi*p);
+// grow: scale *= max(ease(p_once),0.01); orbit (R=2, about Y):
+// pos += ((cos(a)-1)*2, 0, sin(a)*2), a = speed*te in degrees;
+// move: pos[axis] += speed*duration*ep. Defaults: speed 90,
+// duration 5, ease linear, loop forever, axis y.
+'use strict';
+(function (g) {
+var PALETTE=[[220,60,60],[60,220,60],[60,100,240],[240,220,50],[200,80,220],[60,220,220]];
+var NAMED={red:PALETTE[0],green:PALETTE[1],blue:PALETTE[2],yellow:PALETTE[3],magenta:PALETTE[4],cyan:PALETTE[5],orange:[240,140,40],purple:[140,80,200],pink:[240,150,190],white:[240,240,240],black:[20,20,25],gray:[140,140,145],grey:[140,140,145]};
+var D2R=Math.PI/180;
+// ---- small vec helpers (plain [x,y,z] arrays) ----
+function v3(v,d){if(v==null)return d.slice();if(typeof v==='number')return[v,v,v];return[+v[0]||0,+v[1]||0,+v[2]||0];}
+function sub(a,b){return[a[0]-b[0],a[1]-b[1],a[2]-b[2]];}
+function cross(a,b){return[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];}
+function dot(a,b){return a[0]*b[0]+a[1]*b[1]+a[2]*b[2];}
+function norm(a){var l=Math.hypot(a[0],a[1],a[2]);return l>1e-12?[a[0]/l,a[1]/l,a[2]/l]:[0,0,0];}
+function color(c,d){ // -> [r,g,b] 0..255 or null
+  if(c==null)return d||null;
+  if(typeof c==='string'){if(NAMED[c])return NAMED[c];if(c[0]==='#'){var n=parseInt(c.slice(1),16);return[(n>>16)&255,(n>>8)&255,n&255];}return d||null;}
+  if(c.length&&c.every(function(x){return x<=1;}))return c.map(function(x){return Math.round(x*255);});
+  return[+c[0]||0,+c[1]||0,+c[2]||0];}
+function rgb(c,i){return'rgb('+Math.min(255,Math.max(0,Math.round(c[0]*i)))+','+Math.min(255,Math.max(0,Math.round(c[1]*i)))+','+Math.min(255,Math.max(0,Math.round(c[2]*i)))+')';}
+// Rotate p by deg about x, then y, then z is NOT Fortran order; the
+// object transform below applies scale, Rz, Rx, Ry, translate, which is
+// exactly mat4_compose_trs = T*Ry*Rx*Rz*S from math_3d.f90.
+function xform(p,pos,rot,scl){
+  var x=p[0]*scl[0],y=p[1]*scl[1],z=p[2]*scl[2],c,s,t;
+  c=Math.cos(rot[2]*D2R);s=Math.sin(rot[2]*D2R);t=x*c-y*s;y=x*s+y*c;x=t; // Rz
+  c=Math.cos(rot[0]*D2R);s=Math.sin(rot[0]*D2R);t=y*c-z*s;z=y*s+z*c;y=t; // Rx
+  c=Math.cos(rot[1]*D2R);s=Math.sin(rot[1]*D2R);t=x*c+z*s;z=-x*s+z*c;x=t; // Ry
+  return[x+pos[0],y+pos[1],z+pos[2]];}
+function rotAxis(p,axis,deg){ // rotate a position about the origin
+  var c=Math.cos(deg*D2R),s=Math.sin(deg*D2R),x=p[0],y=p[1],z=p[2];
+  if(axis===0)return[x,y*c-z*s,y*s+z*c];
+  if(axis===2)return[x*c-y*s,x*s+y*c,z];
+  return[x*c+z*s,y,-x*s+z*c];}
+// ---- geometry builders: each returns [[a,b,c,faceIdx],...] ----
+// Windings mirror src/mesh.f90 so flat normals match native output.
+function tri(o,a,b,c,f,n){var t=[a,b,c,f||0];if(n)t[5]=n;o.push(t);}
+function cube(o,s3){var hx=s3[0]/2,hy=s3[1]/2,hz=s3[2]/2,
+  p=[[-hx,-hy,-hz],[hx,-hy,-hz],[hx,hy,-hz],[-hx,hy,-hz],[-hx,-hy,hz],[hx,-hy,hz],[hx,hy,hz],[-hx,hy,hz]],
+  F=[[0,2,1],[0,3,2],[1,6,5],[1,2,6],[5,7,4],[5,6,7],[4,3,0],[4,7,3],[3,6,2],[3,7,6],[4,1,5],[4,0,1]];
+  F.forEach(function(f,i){tri(o,p[f[0]],p[f[1]],p[f[2]],i>>1);});}
+function sphere(o,r,seg){seg=Math.max(3,seg|0);var rings=Math.max(2,(seg*3/4)|0),i,j;
+  function pt(jj,ii){var ph=Math.PI*jj/rings,th=2*Math.PI*ii/seg;return[r*Math.sin(ph)*Math.cos(th),r*Math.cos(ph),r*Math.sin(ph)*Math.sin(th)];}
+  function nr(jj,ii){var ph=Math.PI*jj/rings,th=2*Math.PI*ii/seg;return[Math.sin(ph)*Math.cos(th),Math.cos(ph),Math.sin(ph)*Math.sin(th)];}
+  var top=[0,r,0],bot=[0,-r,0],nt=[0,1,0],nb=[0,-1,0];
+  for(i=0;i<seg;i++){tri(o,top,pt(1,(i+1)%seg),pt(1,i),0,[nt,nr(1,(i+1)%seg),nr(1,i)]);}
+  for(j=1;j<rings-1;j++)for(i=0;i<seg;i++){var a=pt(j,i),b=pt(j,(i+1)%seg),c=pt(j+1,(i+1)%seg),d=pt(j+1,i);
+    tri(o,a,b,c,0,[nr(j,i),nr(j,(i+1)%seg),nr(j+1,(i+1)%seg)]);tri(o,a,c,d,0,[nr(j,i),nr(j+1,(i+1)%seg),nr(j+1,i)]);}
+  for(i=0;i<seg;i++){tri(o,bot,pt(rings-1,i),pt(rings-1,(i+1)%seg),0,[nb,nr(rings-1,i),nr(rings-1,(i+1)%seg)]);}}
+function cylinder(o,r,h,seg,cap){seg=Math.max(3,seg|0);var hh=h/2,i;
+  function pt(y,ii){var th=2*Math.PI*ii/seg;return[r*Math.cos(th),y,r*Math.sin(th)];}
+  function rn(ii){var th=2*Math.PI*ii/seg;return[Math.cos(th),0,Math.sin(th)];}
+  for(i=0;i<seg;i++){var b1=pt(-hh,i),b2=pt(-hh,(i+1)%seg),t1=pt(hh,i),t2=pt(hh,(i+1)%seg),n1=rn(i),n2=rn((i+1)%seg);
+    tri(o,b1,t2,b2,0,[n1,n2,n2]);tri(o,b1,t1,t2,0,[n1,n1,n2]);
+    if(cap){tri(o,[0,hh,0],t2,t1);tri(o,[0,-hh,0],b1,b2);}}}
+function cone(o,r,h,seg,cap){seg=Math.max(3,seg|0);var hh=h/2,apex=[0,hh,0],i;
+  function pt(ii){var th=2*Math.PI*ii/seg;return[r*Math.cos(th),-hh,r*Math.sin(th)];}
+  function sn(ii){var th=2*Math.PI*ii/seg;return norm([h*Math.cos(th),r,h*Math.sin(th)]);}
+  for(i=0;i<seg;i++){var b1=pt(i),b2=pt((i+1)%seg);tri(o,b1,apex,b2,0,[sn(i),sn(i),sn((i+1)%seg)]);if(cap)tri(o,[0,-hh,0],b1,b2);}}
+function plane(o,w,d){var a=[-w/2,0,-d/2],b=[w/2,0,-d/2],c=[w/2,0,d/2],e=[-w/2,0,d/2];tri(o,a,c,b);tri(o,a,e,c);tri(o,a,b,c);tri(o,a,c,e);} // double-sided since Wave C (D1): back pair mirrors mesh.f90 create_plane
+function pyramid(o,base,h){var hb=base/2,hh=h/2,apex=[0,hh,0],
+  p=[[-hb,-hh,-hb],[hb,-hh,-hb],[hb,-hh,hb],[-hb,-hh,hb]],i;
+  for(i=0;i<4;i++)tri(o,p[i],apex,p[(i+1)%4]);tri(o,p[3],p[1],p[2]);tri(o,p[3],p[0],p[1]);}
+function torus(o,R,tube,seg,tseg){seg=Math.max(3,seg|0);tseg=Math.max(3,tseg|0);var i,j;
+  function pt(ii,jj){var th=2*Math.PI*ii/seg,ph=2*Math.PI*jj/tseg,rr=R+tube*Math.cos(ph);return[rr*Math.cos(th),tube*Math.sin(ph),rr*Math.sin(th)];}
+  function tn(ii,jj){var th=2*Math.PI*ii/seg,ph=2*Math.PI*jj/tseg;return[Math.cos(ph)*Math.cos(th),Math.sin(ph),Math.cos(ph)*Math.sin(th)];}
+  for(i=0;i<seg;i++)for(j=0;j<tseg;j++){var a=pt(i,j),b=pt((i+1)%seg,j),c=pt((i+1)%seg,(j+1)%tseg),d=pt(i,(j+1)%tseg);
+    tri(o,a,d,c,0,[tn(i,j),tn(i,(j+1)%tseg),tn((i+1)%seg,(j+1)%tseg)]);tri(o,a,c,b,0,[tn(i,j),tn((i+1)%seg,(j+1)%tseg),tn((i+1)%seg,j)]);}}
+function build(obj){ // -> {tris, color|null}
+  var o=[],prim=String(obj.prim||'cube').toLowerCase(),size=obj.size!=null?+obj.size:2,
+    s3=obj.size3?v3(obj.size3,[size,size,size]):[size,size,size],
+    r=obj.radius!=null?+obj.radius:size/2,h=obj.height!=null?+obj.height:size,
+    seg=obj.segments!=null?+obj.segments:(prim==='torus'?24:16),cap=obj.capped!==false;
+  if(prim==='cube'||prim==='box')cube(o,s3);
+  else if(prim==='sphere')sphere(o,r,seg);
+  else if(prim==='cylinder')cylinder(o,r,h,seg,cap);
+  else if(prim==='cone')cone(o,r,h,seg,cap);
+  else if(prim==='plane')plane(o,obj.width!=null?+obj.width:s3[0],obj.depth!=null?+obj.depth:s3[2]);
+  else if(prim==='pyramid')pyramid(o,size,h);
+  else if(prim==='torus')torus(o,obj.radius!=null?+obj.radius:1,obj.tube!=null?+obj.tube:(obj.rings?size/4:0.35),seg,obj.rings!=null?+obj.rings:12);
+  else if(prim==='tris'||obj.triangles)(obj.triangles||[]).forEach(function(t){
+    var vs=t.v||t.verts||t.vertices||t;if(vs&&vs.length===3){var e=[v3(vs[0],[0,0,0]),v3(vs[1],[0,0,0]),v3(vs[2],[0,0,0]),0,color(t.color||t.c,null)],nn=t.normals||t[5];
+      if(nn&&nn.length===3)e[5]=[v3(nn[0],[0,0,0]),v3(nn[1],[0,0,0]),v3(nn[2],[0,0,0])];o.push(e);}});
+  // mirror "x"|"y"|"z" (P3): reflect local vertices + index-5
+  // normals across the named axis through the local origin.
+  // Baking it here, before xform applies scale/rotation/
+  // translation, gives exactly T*Ry*Rx*Rz*S*M, the engine's
+  // order. The composed determinant is -det(scale) (rotations
+  // have det +1), so when it is negative (det(scale) > 0) swap
+  // vertex order b/c -- and the normals entries likewise --
+  // so face normals, smooth shading and painter behaviour
+  // keep the unmirrored outward convention.
+  var sc=v3(obj.scale,[1,1,1]),mi=obj.mirror?'xyz'.indexOf(String(obj.mirror).toLowerCase()):-1;
+  if(mi>=0){var flip=sc[0]*sc[1]*sc[2]>0;
+    o.forEach(function(t){var k,vv,nn2;
+      for(k=0;k<3;k++){vv=t[k].slice();vv[mi]=-vv[mi];t[k]=vv;}
+      if(t[5])for(k=0;k<3;k++){nn2=t[5][k].slice();nn2[mi]=-nn2[mi];t[5][k]=nn2;}
+      if(flip){vv=t[1];t[1]=t[2];t[2]=vv;
+        if(t[5]){nn2=t[5][1];t[5][1]=t[5][2];t[5][2]=nn2;}}});}
+  return{tris:o,prim:prim,color:color(obj.color,null),
+    pos:v3(obj.pos||obj.position,[0,0,0]),rot:v3(obj.rotate||obj.rotation,[0,0,0]),
+    scl:sc,name:obj.name||'',mat:String(obj.material||'lambert').toLowerCase(),
+    shading:obj.shading?String(obj.shading).toLowerCase():('sphere,cylinder,cone,capsule,tube,lathe,torus,torusknot'.split(',').indexOf(prim)>=0?'smooth':'flat')};}
+function xformN(p,rot,scl){return norm(xform(p,[0,0,0],rot,scl));} // scale->Rz->Rx->Ry, no translate
+// ---- animation evaluation: returns modified {pos,rot,scl} ----
+function animState(obj,anims,t){
+  var pos=obj.pos.slice(),rot=obj.rot.slice(),scl=obj.scl.slice();
+  anims.forEach(function(a){
+    if(a.target&&a.target!=='all'&&obj.name&&a.target!==obj.name)return;
+    var ax='xyz'.indexOf(String(a.axis||'y').toLowerCase());if(ax<0)ax=1;
+    var sp=a.speed!=null?+a.speed:90,du=a.duration!=null?+a.duration:5,
+      lp=String(a.loop||'forever').toLowerCase(),ez=String(a.ease||'linear').toLowerCase(),
+      k=String(a.kind||'spin').toLowerCase(),te,p,ep;
+    if(lp==='forever')te=du>0?t%du:t;else if(lp==='pingpong'){if(du<=0)te=0;else{var cy=t%(2*du);te=cy<=du?cy:2*du-cy;}}
+    else te=du>0?Math.max(0,Math.min(t,du)):0;
+    p=du>0?Math.max(0,Math.min(1,te/du)):0;
+    ep=ez==='smooth'?p*p*(3-2*p):ez==='in'?p*p:ez==='out'?1-(1-p)*(1-p):p;
+    if(k==='spin')rot[ax]+=(lp==='forever'&&ez==='linear')?sp*t:sp*du*ep;
+    else if(k==='turn')rot[ax]+=sp*du*ep;
+    else if(k==='bob')pos[1]+=0.5*Math.sin(2*Math.PI*p);
+    else if(k==='pulse'){var f=1+0.2*Math.sin(2*Math.PI*p);scl=[scl[0]*f,scl[1]*f,scl[2]*f];}
+    else if(k==='grow'){var po=du>0?Math.max(0,Math.min(1,Math.max(0,Math.min(t,du))/du)):0,
+      go=ez==='smooth'?po*po*(3-2*po):ez==='in'?po*po:ez==='out'?1-(1-po)*(1-po):po,gf=Math.max(go,0.01);
+      scl=[scl[0]*gf,scl[1]*gf,scl[2]*gf];}
+    else if(k==='orbit'){var ar=sp*te*D2R;pos[0]+=(Math.cos(ar)-1)*2;pos[2]+=Math.sin(ar)*2;}
+    else if(k==='move')pos[ax]+=sp*du*ep;
+  });
+  return{pos:pos,rot:rot,scl:scl};}
+// ---- scene normalisation shared by create() and worldTris():
+// legacy v1 {triangles} and {meshes} shapes become {objects}.
+function normScene(scene){
+  if(scene.triangles&&!scene.objects)scene={objects:[{prim:'tris',triangles:scene.triangles}],bg:scene.bg,camera:scene.camera,lights:scene.lights};
+  if(scene.meshes&&!scene.objects)scene.objects=scene.meshes.map(function(m){return{prim:'tris',triangles:(m.triangles||[])};});
+  return scene;}
+// ---- player ----
+function create(el,scene){
+  if(typeof el==='string')el=document.querySelector(el);
+  var canvas=el&&el.tagName==='CANVAS'?el:null,host=el;
+  if(!canvas){canvas=document.createElement('canvas');if(host)host.appendChild(canvas);}
+  var ctx=canvas.getContext('2d');
+  scene=normScene(scene||g.F3D_SCENE||{objects:[{prim:'cube'}]});
+  var objs=(scene.objects||[]).map(build);
+  var cam=scene.camera||{},eye0=v3(cam.pos||cam.position,[3,2.5,4]),tgt0=v3(cam.target,[0,0,0]),
+    up=v3(cam.up,[0,1,0]),fov=cam.fov||60,near=cam.near||0.1,far=cam.far||100;
+  var L=(scene.lights&&scene.lights[0])||{},ld=norm(v3(L.direction||L.dir,[-0.5,-1,-0.7])),
+    bg=color(scene.bg,[25,25,35])||[25,25,35],anims=scene.animations||scene.anims||[];
+  var yaw=0,pitch=0,dist=1,playing=false,raf=0,t0=Date.now(),time=0,destroyed=false,drag=null;
+  function bounds(){var mn=[1e9,1e9,1e9],mx=[-1e9,-1e9,-1e9];
+    objs.forEach(function(o){o.tris.forEach(function(tr){tr.slice(0,3).forEach(function(p){var w=xform(p,o.pos,o.rot,o.scl);for(var i=0;i<3;i++){if(w[i]<mn[i])mn[i]=w[i];if(w[i]>mx[i])mx[i]=w[i];}});});});
+    if(mn[0]>mx[0])return{c:[0,0,0],r:1};
+    return{c:[(mn[0]+mx[0])/2,(mn[1]+mx[1])/2,(mn[2]+mx[2])/2],r:Math.max(0.1,Math.hypot(mx[0]-mn[0],mx[1]-mn[1],mx[2]-mn[2])/2)};}
+  function autoFrame(){var b=bounds(),d=sub(eye0,tgt0),l=Math.hypot(d[0],d[1],d[2])||1,
+    need=b.r/Math.tan(fov*D2R/2)*1.1;dist=Math.max(l,need)/l;tgt0=b.c;eye0=[b.c[0]+d[0]/l*need,b.c[1]+d[1]/l*need,b.c[2]+d[2]/l*need];}
+  if(!scene.camera)autoFrame();
+  function resize(){var w=(host&&host.clientWidth)||canvas.clientWidth||scene.width||640,
+    h=(host&&host.clientHeight)||canvas.clientHeight||scene.height||480;
+    if(canvas.width!==w)canvas.width=w;if(canvas.height!==h)canvas.height=h;}
+  function eye(){ // orbit offsets: yaw about world Y, pitch about camera right
+    var e=sub(eye0,tgt0);e=rotAxis(e,1,yaw);
+    var f=norm(sub(tgt0,[tgt0[0]+e[0],tgt0[1]+e[1],tgt0[2]+e[2]])),r=norm(cross(f,up));
+    var c=Math.cos(pitch),s=Math.sin(pitch),d=sub([0,0,0],f); // rotate e about r by pitch
+    var cr=cross(r,e);e=[e[0]*c+cr[0]*s,e[1]*c+cr[1]*s,e[2]*c+cr[2]*s];void d;
+    return[tgt0[0]+e[0]*dist,tgt0[1]+e[1]*dist,tgt0[2]+e[2]*dist];}
+  function render(t){
+    if(t!=null)time=t;resize();
+    var W=canvas.width,H=canvas.height,ep=eye(),
+      f=norm(sub(tgt0,ep)),r=norm(cross(f,up)),u=cross(r,f),
+      th=Math.tan(fov*D2R/2),asp=W/Math.max(1,H),faces=[];
+    ctx.fillStyle=rgb(bg,1);ctx.fillRect(0,0,W,H);
+    objs.forEach(function(o){
+      var st=animState(o,anims,time);
+      o.tris.forEach(function(tr){
+        var vs=[],vd=[],dep=0,n,i;
+        for(i=0;i<3;i++){var w=xform(tr[i],st.pos,st.rot,st.scl),rel=sub(w,ep),
+          vx=dot(r,rel),vy=dot(u,rel),vz=-dot(f,rel); // view space, front = -z
+          var cw=-vz;if(cw<near)cw=near;
+          vs.push([(vx/(asp*th)/cw+1)*W/2,(1-vy/th/cw)*H/2]);dep+=-vz;vd.push(-vz);}
+        var a=vs[0],b=vs[1],cc=vs[2];
+        var w0=xform(tr[0],st.pos,st.rot,st.scl),w1=xform(tr[1],st.pos,st.rot,st.scl),w2=xform(tr[2],st.pos,st.rot,st.scl);
+        n=norm(cross(sub(w1,w0),sub(w2,w0)));
+        var col=tr[4]||o.color||(o.prim==='cube'||o.prim==='box'?PALETTE[tr[3]%6]:[255,255,255]);
+        var inten=o.mat==='basic'?1:0.25+0.75*Math.max(0,-dot(n,ld));
+        if(o.shading==='smooth'&&tr[5]){ // Gouraud via fixed subdivision: n=4/edge, 16 sub-tris, centroid intensity; sub-tris are separate faces with their own centroid depths
+          var vi=tr[5].map(function(q){var wn=xformN(q,st.rot,st.scl);return o.mat==='basic'?1:0.25+0.75*Math.max(0,-dot(wn,ld));}),
+            N=4,GP=[],GI=[],GD=[],ii,jj,k;
+          for(ii=0;ii<=N;ii++)for(jj=0;jj<=N-ii;jj++){var wA=(N-ii-jj)/N,wB=ii/N,wC=jj/N;
+            GP.push([wA*vs[0][0]+wB*vs[1][0]+wC*vs[2][0],wA*vs[0][1]+wB*vs[1][1]+wC*vs[2][1]]);
+            GI.push(wA*vi[0]+wB*vi[1]+wC*vi[2]);GD.push(wA*vd[0]+wB*vd[1]+wC*vd[2]);}
+          function gi(x,y){return x*(N+1)-x*(x-1)/2+y;}
+          function sub3(p,q,s){faces.push({vs:[GP[p],GP[q],GP[s]],dep:(GD[p]+GD[q]+GD[s])/3,col:col,i:(GI[p]+GI[q]+GI[s])/3});}
+          for(ii=0;ii<N;ii++)for(jj=0;jj<N-ii;jj++){sub3(gi(ii,jj),gi(ii+1,jj),gi(ii,jj+1));
+            if(jj<N-1-ii)sub3(gi(ii+1,jj+1),gi(ii+1,jj),gi(ii,jj+1));}
+        }else faces.push({vs:vs,dep:dep/3,col:col,i:inten});});});
+    faces.sort(function(a,b){return b.dep-a.dep;}); // painter: far first
+    faces.forEach(function(fc){ctx.beginPath();ctx.moveTo(fc.vs[0][0],fc.vs[0][1]);
+      ctx.lineTo(fc.vs[1][0],fc.vs[1][1]);ctx.lineTo(fc.vs[2][0],fc.vs[2][1]);ctx.closePath();
+      ctx.fillStyle=rgb(fc.col,fc.i);ctx.fill();});
+    return api;}
+  function loop(){if(!playing||destroyed)return;time=(Date.now()-t0)/1000;render();raf=requestAnimationFrame(loop);}
+  // controls: drag orbit, wheel dolly along view dir (via dist), touch drag
+  function down(e){drag={x:e.clientX,y:e.clientY};if(canvas.setPointerCapture&&e.pointerId!=null)try{canvas.setPointerCapture(e.pointerId);}catch(_){}}
+  function move(e){if(!drag)return;yaw+=(e.clientX-drag.x)*0.5;pitch+=(e.clientY-drag.y)*0.5;
+    pitch=Math.max(-89,Math.min(89,pitch));drag={x:e.clientX,y:e.clientY};if(!playing)render();}
+  function up2(){drag=null;}
+  function wheel(e){e.preventDefault();dist*=Math.exp(e.deltaY*0.001);dist=Math.max(0.05,Math.min(50,dist));if(!playing)render();}
+  if(canvas.addEventListener){canvas.addEventListener('pointerdown',down);canvas.addEventListener('pointermove',move);
+    canvas.addEventListener('pointerup',up2);canvas.addEventListener('pointercancel',up2);
+    canvas.addEventListener('wheel',wheel,{passive:false});canvas.addEventListener('dblclick',function(){yaw=pitch=0;dist=1;if(!playing)render();});}
+  var api={canvas:canvas,scene:scene,play:function(){if(!playing){playing=true;t0=Date.now()-time*1000;raf=requestAnimationFrame(loop);}return api;},
+    pause:function(){playing=false;if(raf)cancelAnimationFrame(raf);return api;},
+    setTime:function(t){time=t;return render();},render:render,autoFrame:function(){autoFrame();return render();},
+    destroy:function(){destroyed=true;api.pause();
+      if(canvas.removeEventListener){canvas.removeEventListener('pointerdown',down);canvas.removeEventListener('pointermove',move);canvas.removeEventListener('pointerup',up2);canvas.removeEventListener('wheel',wheel);}}};
+  render(0);if(anims.length)api.play();
+  return api;}
+// ---- worldTris(scene, t): flat world-space triangles in the
+// core tri format ([a,b,c,faceIdx,color,normals?]) for time t,
+// computed with the same build/animState/xform paths render()
+// uses, so the WebGL2 sidecar draws exactly what the player
+// would. Colours are resolved (per-tri, else object, else the
+// cube palette / white rule of render()); index-5 normals are
+// carried, rotated by xformN like the smooth-shading path.
+function worldTris(scene,t){
+  scene=normScene(scene||g.F3D_SCENE||{objects:[{prim:'cube'}]});
+  var anims=scene.animations||scene.anims||[],out=[];
+  (scene.objects||[]).map(build).forEach(function(o){
+    var st=animState(o,anims,t||0);
+    o.tris.forEach(function(tr){
+      var e=[],i;for(i=0;i<3;i++)e[i]=xform(tr[i],st.pos,st.rot,st.scl);
+      e[3]=tr[3];e[4]=tr[4]||o.color||(o.prim==='cube'||o.prim==='box'?PALETTE[tr[3]%6]:[255,255,255]);
+      if(tr[5])e[5]=tr[5].map(function(q){return xformN(q,st.rot,st.scl);});
+      out.push(e);});});
+  return out;}
+function auto(scene){
+  var el=document.querySelector('f3d-view')||document.querySelector('canvas#f3d-canvas');
+  if(!el)return null;
+  var fb=document.querySelector('#f3d-fallback');if(fb)fb.style.display='none';
+  if(el.tagName!=='CANVAS'&&!el.querySelector('canvas')){/* create() appends one */}
+  return create(el,scene||g.F3D_SCENE);}
+g.F3D={create:create,auto:auto,worldTris:worldTris,version:'2.0.0'};
+// <f3d-view>: uses window.F3D_SCENE, or fetches its src JSON (http only;
+// file:// fetch failures are caught and fallback text stays visible).
+if(typeof customElements!=='undefined'&&!customElements.get('f3d-view')){
+  customElements.define('f3d-view',class extends HTMLElement{
+    connectedCallback(){var self=this,go=function(s){self._p=create(self,s);};
+      if(this.getAttribute('src'))fetch(this.getAttribute('src')).then(function(r){return r.json();}).then(go).catch(function(){self.textContent='f3d-view: could not load '+self.getAttribute('src');});
+      else if(g.F3D_SCENE)go(g.F3D_SCENE);}
+    disconnectedCallback(){if(this._p)this._p.destroy();}});}
+})(typeof window!=='undefined'?window:globalThis);
+</script>
+<script>// Forge3D WebGL2 sidecar - OPTIONAL module, load AFTER
+// runtime/f3d.js (or standalone: it has no dependencies).
+// GPU rasterisation path for the same scene triangles the
+// Canvas2D core (runtime/f3d.js) draws with the painter's
+// algorithm. This sidecar replaces painter sorting with a real
+// depth buffer (DEPTH_TEST). Shading here is the same Lambert
+// as the core runtime (see shadeIntensity() below, mirroring
+// f3d.js): intensity = ambient + (1 - ambient) * diffuse with
+// ambient 0.25 by default, diffuse = max(0, -dot(normal,
+// normalize(lightDir))) and lightDir [-0.5, -1, -0.7] by
+// default. Since P1 the intensity is computed PER-VERTEX in
+// the vertex shader from the aNorm attribute and the uLight /
+// uAmbient uniforms, and interpolated (Gouraud): a triangle
+// carrying the index-5 per-vertex normals element shades
+// smoothly, while a triangle without one uploads its face
+// normal -- norm(cross(v1 - v0, v2 - v0)) over the triangle's
+// positions -- for all three vertices, reproducing the old
+// flat Lambert colours. Colours are uploaded UNshaded (base
+// colour / 255); the fragment shader outputs the interpolated
+// intensity times the colour. Pass opts.flat = true to
+// renderScene() / attach() to force intensity 1 (the raw base
+// colours), and opts.shading = 'flat' to force face normals
+// even for triangles that carry vertex normals.
+//
+// HONEST VERIFICATION STATEMENT: real GPU rasterization
+// requires a browser. This sidecar is verified headlessly via
+// mock-GL call verification + transform math parity (see
+// tests/compiler/test_f3d_webgl2_js.py): the tests substitute a
+// recording mock WebGL2 context and assert every GL call, and
+// projectPoint() is checked against Fortran-convention
+// expectations. No real GPU, framebuffer, or pixel output is
+// exercised by the headless tests.
+//
+// Triangle payload -- the exact element shape runtime/f3d.js
+// consumes / produces. f3d.js build() yields per-object tris as
+//   [[a, b, c, faceIdx, colour?], ...]
+// where a/b/c are [x, y, z] vertices and colour (index 4, when
+// present) is [r, g, b] with components in 0..255 (the same
+// range f3d.js color() returns). renderScene() accepts that
+// shape, plus these equivalent forms, all documented here:
+//   - flat soup: [x1,y1,z1, x2,y2,z2, x3,y3,z3, ...]
+//     (the flat form runtime/f3d-raycast.js cast() consumes;
+//     colour defaults to white)
+//   - per-tri flat: [[x1,y1,z1, ..., x3,y3,z3, colour?], ...]
+//     where colour is an optional [r, g, b] (0..255) as the
+//     10th element, or r, g, b as elements 9, 10, 11
+//   - scene triangles: [{v: [a, b, c], color: [r, g, b]}, ...]
+//     (also verts/vertices for v, colour for color), the
+//     legacy v1 / prim:'tris' element shape of f3d.js scenes
+// Colours are uploaded normalised to 0..1 (value / 255),
+// multiplied by the Lambert intensity above unless flat.
+//
+// Matrix convention: mvp is a flat 16-element array in
+// COLUMN-MAJOR order -- element (row, col) of the Fortran
+// mat4 m(4,4) (src/math_3d.f90) lives at mvp[col*4 + row], so
+// the translation sits at indices 12, 13, 14 and a point
+// transforms exactly as mat4_transform_vec3 computes it:
+//   x' = m[0]*x + m[4]*y + m[8]*z  + m[12]
+//   y' = m[1]*x + m[5]*y + m[9]*z  + m[13]
+//   z' = m[2]*x + m[6]*y + m[10]*z + m[14]
+//   w  = m[3]*x + m[7]*y + m[11]*z + m[15]
+// This is the order WebGL expects, so renderScene() passes the
+// array to uniformMatrix4fv(loc, false, ...) untransposed.
+// Plain script, zero deps, no modules.
+'use strict';
+(function (g) {
+var VERT_SRC = [
+  '#version 300 es',
+  'in vec3 aPos;',
+  'in vec3 aColor;',
+  'in vec3 aNorm;',
+  'uniform mat4 uMVP;',
+  'uniform vec3 uLight;',
+  'uniform float uAmbient;',
+  'out vec3 vColor;',
+  'out float vI;',
+  'void main() {',
+  '  vColor = aColor;',
+  '  vI = uAmbient + (1.0 - uAmbient) * max(0.0, -dot(normalize(aNorm), uLight));',
+  '  gl_Position = uMVP * vec4(aPos, 1.0);',
+  '}'
+].join('\n');
+var FRAG_SRC = [
+  '#version 300 es',
+  'precision mediump float;',
+  'in vec3 vColor;',
+  'in float vI;',
+  'out vec4 outColor;',
+  'void main() {',
+  '  outColor = vec4(vColor * vI, 1.0);',
+  '}'
+].join('\n');
+var IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+// f3d.js scene background default: color(scene.bg, [25,25,35]).
+var DEFAULT_CLEAR = [25, 25, 35];
+
+function isAvailable(canvas) {
+  try {
+    var c = canvas;
+    if (!c) {
+      if (typeof document === 'undefined' || !document.createElement)
+        return false;
+      c = document.createElement('canvas');
+    }
+    if (!c.getContext) return false;
+    return !!c.getContext('webgl2');
+  } catch (e) {
+    return false;
+  }
+}
+
+function create(canvas) {
+  try {
+    if (!canvas || !canvas.getContext) return null;
+    var gl = canvas.getContext('webgl2');
+    if (!gl) return null;
+    function shader(type, src) {
+      var s = gl.createShader(type);
+      if (!s) return null;
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) return null;
+      return s;
+    }
+    var vs = shader(gl.VERTEX_SHADER, VERT_SRC);
+    if (!vs) return null;
+    var fs = shader(gl.FRAGMENT_SHADER, FRAG_SRC);
+    if (!fs) return null;
+    var program = gl.createProgram();
+    if (!program) return null;
+    gl.attachShader(program, vs);
+    gl.attachShader(program, fs);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return null;
+    var posBuf = gl.createBuffer();
+    var colBuf = gl.createBuffer();
+    var norBuf = gl.createBuffer();
+    if (!posBuf || !colBuf || !norBuf) return null;
+    return {
+      canvas: canvas,
+      gl: gl,
+      program: program,
+      buffers: { position: posBuf, color: colBuf, normal: norBuf },
+      aPos: gl.getAttribLocation(program, 'aPos'),
+      aColor: gl.getAttribLocation(program, 'aColor'),
+      aNorm: gl.getAttribLocation(program, 'aNorm'),
+      uMVP: gl.getUniformLocation(program, 'uMVP'),
+      uLight: gl.getUniformLocation(program, 'uLight'),
+      uAmbient: gl.getUniformLocation(program, 'uAmbient'),
+      // Scene background, [r, g, b] 0..255 (alpha optional 4th,
+      // 0..1 or 0..255); callers may replace it before render.
+      clearColor: DEFAULT_CLEAR.slice()
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+// ---- Lambert shading, mirroring runtime/f3d.js exactly ----
+// f3d.js: ld = norm(v3(L.direction || L.dir, [-0.5, -1, -0.7]));
+// per face n = norm(cross(sub(w1, w0), sub(w2, w0))) over the
+// (world) vertex positions, and the intensity is
+//   inten = 0.25 + 0.75 * Math.max(0, -dot(n, ld))
+// (for material 'lambert'; 'basic' is unshaded there -- here
+// opts.flat = true is the equivalent opt-out). The helpers
+// below copy f3d.js's sub/cross/dot/norm, including norm's
+// 1e-12 zero guard.
+var DEFAULT_LIGHT_DIR = [-0.5, -1, -0.7];
+var DEFAULT_AMBIENT = 0.25;
+function vsub(a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
+function vcross(a, b) {
+  return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2],
+          a[0] * b[1] - a[1] * b[0]];
+}
+function vdot(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+function vnorm(a) {
+  var l = Math.hypot(a[0], a[1], a[2]);
+  return l > 1e-12 ? [a[0] / l, a[1] / l, a[2] / l] : [0, 0, 0];
+}
+function vclean(v) { return [+v[0] || 0, +v[1] || 0, +v[2] || 0]; }
+// Resolve renderScene() opts into a shading descriptor:
+// { flat: boolean, ld: normalized lightDir, ambient: number,
+//   flatNorm: boolean }. flatNorm (opts.shading === 'flat')
+// forces per-face normals even when a tri carries the index-5
+// per-vertex normals element (the P1 smooth-shading contract:
+// explicit object shading wins). The intensity itself is now
+// computed per-vertex in the vertex shader from aNorm and the
+// uLight / uAmbient uniforms; shadeIntensity() below is kept
+// as the CPU reference of the same formula.
+function resolveShade(opts) {
+  var o = opts || {};
+  var ambient = o.ambient != null ? +o.ambient : DEFAULT_AMBIENT;
+  if (!(ambient >= 0)) ambient = DEFAULT_AMBIENT;
+  var ld = DEFAULT_LIGHT_DIR;
+  if (o.lightDir && o.lightDir.length === 3) ld = vclean(o.lightDir);
+  return { flat: !!o.flat, ld: vnorm(ld), ambient: ambient,
+           flatNorm: o.shading === 'flat' };
+}
+function shadeIntensity(verts, shade) {
+  if (shade.flat) return 1;
+  var w0 = vclean(verts[0]), w1 = vclean(verts[1]),
+    w2 = vclean(verts[2]);
+  var n = vnorm(vcross(vsub(w1, w0), vsub(w2, w0)));
+  var diffuse = Math.max(0, -vdot(n, shade.ld));
+  return shade.ambient + (1 - shade.ambient) * diffuse;
+}
+
+// Normalise the accepted triangle shapes (see header) into
+// {positions, colors, normals: Float32Array, count} with count
+// triangles, each array length count*9: positions, per-vertex
+// base colors in 0..1 (UNSHADED -- the vertex shader applies
+// the Lambert intensity), and per-vertex normals. A tri's
+// index-5 normals element ([na, nb, nc], local space) is used
+// verbatim unless shade.flatNorm forces face normals; tris
+// without normals get their face normal (computed exactly as
+// shadeIntensity does) uploaded for all three vertices, which
+// reproduces the old flat Lambert result through the shader.
+//
+// Mirror (P3): opts.mirror is 'x' | 'y' | 'z' (or an array of
+// axes) and mirrors the CORE runtime's treatment of a scene
+// object's mirror field: vertices and index-5 normals are
+// reflected across the named axis through the local origin
+// here, in the upload path, i.e. in local space before the
+// caller's MVP applies the object transform. A single-axis
+// reflection has negative determinant, so vertex order b/c --
+// and the normals entries likewise -- are swapped (an even
+// number of axes swaps back), keeping face normals, aNorm
+// shading and winding at the unmirrored outward convention.
+// Callers whose tris already came from the core build() (which
+// bakes mirror itself) must NOT pass opts.mirror again.
+function parseMirror(mirror) {
+  if (!mirror) return [];
+  var list = Array.isArray(mirror) ? mirror : [mirror];
+  var axes = [];
+  for (var k = 0; k < list.length; k++) {
+    var ax = 'xyz'.indexOf(String(list[k]).toLowerCase());
+    if (ax >= 0) axes.push(ax);
+  }
+  return axes;
+}
+function normalizeTris(tris, shade, mirrorAxes) {
+  var pos = [], col = [], nor = [], i, j;
+  shade = shade || resolveShade(null);
+  var mAxes = mirrorAxes || [];
+  function pushVert(v) {
+    pos.push(+v[0] || 0, +v[1] || 0, +v[2] || 0);
+  }
+  function faceNormal(verts) {
+    var w0 = vclean(verts[0]), w1 = vclean(verts[1]),
+      w2 = vclean(verts[2]);
+    return vnorm(vcross(vsub(w1, w0), vsub(w2, w0)));
+  }
+  function pushTri(verts, color, normals) {
+    if (mAxes.length) {
+      var refl = function (v) {
+        var w = vclean(v);
+        for (var k = 0; k < mAxes.length; k++) w[mAxes[k]] = -w[mAxes[k]];
+        return w;
+      };
+      verts = verts.map(refl);
+      if (normals && normals.length === 3) normals = normals.map(refl);
+      if (mAxes.length % 2 === 1) { // negative determinant
+        verts = [verts[0], verts[2], verts[1]];
+        if (normals && normals.length === 3)
+          normals = [normals[0], normals[2], normals[1]];
+      }
+    }
+    var c = color || [255, 255, 255];
+    var r = Math.min(255, Math.max(0, +c[0] || 0)) / 255;
+    var gg = Math.min(255, Math.max(0, +c[1] || 0)) / 255;
+    var b = Math.min(255, Math.max(0, +c[2] || 0)) / 255;
+    var useN = normals && normals.length === 3 && !shade.flatNorm;
+    var fn = useN ? null : faceNormal(verts);
+    for (j = 0; j < 3; j++) {
+      pushVert(verts[j]); col.push(r, gg, b);
+      var nv = useN ? vclean(normals[j]) : fn;
+      nor.push(nv[0], nv[1], nv[2]);
+    }
+  }
+  if (!tris) return null;
+  if (typeof tris[0] === 'number') { // flat soup
+    for (i = 0; i + 9 <= tris.length; i += 9)
+      pushTri([[tris[i], tris[i + 1], tris[i + 2]],
+               [tris[i + 3], tris[i + 4], tris[i + 5]],
+               [tris[i + 6], tris[i + 7], tris[i + 8]]], null);
+  } else {
+    for (i = 0; i < tris.length; i++) {
+      var t = tris[i];
+      if (!t) continue;
+      if (typeof t[0] === 'number') { // per-tri flat, 9+ numbers
+        var color = null;
+        if (Array.isArray(t[9])) color = t[9];
+        else if (t.length >= 12) color = [t[9], t[10], t[11]];
+        pushTri([[t[0], t[1], t[2]], [t[3], t[4], t[5]],
+                 [t[6], t[7], t[8]]], color);
+      } else if (Array.isArray(t[0])) { // f3d.js build() shape
+        pushTri([t[0], t[1], t[2]], t[4], t[5]);
+      } else { // scene triangle object {v|verts|vertices, color}
+        var vs = t.v || t.verts || t.vertices;
+        if (vs && vs.length === 3)
+          pushTri(vs, t.color || t.colour, t.normals);
+      }
+    }
+  }
+  return { positions: new Float32Array(pos),
+           colors: new Float32Array(col),
+           normals: new Float32Array(nor),
+           count: pos.length / 9 };
+}
+
+function clearRGBA(renderer) {
+  var c = renderer.clearColor || DEFAULT_CLEAR;
+  function ch(v, dflt) {
+    if (v == null) return dflt;
+    v = +v || 0;
+    return v > 1 ? v / 255 : v;
+  }
+  return [ch(c[0], 25 / 255), ch(c[1], 25 / 255), ch(c[2], 35 / 255),
+          c.length > 3 ? ch(c[3], 1) : 1];
+}
+
+// renderScene(renderer, tris, mvp, opts?) -> number of
+// triangles drawn (0 when the renderer / payload is unusable;
+// never throws). opts: { lightDir = [-0.5, -1, -0.7],
+// ambient = 0.25, flat = false, mirror = 'x'|'y'|'z' } --
+// see the Lambert note above and the Mirror note at
+// normalizeTris().
+function renderScene(renderer, tris, mvp, opts) {
+  try {
+    if (!renderer || !renderer.gl || !renderer.program) return 0;
+    var shade = resolveShade(opts);
+    var data = normalizeTris(tris, shade,
+      parseMirror(opts && opts.mirror));
+    if (!data || data.count === 0) return 0;
+    var gl = renderer.gl;
+    gl.useProgram(renderer.program);
+    gl.enable(gl.DEPTH_TEST);
+    var cc = clearRGBA(renderer);
+    gl.clearColor(cc[0], cc[1], cc[2], cc[3]);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.bindBuffer(gl.ARRAY_BUFFER, renderer.buffers.position);
+    gl.bufferData(gl.ARRAY_BUFFER, data.positions, gl.STATIC_DRAW);
+    gl.vertexAttribPointer(renderer.aPos, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(renderer.aPos);
+    gl.bindBuffer(gl.ARRAY_BUFFER, renderer.buffers.color);
+    gl.bufferData(gl.ARRAY_BUFFER, data.colors, gl.STATIC_DRAW);
+    gl.vertexAttribPointer(renderer.aColor, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(renderer.aColor);
+    gl.bindBuffer(gl.ARRAY_BUFFER, renderer.buffers.normal);
+    gl.bufferData(gl.ARRAY_BUFFER, data.normals, gl.STATIC_DRAW);
+    gl.vertexAttribPointer(renderer.aNorm, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(renderer.aNorm);
+    var m = (mvp && mvp.length === 16) ? mvp : IDENTITY;
+    gl.uniformMatrix4fv(renderer.uMVP, false, new Float32Array(m));
+    // Light uniforms for the shader Lambert: flat opts out by
+    // pinning ambient to 1 (intensity is then exactly 1).
+    // Guarded so recording mock GLs without uniform3f /
+    // uniform1f still exercise the rest of the call sequence.
+    if (gl.uniform3f) gl.uniform3f(renderer.uLight,
+      shade.ld[0], shade.ld[1], shade.ld[2]);
+    if (gl.uniform1f) gl.uniform1f(renderer.uAmbient,
+      shade.flat ? 1 : shade.ambient);
+    gl.drawArrays(gl.TRIANGLES, 0, data.count * 3);
+    return data.count;
+  } catch (e) {
+    return 0;
+  }
+}
+
+// projectPoint(mvp, p) -> [x, y, z] after perspective divide,
+// mirroring mat4_transform_vec3(m, p, is_point=true) in
+// src/math_3d.f90 under the column-major convention above:
+// the divide happens only when |w| > 1e-12, as in Fortran.
+function projectPoint(mvp, p) {
+  var m = (mvp && mvp.length === 16) ? mvp : IDENTITY;
+  var x = p[0], y = p[1], z = p[2];
+  var rx = m[0] * x + m[4] * y + m[8] * z + m[12];
+  var ry = m[1] * x + m[5] * y + m[9] * z + m[13];
+  var rz = m[2] * x + m[6] * y + m[10] * z + m[14];
+  var w = m[3] * x + m[7] * y + m[11] * z + m[15];
+  if (Math.abs(w) > 1e-12) { rx /= w; ry /= w; rz /= w; }
+  return [rx, ry, rz];
+}
+
+// attach(canvas, tris, mvp, opts?) -> 'webgl2' when create() +
+// renderScene() succeeded, else 'canvas2d'. opts is passed
+// through to renderScene() (Lambert lightDir / ambient / flat).
+// attach() itself only reports: on 'canvas2d' the caller falls
+// back to the Canvas2D core runtime (runtime/f3d.js), which
+// owns fallback drawing; attach() does not draw anything in
+// 2D itself. opts is passed through to renderScene()
+// (Lambert lightDir / ambient / flat, mirror).
+function attach(canvas, tris, mvp, opts) {
+  try {
+    var renderer = create(canvas);
+    if (!renderer) return 'canvas2d';
+    return renderScene(renderer, tris, mvp, opts) > 0
+      ? 'webgl2' : 'canvas2d';
+  } catch (e) {
+    return 'canvas2d';
+  }
+}
+
+g.Forge3DWebGL2 = { VERT_SRC: VERT_SRC, FRAG_SRC: FRAG_SRC,
+  isAvailable: isAvailable, create: create,
+  renderScene: renderScene, projectPoint: projectPoint,
+  attach: attach };
+if (typeof window !== 'undefined') window.Forge3DWebGL2 = g.Forge3DWebGL2;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+</script>
+<script>// Forge3D generated file - do not edit
+// source: xr-check
+// sha256: c5991873e7ec5125639feb2ae9cb8d844ff4ca0d5b3c8639ba35a5b5f5aba3ea
+if (typeof window === "undefined" && typeof globalThis !== "undefined") { var window = globalThis; }
+window.F3D_SCENE = {"animations":[{"axis":"y","duration":4.0,"ease":"linear","fps":30,"kind":"spin","loop":"forever","speed":90.0,"target":"spinner"},{"axis":"y","duration":2.0,"ease":"linear","fps":30,"kind":"bob","loop":"forever","speed":90.0,"target":"bouncer"},{"axis":"y","duration":2.0,"ease":"linear","fps":30,"kind":"pulse","loop":"forever","speed":90.0,"target":"pulser"}],"bg":[20,20,25],"camera":{"far":100.0,"fov":60.0,"near":0.1,"pos":[0.0,1.4,1.5],"target":[0.0,1.0,-2.5],"up":[0.0,1.0,0.0]},"extensions":{"dedup_candidates":0,"depth_sort":true},"format":"forge3d-scene","height":480,"ir_version":1,"lights":[{"color":[255,255,255],"direction":[-0.5,-1.0,-0.7],"intensity":1.2,"kind":"directional"}],"name":"xr-check","objects":[{"capped":true,"color":[220,60,60],"detail":"med","extensions":{},"height":null,"material":"lambert","name":"spinner","pos":[-1.2,1.0,-2.5],"prim":"cube","radius":null,"rotate":[0.0,0.0,0.0],"scale":[1.0,1.0,1.0],"segments":null,"size":2.0,"size3":null,"source_file":null,"triangles":null},{"capped":true,"color":[60,100,240],"detail":"med","extensions":{},"height":null,"material":"lambert","name":"bouncer","pos":[0.0,1.0,-2.5],"prim":"sphere","radius":1.0,"rotate":[0.0,0.0,0.0],"scale":[1.0,1.0,1.0],"segments":16,"size":null,"size3":null,"source_file":null,"triangles":null},{"capped":true,"color":[60,220,60],"detail":"med","extensions":{},"height":2.0,"material":"lambert","name":"pulser","pos":[1.2,1.0,-2.5],"prim":"pyramid","radius":null,"rotate":[0.0,0.0,0.0],"scale":[1.0,1.0,1.0],"segments":null,"size":2.0,"size3":null,"source_file":null,"triangles":null}],"outputs":[{"format":"render","height":480,"kind":"render","path":"output_render.ppm","width":640}],"version":2,"width":640};
+;(function () {
+  try {
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+    var run = function () {
+      try {
+        if (typeof window.F3D === "undefined" || !window.F3D) return;
+        if (typeof window.F3D.auto !== "function") return;
+        if (typeof document.querySelector !== "function") return;
+        if (!document.querySelector("f3d-view, canvas#f3d-canvas")) return;
+        window.F3D.auto(window.F3D_SCENE);
+      } catch (e) {}
+    };
+    if (typeof document !== "undefined" && document.readyState === "loading" &&
+        typeof document.addEventListener === "function") {
+      document.addEventListener("DOMContentLoaded", run);
+    } else if (typeof document !== "undefined" &&
+               (document.readyState === "interactive" ||
+                document.readyState === "complete")) {
+      run();
+    } else if (typeof document !== "undefined" &&
+               typeof document.addEventListener === "function") {
+      document.addEventListener("DOMContentLoaded", run);
+    }
+  } catch (e) {}
+})();
+</script>
+<script>
+(function () {
+  // Forge3D viewer boot v2: WebGL2 first (via the inlined
+  // f3d-webgl2.js sidecar + F3D.worldTris), Canvas2D core
+  // player as automatic fallback. F3DBoot exposes the pure
+  // decision / MVP helpers for headless tests.
+  function v3(v, d) {
+    if (v == null) return d.slice();
+    if (typeof v === "number") return [v, v, v];
+    return [+v[0] || 0, +v[1] || 0, +v[2] || 0];
+  }
+  function sub(a, b) {
+    return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  }
+  function cross(a, b) {
+    return [a[1] * b[2] - a[2] * b[1],
+      a[2] * b[0] - a[0] * b[2],
+      a[0] * b[1] - a[1] * b[0]];
+  }
+  function dot(a, b) {
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  }
+  function norm(a) {
+    var l = Math.hypot(a[0], a[1], a[2]);
+    return l > 1e-12 ? [a[0] / l, a[1] / l, a[2] / l]
+      : [0, 0, 0];
+  }
+  function mul(a, b) { // column-major a * b
+    var o = new Array(16), c, r, k, s;
+    for (c = 0; c < 4; c++) for (r = 0; r < 4; r++) {
+      s = 0;
+      for (k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k];
+      o[c * 4 + r] = s;
+    }
+    return o;
+  }
+  function mvpForCamera(cam, aspect) {
+    cam = cam || {};
+    var eye = v3(cam.pos || cam.position, [3, 2.5, 4]);
+    var tgt = v3(cam.target, [0, 0, 0]);
+    var up = v3(cam.up, [0, 1, 0]);
+    var fov = cam.fov || 60;
+    var near = cam.near != null ? +cam.near : 0.1;
+    var far = cam.far != null ? +cam.far : 100;
+    var f = norm(sub(tgt, eye)), r = norm(cross(f, up));
+    var u = cross(r, f);
+    var view = [r[0], u[0], -f[0], 0,
+      r[1], u[1], -f[1], 0,
+      r[2], u[2], -f[2], 0,
+      -dot(r, eye), -dot(u, eye), dot(f, eye), 1];
+    var t = 1 / Math.tan(fov * Math.PI / 360);
+    var a = aspect || 1;
+    var persp = [t / a, 0, 0, 0,
+      0, t, 0, 0,
+      0, 0, (far + near) / (near - far), -1,
+      0, 0, 2 * far * near / (near - far), 0];
+    return mul(persp, view);
+  }
+  function canUseWebGL2(scene, gl, f3d) {
+    return !!(gl && f3d &&
+      typeof f3d.worldTris === "function" &&
+      scene && scene.camera && !scene.controls);
+  }
+  window.F3DBoot = { mvpForCamera: mvpForCamera,
+    canUseWebGL2: canUseWebGL2 };
+  var scene = window.F3D_SCENE ||
+    (typeof SCENE !== "undefined" ? SCENE : window.SCENE);
+  var canvas = document.getElementById("f3d-canvas");
+  if (!canvas || !scene) { return; }
+  var fb = document.getElementById("f3d-fallback");
+  function done() {
+    // The scene JS bootstrap would otherwise auto-start the
+    // Canvas2D player on DOMContentLoaded; the boot owns the
+    // canvas now, so neutralise that second start.
+    if (window.F3D) window.F3D.auto = function () {
+      return null;
+    };
+    if (fb) fb.style.display = "none";
+  }
+  var used = false, glTried = false;
+  if (canUseWebGL2(scene, window.Forge3DWebGL2, window.F3D)) {
+    try {
+      var tris = window.F3D.worldTris(scene, 0);
+      if (tris.length &&
+          window.Forge3DWebGL2.isAvailable()) {
+        if (canvas.clientWidth) {
+          canvas.width = canvas.clientWidth;
+        }
+        if (canvas.clientHeight) {
+          canvas.height = canvas.clientHeight;
+        }
+        glTried = true;
+        var renderer = window.Forge3DWebGL2.create(canvas);
+        if (renderer) {
+          if (scene.bg && scene.bg.length) {
+            renderer.clearColor = scene.bg;
+          }
+          var opts = {};
+          var L = (scene.lights && scene.lights[0]) || {};
+          if (L.direction || L.dir) {
+            opts.lightDir = L.direction || L.dir;
+          }
+          var aspect = function () {
+            return canvas.width /
+              Math.max(1, canvas.height);
+          };
+          var drawn = window.Forge3DWebGL2.renderScene(
+            renderer, tris,
+            mvpForCamera(scene.camera, aspect()), opts);
+          if (drawn > 0) {
+            used = true;
+            done();
+            var anims = scene.animations || scene.anims
+              || [];
+            if (anims.length &&
+                window.requestAnimationFrame) {
+              var start = Date.now();
+              var frame = function () {
+                var t = (Date.now() - start) / 1000;
+                window.Forge3DWebGL2.renderScene(renderer,
+                  window.F3D.worldTris(scene, t),
+                  mvpForCamera(scene.camera, aspect()),
+                  opts);
+                window.requestAnimationFrame(frame);
+              };
+              window.requestAnimationFrame(frame);
+            }
+          }
+        }
+      }
+    } catch (e) { used = false; }
+  }
+  if (!used) {
+    var target = canvas;
+    if (glTried && canvas.parentNode) {
+      // The failed WebGL2 attempt claimed this canvas's
+      // context mode; a fresh element is needed for 2D.
+      target = document.createElement("canvas");
+      target.id = canvas.id;
+      target.className = canvas.className;
+      target.width = canvas.width;
+      target.height = canvas.height;
+      canvas.parentNode.replaceChild(target, canvas);
+    }
+    try {
+      if (window.F3D &&
+          typeof window.F3D.create === "function") {
+        window.F3D.create(target, scene);
+        done();
+      } else if (window.F3D &&
+          typeof window.F3D.mount === "function") {
+        window.F3D.mount(target, scene);
+        done();
+      }
+    } catch (e) { /* both paths failed: fallback stays */ }
+  }
+})();
+</script>
+<!-- ============================================================= -->
+<!-- XR DEVICE-CHECK ADDITIONS (docs/XR-CHECK.md, parity item C4).  -->
+<!-- Everything above this block is the unmodified page generated  -->
+<!-- by `bin/f3dc build examples/xr-check.f3d`. Appended below:    -->
+<!-- the WebXR sidecar runtime/f3d-xr.js inlined verbatim, plus a  -->
+<!-- small glue script that adds the Enter VR button/status line.  -->
+<!-- ============================================================= -->
+<script>
+// Forge3D WebXR runtime sidecar - OPTIONAL module, load AFTER
+// runtime/f3d.js (or standalone: it has no dependencies).
+// Exposes window.Forge3DXR: the WebXR surface this engine needs
+// (immersive-vr session, reference space, stereo views), behind
+// feature detection with graceful degradation: every method
+// NEVER throws; failures resolve to false / null / [] and
+// shouldFallback() tells the app to use its normal Canvas2D /
+// WebGL2 render path instead.
+//
+// HONESTY / VERIFICATION STATUS: this file is proven HEADLESSLY
+// ONLY, with mock navigator.xr / session / frame objects under
+// Node (tests/compiler/test_f3d_xr_js.py). A real immersive
+// session on XR hardware is UNVERIFIED: this machine has no XR
+// device and no browser, so no claim is made that a headset
+// session, tracking, or presentation works until a user checks
+// it on a real device. Plain script, zero deps, no modules.
+'use strict';
+(function (g) {
+var current = null; // active XRSession, or null
+
+function getXR() {
+  try {
+    var nav = (typeof navigator !== 'undefined') ? navigator
+      : g.navigator;
+    return (nav && nav.xr) ? nav.xr : null;
+  } catch (e) { return null; }
+}
+
+// Correct 4x4 inverse for a column-major matrix (the WebXR /
+// DOMMatrix layout: m[c*4 + r] is row r, column c). Gauss-Jordan
+// elimination on the augmented matrix with partial pivoting.
+// Returns a new Float32Array(16), or null when singular.
+function invert4(m) {
+  var a = [], r, c, i;
+  for (r = 0; r < 4; r++) {
+    a[r] = [];
+    for (c = 0; c < 4; c++) a[r][c] = m[c * 4 + r];
+    for (i = 0; i < 4; i++) a[r][4 + i] = (i === r) ? 1 : 0;
+  }
+  for (c = 0; c < 4; c++) {
+    var piv = c;
+    for (r = c + 1; r < 4; r++)
+      if (Math.abs(a[r][c]) > Math.abs(a[piv][c])) piv = r;
+    if (Math.abs(a[piv][c]) < 1e-12) return null; // singular
+    if (piv !== c) { var t = a[piv]; a[piv] = a[c]; a[c] = t; }
+    var d = a[c][c];
+    for (i = 0; i < 8; i++) a[c][i] /= d;
+    for (r = 0; r < 4; r++) {
+      if (r === c) continue;
+      var f = a[r][c];
+      if (f) for (i = 0; i < 8; i++) a[r][i] -= f * a[c][i];
+    }
+  }
+  var out = new Float32Array(16);
+  for (r = 0; r < 4; r++)
+    for (c = 0; c < 4; c++) out[c * 4 + r] = a[r][4 + c];
+  return out;
+}
+
+async function isSupported() {
+  try {
+    var xr = getXR();
+    if (!xr || typeof xr.isSessionSupported !== 'function')
+      return false;
+    return !!(await xr.isSessionSupported('immersive-vr'));
+  } catch (e) { return false; }
+}
+
+async function requestVRSession(options) {
+  try {
+    var xr = getXR();
+    if (!xr || typeof xr.requestSession !== 'function')
+      return null;
+    if (!(await isSupported())) return null;
+    var opts = {}, k;
+    if (options) for (k in options) opts[k] = options[k];
+    var feats = ['local-floor', 'bounded-floor'];
+    if (opts.optionalFeatures) {
+      for (var i = 0; i < opts.optionalFeatures.length; i++)
+        if (feats.indexOf(opts.optionalFeatures[i]) < 0)
+          feats.push(opts.optionalFeatures[i]);
+    }
+    opts.optionalFeatures = feats;
+    var session = await xr.requestSession('immersive-vr', opts);
+    if (!session) return null;
+    current = session;
+    try {
+      if (typeof session.addEventListener === 'function')
+        session.addEventListener('end', function () {
+          if (current === session) current = null;
+        });
+    } catch (e) { /* listener is best-effort; state still set */ }
+    return session;
+  } catch (e) { return null; }
+}
+
+async function requestReferenceSpace(session) {
+  try {
+    if (!session ||
+        typeof session.requestReferenceSpace !== 'function')
+      return null;
+    var types = ['local-floor', 'local', 'viewer'];
+    for (var i = 0; i < types.length; i++) {
+      try {
+        var space = await session.requestReferenceSpace(types[i]);
+        if (space) return space;
+      } catch (e) { /* try the next type */ }
+    }
+    return null;
+  } catch (e) { return null; }
+}
+
+// One entry per view of the viewer pose. viewMatrix approach
+// (the ONE approach used here): prefer
+// view.transform.inverse.matrix when the platform supplies it;
+// otherwise compute the inverse of view.transform.matrix with
+// invert4() above. viewport is view.viewport when the view (or
+// a mock) carries one, else null -- in a real app the viewport
+// comes from XRWebGLLayer.getViewport(view) at present time.
+function stereoViews(frame, refSpace) {
+  try {
+    if (!frame || typeof frame.getViewerPose !== 'function' ||
+        !refSpace) return [];
+    var pose = frame.getViewerPose(refSpace);
+    if (!pose || !pose.views || !pose.views.length) return [];
+    var out = [];
+    for (var i = 0; i < pose.views.length; i++) {
+      var view = pose.views[i];
+      if (!view || !view.projectionMatrix || !view.transform)
+        continue;
+      var vm = null;
+      if (view.transform.inverse && view.transform.inverse.matrix)
+        vm = new Float32Array(view.transform.inverse.matrix);
+      else if (view.transform.matrix)
+        vm = invert4(view.transform.matrix);
+      if (!vm) continue;
+      out.push({
+        projectionMatrix: new Float32Array(view.projectionMatrix),
+        viewMatrix: vm,
+        viewport: view.viewport || null
+      });
+    }
+    return out;
+  } catch (e) { return []; }
+}
+
+function currentSession() { return current; }
+
+async function endSession() {
+  try {
+    var session = current;
+    current = null;
+    if (!session || typeof session.end !== 'function')
+      return false;
+    await session.end();
+    return true;
+  } catch (e) { current = null; return false; }
+}
+
+function shouldFallback() { return !current; }
+
+g.Forge3DXR = {
+  isSupported: isSupported,
+  requestVRSession: requestVRSession,
+  requestReferenceSpace: requestReferenceSpace,
+  stereoViews: stereoViews,
+  currentSession: currentSession,
+  endSession: endSession,
+  shouldFallback: shouldFallback,
+  _invert4: invert4
+};
+if (typeof window !== 'undefined') window.Forge3DXR = g.Forge3DXR;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+</script>
+<script>
+// ---- Forge3D XR device-check glue (docs/XR-CHECK.md) ----
+// Added to the f3dc-generated page for the C4 device check ONLY.
+// Uses the sidecar above (window.Forge3DXR) plus the page's own
+// WebGL2 viewer (window.Forge3DWebGL2 + window.F3D.worldTris) to
+// present the same scene immersively: one renderScene per eye
+// with the headset's projection * view matrix. All failures are
+// reported in the status line; nothing here throws.
+(function () {
+  var statusEl = null, btn = null;
+  function say(msg) { if (statusEl) statusEl.textContent = msg; }
+  function mul4(a, b) { // column-major a * b
+    var o = new Float32Array(16), c, r, k, s;
+    for (c = 0; c < 4; c++) for (r = 0; r < 4; r++) {
+      s = 0; for (k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k];
+      o[c * 4 + r] = s;
+    }
+    return o;
+  }
+  function setup() {
+    var main = document.querySelector('main') || document.body;
+    var bar = document.createElement('div');
+    bar.style.cssText = 'margin:1rem;padding:1rem;border:1px solid ' +
+      'var(--border,#3a3a4a);border-radius:8px;' +
+      'background:var(--panel,#23232f)';
+    statusEl = document.createElement('p');
+    statusEl.style.cssText = 'font-size:.9rem;line-height:1.5';
+    btn = document.createElement('button');
+    btn.textContent = 'Enter VR (XR device check)';
+    btn.disabled = true;
+    btn.style.cssText = 'margin-top:.6rem;padding:.5rem 1rem;' +
+      'font-size:.95rem;cursor:pointer';
+    btn.addEventListener('click', enterXR);
+    bar.appendChild(statusEl);
+    bar.appendChild(btn);
+    main.appendChild(bar);
+    if (!window.Forge3DXR) {
+      say('XR sidecar (Forge3DXR) did not load; the flat viewer ' +
+          'above still works.');
+      return;
+    }
+    say('Checking WebXR immersive-vr support...');
+    window.Forge3DXR.isSupported().then(function (ok) {
+      if (ok) {
+        btn.disabled = false;
+        say('WebXR immersive-vr is available on this ' +
+            'device/browser. Press "Enter VR" and look around: ' +
+            'the scene should surround you and track your head.');
+      } else {
+        say('WebXR immersive-vr is NOT available here (no XR ' +
+            'device, or this browser does not offer it). The ' +
+            'flat viewer above is the graceful fallback and ' +
+            'should be animating. Open this same page on an ' +
+            'XR-capable device/browser to get the Enter VR ' +
+            'button.');
+      }
+    });
+  }
+  async function enterXR() {
+    try {
+      btn.disabled = true;
+      var canvas = document.getElementById('f3d-canvas');
+      var W = window.Forge3DWebGL2;
+      if (!W || !canvas) {
+        say('WebGL2 viewer not found on this page; cannot ' +
+            'start XR.');
+        btn.disabled = false;
+        return;
+      }
+      var renderer = W.create(canvas);
+      if (!renderer || !renderer.gl) {
+        say('WebGL2 is unavailable in this browser, so XR ' +
+            'cannot start (the Canvas2D fallback viewer is ' +
+            'showing instead).');
+        btn.disabled = false;
+        return;
+      }
+      var gl = renderer.gl;
+      var scene = window.F3D_SCENE;
+      if (scene && scene.bg && scene.bg.length)
+        renderer.clearColor = scene.bg;
+      var opts = {};
+      var L = (scene && scene.lights && scene.lights[0]) || {};
+      if (L.direction || L.dir) opts.lightDir = L.direction || L.dir;
+      if (gl.makeXRCompatible) await gl.makeXRCompatible();
+      var session = await window.Forge3DXR.requestVRSession();
+      if (!session) {
+        say('XR session request failed or was denied. The ' +
+            'flat viewer still works.');
+        btn.disabled = false;
+        return;
+      }
+      session.updateRenderState({
+        baseLayer: new XRWebGLLayer(session, gl) });
+      var refSpace = await window.Forge3DXR.requestReferenceSpace(
+        session);
+      if (!refSpace) {
+        say('XR session started but no reference space ' +
+            '(local-floor / local / viewer) could be obtained.');
+        try { await window.Forge3DXR.endSession(); } catch (e) {}
+        btn.disabled = false;
+        return;
+      }
+      say('XR session running: you should see the red spinning ' +
+          'cube, blue bobbing sphere and green pulsing pyramid ' +
+          'in front of you, tracking your head movement. Exit ' +
+          'the session (headset button / back) to return.');
+      session.addEventListener('end', function () {
+        say('XR session ended. Press "Enter VR" to run the ' +
+            'check again.');
+        btn.disabled = false;
+      });
+      var start = Date.now();
+      var onFrame = function (time, frame) {
+        session.requestAnimationFrame(onFrame);
+        var layer = session.renderState.baseLayer;
+        if (!layer || !frame) return;
+        var pose = null;
+        try { pose = frame.getViewerPose(refSpace); }
+        catch (e) { pose = null; }
+        var views = window.Forge3DXR.stereoViews(frame, refSpace);
+        if (!pose || !views.length) return;
+        var t = (Date.now() - start) / 1000;
+        var tris = window.F3D.worldTris(scene, t);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, layer.framebuffer);
+        for (var i = 0; i < views.length; i++) {
+          var raw = pose.views[i];
+          if (!raw) continue;
+          var vp = views[i].viewport || layer.getViewport(raw);
+          if (!vp) continue;
+          gl.viewport(vp.x, vp.y, vp.width, vp.height);
+          var mvp = mul4(views[i].projectionMatrix,
+                         views[i].viewMatrix);
+          W.renderScene(renderer, tris, mvp, opts);
+        }
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      };
+      session.requestAnimationFrame(onFrame);
+    } catch (e) {
+      say('XR error: ' + (e && e.message ? e.message : e) +
+          ' - the flat viewer still works.');
+      btn.disabled = false;
+    }
+  }
+  if (document.readyState === 'loading')
+    document.addEventListener('DOMContentLoaded', setup);
+  else setup();
+})();
+</script>
+</body>
+</html>
