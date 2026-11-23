@@ -17,7 +17,7 @@
 !
 ! Public API also includes DEFAULT_SIZE (= 5.0_real64).
 module f3dc_ext_cameras
-  use, intrinsic :: iso_fortran_env, only: int64, real64
+  use, intrinsic :: iso_fortran_env, only: int64, real64, error_unit
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite, &
        ieee_is_nan, ieee_is_negative, ieee_value, ieee_quiet_nan, &
        ieee_positive_inf
@@ -34,8 +34,20 @@ module f3dc_ext_cameras
 
   public :: DEFAULT_SIZE
   public :: extract_camera, validate_camera, camera_lines
+  public :: validate_camera_warnings, W_DEGENERATE_CAMERA
 
   real(real64), parameter :: DEFAULT_SIZE = 5.0_real64
+
+  ! W302 (v3.0 Phase 5, completing M1): warning code for a
+  ! degenerate camera -- 'at' equals 'look' (or an 'up', when a
+  ! caller supplies one, parallel to the view direction).  The
+  ! E3xx family is this module's error family (E302 via
+  ! f3dc_validate's dispatch); W302 is its warning sibling, in
+  ! the style of f3dc_optimize's module-local W510/W511 codes.
+  ! A warning only: it never enters validate_camera's error
+  ! list, so it cannot fail a build, and it changes no emitted
+  ! artifact.
+  character(4), parameter :: W_DEGENERATE_CAMERA = "W302"
 
   character(13), parameter :: ORTHO_WORDS(2) = [character(13) :: &
        "ortho", "orthographic"]
@@ -830,12 +842,93 @@ contains
     end do
   end subroutine validate_position
 
+  !> Numeric vec3 for key in d: ok=.false. when the key is
+  !! absent, null, not coercible to a vec3, or any component is
+  !! not a finite number (those cases are validate_camera's
+  !! error territory, never a warning's).
+  subroutine numeric_vec3(d, key, xyz, ok)
+    type(dyn), intent(in) :: d
+    character(*), intent(in) :: key
+    real(real64), intent(out) :: xyz(3)
+    logical, intent(out) :: ok
+    type(dyn) :: v, vec, num
+    integer :: j
+    xyz = 0.0_real64
+    ok = .false.
+    if (.not. dyn_dict_has(d, key)) return
+    v = dyn_dict_get(d, key)
+    if (v%kind == DYN_K_NULL) return
+    call vec3_of(v, vec, ok)
+    if (.not. ok) return
+    ok = .false.
+    do j = 1, 3
+      num = as_number(dyn_list_at(vec, j))
+      if (num%kind == DYN_K_BOOL .or. .not. is_number(num)) return
+      if (.not. ieee_is_finite(num_val(num))) return
+      xyz(j) = num_val(num)
+    end do
+    ok = .true.
+  end subroutine numeric_vec3
+
+  !> validate_camera_warnings(d) -> list of human-readable
+  !! WARNING strings (v3.0 Phase 5, M1 diagnostic path).  Kept
+  !! separate from validate_camera's error list: the caller in
+  !! f3dc_validate turns every entry of that list into an E302
+  !! error, and a degenerate camera must warn, never fail.
+  !! Detects, after extract_camera's normal parsing:
+  !!   * 'at' exactly equal to 'look' -- the camera has no view
+  !!     direction (the engine's mat4_look_at cannot form one).
+  !!   * an 'up' vector (anti-)parallel to (look - at), using
+  !!     the engine guard's threshold |dot| > 1 - 1e-10.  The
+  !!     ext-camera DSL itself exposes no 'up' setting (the
+  !!     token parser accepts only size/at/look/fov/near/far/
+  !!     type, and extract_camera drops anything else), so this
+  !!     half fires only when a programmatic caller supplies
+  !!     'up' in d; the DSL's main camera line, which does take
+  !!     'up', is validated in f3dc_validate (where at == look
+  !!     is already the E401 error).
+  subroutine validate_camera_warnings(d, warnings)
+    type(dyn), intent(in) :: d
+    type(char_list), intent(inout) :: warnings
+    real(real64) :: at(3), look(3), up(3), dir(3)
+    real(real64) :: dn, un, cosang
+    logical :: ok_at, ok_look, ok_up
+    call char_list_clear(warnings)
+    if (d%kind /= DYN_K_DICT) return
+    call numeric_vec3(d, "at", at, ok_at)
+    call numeric_vec3(d, "look", look, ok_look)
+    if (.not. (ok_at .and. ok_look)) return
+    if (all(at == look)) then
+      call char_list_append(warnings, &
+           "camera 'at' (" // fmt_g6(at(1)) // ", " // &
+           fmt_g6(at(2)) // ", " // fmt_g6(at(3)) // &
+           ") equals 'look': the camera has no view direction " // &
+           "(degenerate camera)")
+      return
+    end if
+    call numeric_vec3(d, "up", up, ok_up)
+    if (.not. ok_up) return
+    dir = look - at
+    dn = sqrt(sum(dir * dir))
+    un = sqrt(sum(up * up))
+    if (dn <= 0.0_real64 .or. un <= 0.0_real64) return
+    cosang = sum(dir * up) / (dn * un)
+    if (abs(cosang) > 1.0_real64 - 1.0e-10_real64) then
+      call char_list_append(warnings, &
+           "camera 'up' is parallel to the view direction " // &
+           "(degenerate camera; the engine will substitute a " // &
+           "fallback up)")
+    end if
+  end subroutine validate_camera_warnings
+
   !> validate_camera(d) -> list of human-readable error strings.
   subroutine validate_camera(d, errors)
     type(dyn), intent(in) :: d
     type(char_list), intent(inout) :: errors
     type(dyn) :: tv, sv, num
+    type(char_list) :: warns
     character(:), allocatable :: word
+    integer :: wi
     call char_list_clear(errors)
     if (d%kind /= DYN_K_DICT) return
     tv = dyn_dict_get(d, "type")
@@ -869,6 +962,17 @@ contains
     end if
     call validate_position(errors, d, "at")
     call validate_position(errors, d, "look")
+    ! M1 diagnostic (v3.0 Phase 5): degenerate-camera warnings
+    ! go straight to stderr in the compiler's "warning Wxxx:"
+    ! format (cf. the corpus stderr spelling).  They are NOT
+    ! added to `errors`: f3dc_validate's dispatch maps every
+    ! entry there to a build-failing E302, and a warning must
+    ! not fail the build or change any artifact.
+    call validate_camera_warnings(d, warns)
+    do wi = 1, char_list_len(warns)
+      write (error_unit, "(A)") "warning " // W_DEGENERATE_CAMERA // &
+           ": " // char_list_at(warns, wi)
+    end do
   end subroutine validate_camera
 
   ! ================================================================

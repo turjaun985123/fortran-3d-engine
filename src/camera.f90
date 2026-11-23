@@ -5,6 +5,22 @@ module camera_3d
     private
     public :: Camera, camera_init, camera_update_matrices
     public :: camera_set_aspect, camera_is_valid, camera_init_checked
+    public :: camera_view_status
+    public :: CAMERA_VIEW_CLEAN, CAMERA_VIEW_DEGENERATE
+
+    ! Status codes reported by camera_view_status /
+    ! camera_init_checked (v3.0 Phase 5, completing the Phase 0 M1
+    ! diagnostic path):
+    !   CAMERA_VIEW_CLEAN (0)     -- view direction is well defined
+    !                                and not (anti-)parallel to up.
+    !   CAMERA_VIEW_DEGENERATE (1) -- eye == target (no view
+    !                                direction at all), or the view
+    !                                direction is (anti-)parallel to
+    !                                up, in which case mat4_look_at
+    !                                substitutes its fallback up
+    !                                (0,0,+1) / (0,0,-1).
+    integer, parameter :: CAMERA_VIEW_CLEAN = 0
+    integer, parameter :: CAMERA_VIEW_DEGENERATE = 1
 
     type :: Camera
         type(vec3) :: position
@@ -62,12 +78,52 @@ contains
                 cam%aspect_ratio > 0.0_dp
     end function camera_is_valid
 
-    subroutine camera_init_checked(cam, pos, target, fov_deg, aspect, near, far, ok)
+    !> Classify a camera pose with the exact thresholds
+    !! mat4_look_at uses for its Phase 0 (M1) guard, without
+    !! building any matrix: CAMERA_VIEW_DEGENERATE when pos ==
+    !! target (zero view direction) or when the view direction is
+    !! (anti-)parallel to up (a zero up first takes the same
+    !! (0,1,0) default mat4_look_at applies).  Purely a diagnostic
+    !! classification -- it changes no numeric behaviour anywhere.
+    pure function camera_view_status(pos, target, up) result(status)
+        type(vec3), intent(in) :: pos, target, up
+        integer :: status
+        type(vec3) :: dir, up_eff
+        real(dp) :: f_dot_up
+
+        status = CAMERA_VIEW_CLEAN
+        dir = vec3_sub(target, pos)
+        if (vec3_norm(dir) <= 1.0e-12_dp) then
+            status = CAMERA_VIEW_DEGENERATE
+            return
+        end if
+        up_eff = up
+        if (vec3_norm(up_eff) <= 1.0e-12_dp) &
+            up_eff = vec3_create(0.0_dp, 1.0_dp, 0.0_dp)
+        f_dot_up = vec3_dot(vec3_normalize(dir), &
+                            vec3_normalize(up_eff))
+        if (abs(f_dot_up) > 1.0_dp - 1.0e-10_dp) &
+            status = CAMERA_VIEW_DEGENERATE
+    end function camera_view_status
+
+    !> camera_init with parameter validation.  The optional
+    !! `status` argument (v3.0 Phase 5) reports the M1 diagnostic
+    !! for the pose actually built: CAMERA_VIEW_CLEAN (0) or
+    !! CAMERA_VIEW_DEGENERATE (1) when eye == target or the view
+    !! direction is (anti-)parallel to the camera's up (0,1,0) --
+    !! the case where mat4_look_at substitutes its fallback up.
+    !! It is OPTIONAL so pre-Phase-5 callers compile unchanged.
+    !! Reporting only: the matrices built are exactly those the
+    !! pre-Phase-5 code built (ADR-1).
+    subroutine camera_init_checked(cam, pos, target, fov_deg, aspect, near, far, ok, status)
         type(Camera), intent(out) :: cam
         type(vec3), intent(in) :: pos, target
         real(dp), intent(in) :: fov_deg, aspect, near, far
         logical, intent(out) :: ok
+        integer, intent(out), optional :: status
 
+        if (present(status)) status = camera_view_status( &
+            pos, target, vec3_create(0.0_dp, 1.0_dp, 0.0_dp))
         ok = fov_deg > 0.0_dp .and. fov_deg < 180.0_dp .and. &
              near > 0.0_dp .and. far > near .and. aspect > 0.0_dp
         if (ok) then

@@ -49,7 +49,8 @@ module scene_json_3d
     use math_3d
     use mesh_3d, only: Mesh, Triangle, free_mesh, &
                         compute_triangle_normal
-    use camera_3d, only: camera_init, camera_update_matrices
+    use camera_3d, only: camera_init, camera_update_matrices, &
+                         camera_view_status, CAMERA_VIEW_DEGENERATE
     use material_3d, only: material_from_name, material_id_from_name
     use material_pbr_3d, only: MaterialPBR, MAT_STANDARD, &
                                pbr_from_material
@@ -837,6 +838,17 @@ contains
                              nearp, farp)
             sc%cam%up = cam_up
             call camera_update_matrices(sc%cam)
+            ! M1 diagnostic (v3.0 Phase 5): a degenerate camera
+            ! (eye == target, or up parallel to the view direction)
+            ! silently took mat4_look_at's fallback up; warn once
+            ! (the JSON carries a single camera object).  Warning
+            ! only -- the camera built above is unchanged.
+            if (camera_view_status(cam_pos, cam_tgt, cam_up) == &
+                CAMERA_VIEW_DEGENERATE) then
+                print *, 'scene_json: warning: degenerate camera', &
+                    ': eye == target or up parallel to the view ', &
+                    'direction'
+            end if
         end if
 
         ! ---- lights ----

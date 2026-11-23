@@ -10,6 +10,7 @@
 !   light directional dx dy dz R G B intensity
 !   light ambient intensity
 !   frames N
+!   fps N                      (v3.0 Phase 5, optional; scene timeline)
 !   output PATH
 !   object PRIM NAME MATERIAL CR CG CB px py pz rx ry rz sx sy sz &
 !          SIZE RADIUS HEIGHT SEGMENTS
@@ -178,6 +179,12 @@ module scene_3d
         real(dp) :: light_intensity = 1.0_dp
         real(dp) :: ambient = 0.25_dp
         integer :: frames = 1
+        ! v3.0 Phase 5 (M3): scene-level timeline rate from the
+        ! optional v1 'fps N' line; 0 = unset.  main's fallback
+        ! chain (scene fps -> first anim fps -> 30) is wired by the
+        ! coordinator at integration; this field is additive and
+        ! defaults to 0, so existing scenes are unaffected.
+        integer :: fps = 0
         ! v3.0 Phase 2: SSAA factor for the v3 renderer (1 = off).
         ! The legacy renderer ignores this field entirely; the .scene
         ! line is optional and defaults to 1, so frozen-path scenes
@@ -991,8 +998,10 @@ contains
         character(len=256) :: parse_err
         integer :: j, bi
         type(Mesh) :: new_mesh
+        logical :: cam_degen_warned
 
         ok = .true.
+        cam_degen_warned = .false.
         errmsg = ''
         cur_tris = 0
         cur_track = 0
@@ -1070,6 +1079,21 @@ contains
                                      tok_real(tokens, 13))
                     sc%cam%up = cam_up
                     call camera_update_matrices(sc%cam)
+                    ! M1 diagnostic (v3.0 Phase 5): a degenerate
+                    ! camera (eye == target, or up parallel to the
+                    ! view direction) silently took mat4_look_at's
+                    ! fallback up; warn once per load, located at
+                    ! the camera line.  Warning only -- the camera
+                    ! built above is unchanged.
+                    if (.not. cam_degen_warned .and. &
+                        camera_view_status(cam_pos, cam_tgt, &
+                            cam_up) == CAMERA_VIEW_DEGENERATE) then
+                        cam_degen_warned = .true.
+                        print *, 'scene: warning: degenerate ', &
+                            'camera at line ', lineno, &
+                            ': eye == target or up parallel to ', &
+                            'the view direction'
+                    end if
                 else
                     call warn_line(lineno, line)
                 end if
@@ -1290,6 +1314,10 @@ contains
                 sc%has_env = .true.
             case ('frames')
                 if (ntok >= 2) sc%frames = tok_int(tokens, 2)
+            case ('fps')
+                ! fps N -- v3.0 Phase 5 scene-level timeline rate
+                ! (additive; absent = Scene%fps stays 0 = unset).
+                if (ntok >= 2) sc%fps = tok_int(tokens, 2)
             case ('antialias')
                 if (ntok >= 2) sc%antialias = tok_int(tokens, 2)
             case ('output')
@@ -1528,7 +1556,9 @@ contains
                 call append_parts(sc, prt)
                 cur_tris = 0
             case ('keys')
-                ! keys TARGET DURATION LOOP NKEYS   (5 tokens)
+                ! keys TARGET DURATION LOOP NKEYS [fps FPS]
+                ! (5 tokens; the optional Phase 5 token pair makes
+                ! key times/duration FRAME NUMBERS for this track)
                 if (ntok < 5) then
                     call warn_line(lineno, line)
                     cycle
@@ -1537,6 +1567,8 @@ contains
                 trk%target = trim(tokens(2))
                 trk%duration = tok_real(tokens, 3)
                 trk%loop = trim(tokens(4))
+                if (ntok >= 7 .and. trim(tokens(6)) == 'fps') &
+                    trk%fps = tok_real(tokens, 7)
                 call append_track(sc, trk)
                 if (allocated(trk%keys)) deallocate(trk%keys)
                 cur_track = sc%n_tracks
@@ -1558,6 +1590,14 @@ contains
                               tok_real(tokens, 8)]
                 kf%scale = tok_real(tokens, 9)
                 kf%ease = trim(tokens(10))
+                ! v3.0 Phase 5: rotation is authored as Euler
+                ! (above, the storage form) and stored ALSO as a
+                ! quaternion, the runtime interpolation form used
+                ! by key_eval_q (authored-as-Euler / stored-as-
+                ! quaternion per the Phase 5 plan).
+                kf%rot_quat = quat_from_euler(vec3_create( &
+                    kf%rot_deg(1), kf%rot_deg(2), kf%rot_deg(3)))
+                kf%has_quat = .true.
                 if (cur_track >= 1 .and. cur_track <= 4096) then
                     call append_key(sc%tracks(cur_track), kf, &
                                     key_counts(cur_track))
