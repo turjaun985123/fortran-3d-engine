@@ -317,3 +317,39 @@ primitives.
   to reset ok=.false.); docs/SCENE-FORMAT.md documents both scene
   formats + versioning rules. S1 closed for the v3 path (the v1
   text reader remains the frozen legacy path).
+- 2026-11-23: Phase 2 complete. R1/R2 closed: renderer_v3_3d —
+  28.4 fixed-point setup (int64 edges), top-left fill rule,
+  perspective-correct interpolation, 1/w float depth, visibility
+  buffer + shade-once-per-pixel. R3/R5 closed: fragment_v3_3d —
+  the _mat/_env/_shader paths collapse into one frag_shade entry
+  (shader/env/material stages over a shared lighting routine).
+  R4 closed on the v3 path: per-object double-sided rendering
+  (single two-sided quad renders from both sides; test-proven).
+  R6: tile binning (32x32) + OpenMP over tiles; determinism is
+  structural — CI G3c pins the v3 hello-cube hash AND requires
+  threads 1 == 8 byte-identical. v3 is now the DEFAULT renderer
+  (--renderer legacy / FORGE3D_RENDERER keep the frozen path;
+  both legacy pins reproduce exactly). Hybrid fallback added at
+  integration: scenes using sprites/text/particles route to
+  legacy with a stderr note until v3 covers them (no silent
+  feature loss). v3 goldens in docs/V3-GOLDENS.md: hello-cube
+  2907f60a… (PSNR vs legacy 47.78 dB), objects-100 26ecc60b…
+  (31.55 dB), shadowed 3d3ce217… (26.97 dB — v3 has no shadow
+  maps until Phase 3), textured 5a920c72… (19.22 dB — perspective-
+  correct UVs vs legacy's affine sampling). SSAA via the new
+  `antialias` scene clause (1/2/4/8, E302/E110 diagnostics, both
+  readers round-trip). PERF (written reason, per the >10% rule):
+  at 640x480 on the 1.5-vCPU build VM, v3 is SLOWER than legacy
+  on geometry scenes (bench medians, same session: hello-cube
+  201 vs 142 ms/frame; objects-100 250 vs 165; textured ~parity;
+  shadowed nominally faster only because v3 lacks shadow maps).
+  Causes: two-pass vis-buffer architecture, per-pixel perspective
+  division, int64 edge evaluation, and no spare cores for the
+  tile threading to exploit at this size. Phase 2 bought
+  correctness and determinism, not speed; a perf pass is future
+  work, and Phase 3 adds shadow/HDR cost on top — recorded so
+  nobody has to rediscover it. Known v3 gaps entering Phase 3:
+  no shadow maps (fragment sfac = 1.0), opaque-only vis buffer,
+  near-plane-crossing triangles dropped (no frustum clipping),
+  custom shaders get t = 0 (no time in the fragment API),
+  sprites/text/particles via the legacy fallback.

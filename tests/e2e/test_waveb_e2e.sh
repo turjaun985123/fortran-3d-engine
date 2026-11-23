@@ -11,6 +11,10 @@
 set -u
 
 REPO_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+# v3.0 Phase 2: these wave suites assert LEGACY renderer behaviour;
+# the engine default is now v3, so pin the legacy path via the env
+# fallback (an explicit --renderer flag would win over this).
+export FORGE3D_RENDERER=legacy
 BASE=$(basename -- "$0")
 
 # F3DC resolution mirrors the Python: $F3DC, else bin/f3dc, else compiler/f3dc.
