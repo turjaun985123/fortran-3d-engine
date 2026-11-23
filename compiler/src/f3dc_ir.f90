@@ -924,6 +924,9 @@ contains
           ! so objects without it serialise byte-identically.
           if (dyn_dict_has(obj, "shading")) &
             call dset(osub, "shading", dyn_dict_get(obj, "shading"))
+          ! P3: "mirror" likewise carried only when present.
+          if (dyn_dict_has(obj, "mirror")) &
+            call dset(osub, "mirror", dyn_dict_get(obj, "mirror"))
           call dset(osub, "capped", dget_or(obj, "capped", &
                                             dyn_bool(.true.)))
           call dset(osub, "material", dget_or(obj, "material", &
@@ -1094,6 +1097,9 @@ contains
             if (dyn_dict_has(obj, "shading")) &
               call dset(new_obj, "shading", &
                         dyn_dict_get(obj, "shading"))
+            if (dyn_dict_has(obj, "mirror")) &
+              call dset(new_obj, "mirror", &
+                        dyn_dict_get(obj, "mirror"))
             call dyn_list_push(arr, new_obj)
           end block
         end block

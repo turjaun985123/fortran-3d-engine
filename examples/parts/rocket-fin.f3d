@@ -1,0 +1,5 @@
+# Forge3D part: one swept rocket fin (extruded profile, sweeping +x),
+# authored at its own local origin. The importer places it: import
+# props (at / mirror / ...) act as defaults for the part's objects,
+# so one fin file makes both fins (see rocket-parts.f3d).
+extrude fin red shape 0,0 1.3,0.25 1.3,1.5 0,2.1 depth 0.18 material standard metalness 0.1 roughness 0.4

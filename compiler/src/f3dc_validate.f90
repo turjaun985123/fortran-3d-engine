@@ -25,8 +25,8 @@
 ! colour handling stays here, as in the Python module.
 !
 ! Sibling interface used for the desugar pass (f3dc_desugar, landed
-! in parallel; entry point desugar(program_in, bag, program_out),
-! mirroring Python desugar.desugar(program, bag)):
+! in parallel; entry point desugar(program_in, bag, base_dir,
+! program_out) -- base_dir added in v2.0 P3 for import resolution):
 !
 ! ---------------------------------------------------------------------
 ! AST class names in dyn-land: Python _classify() dispatches on
@@ -1707,6 +1707,8 @@ contains
     character(:), allocatable :: prim, name, material, detail
     character(:), allocatable :: shading_emit, prim_shading_default
     logical :: has_shading_emit
+    character(:), allocatable :: mirror_emit
+    logical :: has_mirror_emit
     integer :: rgb(3)
     logical :: has_rgb, has_mat
     real(real64) :: size, radius, obj_height, tube, width_v, depth_v
@@ -1896,6 +1898,18 @@ contains
       shading_emit = vs%scene_shading
       has_shading_emit = .true.
     end if
+    ! P3 mirror resolution: per-object only (no scene-level
+    ! default); the prop passes through untouched when present
+    ! (parser already restricted it to x|y|z).
+    has_mirror_emit = .false.
+    mirror_emit = ""
+    call vfield(node, props, [character(12) :: "mirror"], v)
+    if (v%kind == DYN_K_STR .and. &
+        (to_lower(v%s) == "x" .or. to_lower(v%s) == "y" .or. &
+         to_lower(v%s) == "z")) then
+      mirror_emit = to_lower(v%s)
+      has_mirror_emit = .true.
+    end if
     if (has_segments .and. (segments < MIN_SEGMENTS .or. &
         segments > MAX_SEGMENTS)) then
       call verrn("E301", "segments is " // istr(segments) // &
@@ -2012,6 +2026,8 @@ contains
     call dyn_dict_set(ir_obj, "detail", dyn_str(detail))
     if (has_shading_emit) &
       call dyn_dict_set(ir_obj, "shading", dyn_str(shading_emit))
+    if (has_mirror_emit) &
+      call dyn_dict_set(ir_obj, "mirror", dyn_str(mirror_emit))
     call dyn_dict_set(ir_obj, "capped", dyn_bool(capped))
     call dyn_dict_set(ir_obj, "material", dyn_str(material))
     call dyn_dict_set(ir_obj, "triangles", raw_tris)
@@ -2146,7 +2162,7 @@ contains
     vs%has_last_obj = .false.
 
     ! ---- 1. Desugar first (B07) ----------------------------------
-    call desugar(program, bag, prog)
+    call desugar(program, bag, base_dir, prog)
 
     ! ---- walk -----------------------------------------------------
     call walk_nodes(statements_of(prog))

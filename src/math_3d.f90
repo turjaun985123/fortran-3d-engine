@@ -9,6 +9,7 @@ module math_3d
               mat4_identity, mat4_mult, mat4_translation, mat4_scale, &
               mat4_rotate_x, mat4_rotate_y, mat4_rotate_z, &
               mat4_transpose, mat4_axis_angle, mat4_compose_trs, mat4_inverse_rigid, &
+              mat4_determinant, mat4_reflect_axis, &
               mat4_perspective, mat4_look_at, mat4_transform_vec3
 
     real(dp), parameter, public :: PI = 3.14159265358979323846_dp
@@ -244,6 +245,29 @@ contains
         r = mat4_mult(r, mat4_rotate_z(deg2rad(rot_deg%z)))
         r = mat4_mult(r, mat4_scale(scl%x, scl%y, scl%z))
     end function mat4_compose_trs
+
+    ! Determinant of the linear (upper 3x3) part.  For the affine
+    ! model matrices used here (bottom row 0 0 0 1) this equals the
+    ! full 4x4 determinant; its SIGN is what matters: negative means
+    ! the transform flips orientation (reflection / odd number of
+    ! negative scale axes).
+    pure function mat4_determinant(m) result(d)
+        type(mat4), intent(in) :: m
+        real(dp) :: d
+        d = m%m(1, 1) * (m%m(2, 2) * m%m(3, 3) - m%m(2, 3) * m%m(3, 2)) &
+          - m%m(1, 2) * (m%m(2, 1) * m%m(3, 3) - m%m(2, 3) * m%m(3, 1)) &
+          + m%m(1, 3) * (m%m(2, 1) * m%m(3, 2) - m%m(2, 2) * m%m(3, 1))
+    end function mat4_determinant
+
+    ! Reflection across the coordinate plane through the origin
+    ! perpendicular to the named axis: axis 1 = x (negate x),
+    ! 2 = y, 3 = z.  Any other value gives the identity.
+    pure function mat4_reflect_axis(axis) result(r)
+        integer, intent(in) :: axis
+        type(mat4) :: r
+        r = mat4_identity()
+        if (axis >= 1 .and. axis <= 3) r%m(axis, axis) = -1.0_dp
+    end function mat4_reflect_axis
 
     pure function mat4_inverse_rigid(m) result(r)
         type(mat4), intent(in) :: m

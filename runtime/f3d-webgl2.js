@@ -215,9 +215,33 @@ function shadeIntensity(verts, shade) {
 // without normals get their face normal (computed exactly as
 // shadeIntensity does) uploaded for all three vertices, which
 // reproduces the old flat Lambert result through the shader.
-function normalizeTris(tris, shade) {
+//
+// Mirror (P3): opts.mirror is 'x' | 'y' | 'z' (or an array of
+// axes) and mirrors the CORE runtime's treatment of a scene
+// object's mirror field: vertices and index-5 normals are
+// reflected across the named axis through the local origin
+// here, in the upload path, i.e. in local space before the
+// caller's MVP applies the object transform. A single-axis
+// reflection has negative determinant, so vertex order b/c --
+// and the normals entries likewise -- are swapped (an even
+// number of axes swaps back), keeping face normals, aNorm
+// shading and winding at the unmirrored outward convention.
+// Callers whose tris already came from the core build() (which
+// bakes mirror itself) must NOT pass opts.mirror again.
+function parseMirror(mirror) {
+  if (!mirror) return [];
+  var list = Array.isArray(mirror) ? mirror : [mirror];
+  var axes = [];
+  for (var k = 0; k < list.length; k++) {
+    var ax = 'xyz'.indexOf(String(list[k]).toLowerCase());
+    if (ax >= 0) axes.push(ax);
+  }
+  return axes;
+}
+function normalizeTris(tris, shade, mirrorAxes) {
   var pos = [], col = [], nor = [], i, j;
   shade = shade || resolveShade(null);
+  var mAxes = mirrorAxes || [];
   function pushVert(v) {
     pos.push(+v[0] || 0, +v[1] || 0, +v[2] || 0);
   }
@@ -227,6 +251,20 @@ function normalizeTris(tris, shade) {
     return vnorm(vcross(vsub(w1, w0), vsub(w2, w0)));
   }
   function pushTri(verts, color, normals) {
+    if (mAxes.length) {
+      var refl = function (v) {
+        var w = vclean(v);
+        for (var k = 0; k < mAxes.length; k++) w[mAxes[k]] = -w[mAxes[k]];
+        return w;
+      };
+      verts = verts.map(refl);
+      if (normals && normals.length === 3) normals = normals.map(refl);
+      if (mAxes.length % 2 === 1) { // negative determinant
+        verts = [verts[0], verts[2], verts[1]];
+        if (normals && normals.length === 3)
+          normals = [normals[0], normals[2], normals[1]];
+      }
+    }
     var c = color || [255, 255, 255];
     var r = Math.min(255, Math.max(0, +c[0] || 0)) / 255;
     var gg = Math.min(255, Math.max(0, +c[1] || 0)) / 255;
@@ -284,12 +322,15 @@ function clearRGBA(renderer) {
 // renderScene(renderer, tris, mvp, opts?) -> number of
 // triangles drawn (0 when the renderer / payload is unusable;
 // never throws). opts: { lightDir = [-0.5, -1, -0.7],
-// ambient = 0.25, flat = false } -- see the Lambert note above.
+// ambient = 0.25, flat = false, mirror = 'x'|'y'|'z' } --
+// see the Lambert note above and the Mirror note at
+// normalizeTris().
 function renderScene(renderer, tris, mvp, opts) {
   try {
     if (!renderer || !renderer.gl || !renderer.program) return 0;
     var shade = resolveShade(opts);
-    var data = normalizeTris(tris, shade);
+    var data = normalizeTris(tris, shade,
+      parseMirror(opts && opts.mirror));
     if (!data || data.count === 0) return 0;
     var gl = renderer.gl;
     gl.useProgram(renderer.program);
@@ -347,7 +388,8 @@ function projectPoint(mvp, p) {
 // attach() itself only reports: on 'canvas2d' the caller falls
 // back to the Canvas2D core runtime (runtime/f3d.js), which
 // owns fallback drawing; attach() does not draw anything in
-// 2D itself.
+// 2D itself. opts is passed through to renderScene()
+// (Lambert lightDir / ambient / flat, mirror).
 function attach(canvas, tris, mvp, opts) {
   try {
     var renderer = create(canvas);

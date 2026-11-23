@@ -545,3 +545,65 @@ behaviour; no assertion dropped):
 - Hash changes: **none** (no baked expectation moved).
 - Known leftover (cosmetic): `f3dc doctor` still lists
   `convert` as an optional tool; it is no longer used anywhere.
+
+### P3 — Model components: import + mirror (shipped)
+
+- **`import "path" as name {props}`** (compiler): new statement
+  kind in `f3dc_parser` (fmt round-trips it); expansion in
+  `f3dc_desugar` (which now receives `base_dir`) wraps the part's
+  statements in a synthetic group through the existing
+  `expand_group` machinery, so prefixing (`name.`), prop
+  defaults, nested groups/repeats and animation retargeting all
+  match hand-written groups byte-for-byte (verified: import vs
+  group builds produce identical artifacts). Parts may hold
+  objects/groups/animations only — `scene`/`camera`/`render` in
+  a part → E103; missing file → E501; paths must stay inside the
+  scene tree (absolute/`..` escape → E103); cycles → **new
+  diagnostic E504** (registered in `f3dc_errors`, message shows
+  the chain). Nested imports resolve relative to the importing
+  file. Read files are recorded in the program dyn under
+  `_import_deps` (consumed by P5's preview watcher; never
+  emitted). Side benefit: animations with explicit targets
+  inside groups now retarget correctly (previously E201).
+- **Semantics note (oracle behaviour, corpus-baked):** group —
+  and therefore import — props act as *defaults*: a child's own
+  prop wins; the group/import value applies only where the child
+  does not set one. (The manual's §2.4 wording was corrected to
+  say this.) Author parts at their local origin and place them
+  from the import line, as the shipped example does.
+- **`mirror x|y|z`** (object prop): parser/validate/IR/emit
+  follow the P1 `shading` pattern exactly (E103 bad axis, E110
+  duplicate, explicit-only emission after `shading`); enabled on
+  Wave-D ext geometry too (one `COMMON_PROPS` allowlist entry —
+  every other stage was already shared). Engine: `SceneObject`
+  mirror field, REFLECT applied to the built local mesh in
+  `scene_build_object_mesh` (effective transform
+  T·Ry·Rx·Rz·S·REFLECT), and `mesh_add_transformed` swaps
+  winding on negative determinant (new `mat4_determinant` /
+  `mat4_reflect_axis` in `math_3d`) — the det ≥ 0 path is
+  bit-identical. JS: core `build()` bakes the reflection +
+  winding swap into local geometry (same composition order);
+  WebGL2 sidecar takes `opts.mirror`; minified core 14,754
+  bytes (budget 15,360). Known JS caveat: mirrored *smooth*
+  objects in the Canvas2D player are not pixel-exact vs the
+  flipped render (Gouraud subdivision grid re-orients on the
+  winding swap; flat shading is exact, and the Fortran engine
+  is exact up to rasterizer edge noise).
+- **Example:** `examples/rocket-parts.f3d` +
+  `examples/parts/rocket-body.f3d` + `examples/parts/rocket-fin.f3d`
+  — a rocket from imported parts; the fin part is imported twice,
+  the second copy placed with `at … mirror x`.
+- **Tests:** new `tests/e2e/test_components_e2e.sh` (6 checks:
+  import ≡ group byte-identical, cycle E504, missing E501,
+  restricted part E103, mirror in .scene/.json, mirror flip
+  render ≥99% channels); new `tests/compiler/test_f3d_mirror_js.js`
+  (9 tests); `examples.json` gains the rocket-parts entry
+  (check capture + 6 artifact hashes, generated).
+- **Hash changes** (cause: JS mirror support inlined into
+  `.html` artifacts; all other artifacts byte-identical,
+  verified by a guarded rebake that aborts on any non-HTML
+  diff): `tests/native/corpus.json` 91 `.html` hashes,
+  `tests/native/examples.json` 11 `.html` hashes,
+  `tests/native/cli_battery.json` 2 `.html` hashes.
+- Golden byte-identical; full suite PASS (e2e now 65 checks,
+  JS 160 tests).

@@ -1,0 +1,8 @@
+# Forge3D part: rocket body (v2.0 components).
+# A part file holds objects only -- no scene/camera/render statements.
+# Import it with:  import "parts/rocket-body.f3d" as rocket
+# Every name below is prefixed by the import name (rocket.body, ...).
+capsule body white at 0 0.5 0 radius 1.1 height 3.4 material standard metalness 0.1 roughness 0.35
+cone nose red at 0 3.4 0 radius 1.1 height 2.2 material standard metalness 0.1 roughness 0.4
+sphere window blue at 0 1.2 0.95 radius 0.42 material phong
+ring band orange at 0 -1.5 0 inner 1.05 outer 1.28 rotate 90 0 0 material basic

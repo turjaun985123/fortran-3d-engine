@@ -18,7 +18,7 @@
 !                        ir, ok)      ! validate.validate(...)
 !   f3dc_optimize :: subroutine optimize(scene_in, bag, level,
 !                        scene_out)   ! optimize.optimize(scene,bag)
-!   f3dc_desugar  :: subroutine desugar(prog_in, bag, prog_out)
+!   f3dc_desugar  :: subroutine desugar(prog_in, bag, base_dir, prog_out)
 !   f3dc_compat   :: function is_legacy_json(text) result(logical)
 !                    subroutine ast_from_legacy_json(text, bag, prog)
 !                    subroutine ast_from_obj(text, bag, prog)
@@ -717,7 +717,12 @@ contains
     integer :: i
     out = ""
     if (.not. last_program_set) return
-    call desugar(last_program, tmp_bag, desugared)
+    if (allocated(last_path)) then
+       call desugar(last_program, tmp_bag, path_dirname(last_path), &
+                    desugared)
+    else
+       call desugar(last_program, tmp_bag, ".", desugared)
+    end if
     if (desugared%kind /= DYN_K_DICT) return
     out = "desugared program:"
     stmts = dget(desugared, "statements")
@@ -1145,6 +1150,14 @@ contains
        w = dget(stmt, "height")
        if (v%kind /= DYN_K_NULL .and. w%kind /= DYN_K_NULL) &
           parts = parts//" size "//fmt_num(v)//"x"//fmt_num(w)
+       out = parts
+    else if (dhas(stmt, "import_path")) then
+       ! ImportStmt (v2.0 P3, native-only): printed in source form,
+       ! so `f3dc fmt` round-trips an import statement.
+       parts = "import """//dstr(stmt, "import_path", "")// &
+               """ as "//dstr(stmt, "name", "")
+       call format_props(props, body_line)
+       if (len(body_line) > 0) parts = parts//" "//body_line
        out = parts
     else if (dhas(stmt, "file") .and. .not. dhas(stmt, "kind")) then
        ! LoadStmt

@@ -1767,6 +1767,13 @@ contains
               if (shv%kind == DYN_K_STR) &
                 line = line // " shading " // to_lower(py_str(shv))
             end block
+            ! P3: explicit mirror token goes after shading.
+            block
+              type(dyn) :: mrv
+              mrv = gv(obj, "mirror")
+              if (mrv%kind == DYN_K_STR) &
+                line = line // " mirror " // to_lower(py_str(mrv))
+            end block
             call char_list_append(lines, line)
           end block
         end if

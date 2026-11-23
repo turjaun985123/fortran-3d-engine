@@ -125,6 +125,8 @@ Properties (each may appear at most once — duplicates are `E110`):
 | `segments int` | tessellation segments (overrides `detail`) |
 | `detail low\|med\|high` | tessellation preset, default `med` |
 | `capped` / `open` | capped (default) or open ends, cylinder/cone |
+| `shading smooth\|flat` | vertex-normal (smooth) or face-normal (flat) shading; default `smooth` for curved primitives (sphere, cylinder, cone, capsule, tube, lathe, torus, torusknot), `flat` otherwise; may also be set once on the `scene` line as the scene default |
+| `mirror x\|y\|z` | reflect the object's geometry across that axis through its own local origin (applied before its scale/rotation/position); winding is corrected automatically, so lighting stays outward |
 
 ```f3d
 cube lambert_cube red at -3 1 0 size 2 material lambert
@@ -193,10 +195,32 @@ group duo
 end
 ```
 
-`group name {prop} … end` — one level only (no nested groups). Group
-props (e.g. `at`, `rotate`, `scale`) apply to every child; groups are
-flattened at compile time, and a group name is a valid animation target.
-A missing or stray `end` is error `E401`.
+`group name {prop} … end` — one level only (no nested groups in
+source). Group props (e.g. `at`, `rotate`, `scale`) are defaults for
+every child: a child's own prop wins, and the group's value applies
+where the child does not set one. Groups are flattened at compile
+time, named children are prefixed `group.name`, and a group name is
+a valid animation target. A missing or stray `end` is error `E401`.
+
+### 2.4b Importing parts (components)
+
+```f3d
+import "parts/rocket-fin.f3d" as fin_r at 1.0 -2.6 -0.09
+import "parts/rocket-fin.f3d" as fin_l at -1.0 -2.6 -0.09 mirror x
+```
+
+`import "path" as name {prop} …` — compile-time inclusion of another
+`.f3d` file as a reusable part. The part file holds objects, groups
+and animations only (no `scene`/`camera`/`render` statements — those
+are error `E103`). Everything named in the part is prefixed
+`name.` (e.g. `fin_l.fin`), animations inside the part are retargeted
+to the prefixed names, and the import line's props behave exactly
+like a group header's props (defaults for the part's objects).
+Imports nest — a part may import other parts, with paths resolved
+relative to the importing file — and all paths must stay inside the
+scene's directory tree. A missing part file is error `E501`; an
+import cycle is error `E504`. See `examples/rocket-parts.f3d` and
+`examples/parts/`.
 
 ### 2.5 Repeat, grid, ring
 
@@ -384,6 +408,7 @@ E4xx structure, E5xx I/O, E8xx security/limits, Wxxx warnings.
 | E402 | no objects |
 | E501 | file not found |
 | E502 | cannot write output |
+| E504 | import cycle |
 | E820 | security/limit violation |
 | W101 | default injected |
 | W102 | statement replaced |

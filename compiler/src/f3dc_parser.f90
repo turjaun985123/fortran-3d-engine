@@ -144,9 +144,9 @@ module f3dc_parser
     "system", "eval", "import"]
   ! STARTERS: did-you-mean candidates, in Python order (ring appears
   ! twice there too: once in the starter tuple, once in PRIMS).
-  character(16), parameter :: STARTERS(44) = [character(16) :: &
+  character(16), parameter :: STARTERS(45) = [character(16) :: &
     "scene", "camera", "light", "group", "end", "animate", "load", &
-    "repeat", "grid", "ring", "controls", "render", "export", &
+    "import", "repeat", "grid", "ring", "controls", "render", "export", &
     "filter", "instance", "shader", "morph", "bone", "skin", &
     "cube", "sphere", "cylinder", "plane", "pyramid", "cone", "torus", &
     "circle", "ring", "capsule", "tube", "lathe", "extrude", &
@@ -162,13 +162,13 @@ module f3dc_parser
     "steelblue", "seagreen", "forestgreen", "darkred", "darkblue", &
     "darkgreen", "lightblue", "lightgreen", "hotpink", "deeppink", &
     "aqua", "azure", "fuchsia", "limegreen", "royalblue"]
-  character(16), parameter :: OBJECT_PROP_WORDS(31) = [character(16) :: &
+  character(16), parameter :: OBJECT_PROP_WORDS(32) = [character(16) :: &
     "at", "pos", "position", "size", "radius", "height", "width", &
     "depth", "rotate", "rot", "scale", "material", "segments", &
     "detail", "capped", "open", "texture", "colour", "color", &
     "named", "name", "shader", "inner", "outer", "tube", &
     "tube_segments", "extrude_depth", "path", "points", "shape", &
-    "shading"]
+    "shading", "mirror"]
   character(16), parameter :: ANIM_PROP_WORDS(10) = [character(16) :: &
     "axis", "speed", "duration", "fps", "ease", "loop", "amplitude", &
     "distance", "amount", "angle"]
@@ -1513,6 +1513,23 @@ contains
       else
         call dset(props, "shading", dyn_null())
       end if
+    else if (w == "mirror") then
+      ! P3: per-object mirror axis (x|y|z), no scene-level default.
+      call lp_next(lp)
+      call lp_dup(p, seen, "mirror")
+      if (p%le_set) return
+      call lp_ident(lp, d, hasid)
+      if (hasid) then
+        if (.not. (str_lower(d) == "x" .or. str_lower(d) == "y" &
+                   .or. str_lower(d) == "z")) then
+          call raise_line(p, "E103", "mirror must be x, y or " &
+                          // "z, got '" // d // "'")
+          return
+        end if
+        call dset(props, "mirror", dyn_str(str_lower(d)))
+      else
+        call dset(props, "mirror", dyn_null())
+      end if
     else if (w == "capped") then
       call lp_next(lp)
       call lp_dup(p, seen, "capped")
@@ -2307,6 +2324,13 @@ contains
       call raise_line(p, "E103", "expected a statement")
       return
     end if
+    if (first == "import") then
+      ! v2.0 P3: 'import' is a real statement now, dispatched before
+      ! the reserved-word rejection below (it stays in RESERVED_ALL
+      ! so it still cannot be used as an object/name word elsewhere).
+      call parse_import(p, lp, stmt, has_stmt)
+      return
+    end if
     if (in_list(first, RESERVED_ALL)) then
       if (in_list(first, RESERVED_SEC)) then
         code = "E820"
@@ -2615,6 +2639,63 @@ contains
     stmt = node
     has_stmt = .true.
   end subroutine parse_load
+
+  ! v2.0 P3: import "parts/fin.f3d" as fin [props...]
+  ! The trailing props are exactly a group header's props (the same
+  ! object_props loop parse_group uses); desugar resolves the path,
+  ! loads the part and expands it as a synthetic group with this
+  ! name/props.  Node signature: "import_path" + "name" + "props".
+  subroutine parse_import(p, lp, stmt, has_stmt)
+    type(parser_state), intent(inout) :: p
+    type(line_cur), intent(inout) :: lp
+    type(dyn), intent(out) :: stmt
+    logical, intent(out) :: has_stmt
+    character(:), allocatable :: path, name, s, w
+    type(dyn) :: props, node
+    type(str_set) :: seen
+    logical :: hasid, hasw, handled
+    has_stmt = .false.
+    stmt = dyn_null()
+    call lp_next(lp)  ! import
+    if (lp_peek_kind(lp) /= K_STRING) then
+      call raise_line(p, "E103", &
+                      "'import' needs a quoted file path")
+      return
+    end if
+    call lp_next_text(lp, path)
+    call lp_peek_word(lp, w, hasw)
+    if (.not. hasw .or. w /= "as") then
+      call raise_line(p, "E103", &
+                      "'import' needs 'as <name>' after the path")
+      return
+    end if
+    call lp_next(lp)  ! as
+    call lp_ident(lp, name, hasid)
+    if (.not. hasid) then
+      call raise_line(p, "E103", &
+                      "'import' needs a name after 'as'")
+      return
+    end if
+    props = dyn_dict()
+    seen%n = 0
+    do while (.not. lp_at_end(lp))
+      call object_props(p, lp, props, seen, handled)
+      if (p%le_set) return
+      if (handled) cycle
+      call lp_peek_text(lp, s)
+      call raise_line(p, "E103", "unexpected '" // s &
+                      // "' in import statement")
+      return
+    end do
+    node = dyn_dict()
+    call dset(node, "import_path", dyn_str(path))
+    call dset(node, "name", dyn_str(name))
+    call dset(node, "props", dyn_copy(props))
+    call dset(node, "span", dyn_null())
+    call dset(node, "line", dyn_int(int(lp%no, int64)))
+    stmt = node
+    has_stmt = .true.
+  end subroutine parse_import
 
   ! ==================================================================
   ! Wave B/C/E statements (semantics live in the ext_* modules +

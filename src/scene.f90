@@ -85,6 +85,11 @@ module scene_3d
         ! line. '' = builder default (curved builders are smooth,
         ! flat builders are flat); see scene_build_object_mesh.
         character(len=8) :: shading = ''
+        ! P3: optional trailing 'mirror x|y|z' on the object line.
+        ! Axis code: 0 = none, 1 = x, 2 = y, 3 = z.  Applied in
+        ! scene_build_object_mesh (see the transform-order note
+        ! there).
+        integer :: mirror = 0
         ! Wave E (coordinator integration): C2 custom shader binding.
         ! has_shader routes this object through
         ! framebuffer_render_mesh_shader in main.
@@ -639,6 +644,42 @@ contains
                 end select
             end if
         end if
+        ! P3 mirror (only when the object line carried a valid
+        ! 'mirror x|y|z' token; mirror = 0 keeps the built mesh
+        ! untouched, bit-identical).
+        !
+        ! Transform order: the object's world transform is composed
+        ! in main from mat4_compose_trs, i.e.
+        !   model = T * Ry * Rx * Rz * S
+        ! and the mirror must act in LOCAL space BEFORE that scale /
+        ! rotation / translation, giving an effective
+        !   model = T * Ry * Rx * Rz * S * REFLECT,
+        ! a reflection across the named axis through the object's
+        ! local origin.  This routine owns the local mesh (there is
+        ! no model matrix here -- main composes it per frame), so
+        ! REFLECT is applied to the built local mesh itself via
+        ! mesh_add_transformed, which is exactly REFLECT * p for
+        ! every local vertex p and therefore identical to composing
+        ! it into the model matrix.  Doing it here (rather than in
+        ! main's model) also keeps the renderer's screen-space
+        ! backface culling correct: the reflection matrix has
+        ! negative determinant, and mesh_add_transformed swaps
+        ! vertices 2/3 of each triangle for such matrices, so the
+        ! stored mesh keeps the unmirrored winding convention and
+        ! main's positive-determinant model renders it normally.
+        if (obj%mirror /= 0 .and. allocated(obj%mesh%triangles) &
+            .and. obj%mesh%num_triangles > 0) then
+            block
+                type(Mesh) :: refl_mesh
+                call mesh_add_transformed(refl_mesh, obj%mesh, &
+                    mat4_reflect_axis(obj%mirror), .false., &
+                    [0, 0, 0], 0)
+                call free_mesh(obj%mesh)
+                obj%mesh%num_triangles = refl_mesh%num_triangles
+                call move_alloc(refl_mesh%triangles, &
+                                obj%mesh%triangles)
+            end block
+        end if
         call set_object_material(obj)
     end subroutine scene_build_object_mesh
 
@@ -969,14 +1010,41 @@ contains
                 ! on is NOT part of any point list, so tube/lathe
                 ! point lists are parsed only up to it.
                 block
-                    integer :: k, sidx
+                    integer :: k, sidx, midx
                     sidx = 0
+                    midx = 0
                     do k = 21, ntok
-                        if (trim(tokens(k)) == 'shading') then
-                            sidx = k
-                            exit
-                        end if
+                        if (sidx == 0 .and. &
+                            trim(tokens(k)) == 'shading') sidx = k
+                        if (midx == 0 .and. &
+                            trim(tokens(k)) == 'mirror') midx = k
                     end do
+                    ! P3: trailing 'mirror x|y|z' token pair, scanned
+                    ! the same way as 'shading'.  An unknown axis
+                    ! value warns and leaves mirror = 0, mirroring
+                    ! the unknown-shading-value behaviour below.
+                    if (midx > 0) then
+                        if (midx < ntok) then
+                            select case (trim(tokens(midx + 1)))
+                            case ('x')
+                                obj%mirror = 1
+                            case ('y')
+                                obj%mirror = 2
+                            case ('z')
+                                obj%mirror = 3
+                            case default
+                                print *, 'scene: warning: unknown ', &
+                                    'mirror value "', &
+                                    trim(tokens(midx + 1)), &
+                                    '" for object ', trim(obj%name), &
+                                    ': ignored'
+                            end select
+                        else
+                            print *, 'scene: warning: mirror ', &
+                                'without a value for object ', &
+                                trim(obj%name), ': ignored'
+                        end if
+                    end if
                     if (sidx > 0) then
                         if (sidx < ntok) then
                             if (trim(tokens(sidx + 1)) == 'smooth' &
@@ -998,14 +1066,13 @@ contains
                     end if
                     ! Wave D: trailing point tokens (21+) for tube
                     ! (x,y,z triples) and lathe/extrude (x,y pairs),
-                    ! bounded by the shading token when present.
+                    ! bounded by the first modifier token ('shading'
+                    ! or 'mirror') when present.
                     block
                         integer :: step, ntok_pts
-                        if (sidx > 0) then
-                            ntok_pts = sidx - 1
-                        else
-                            ntok_pts = ntok
-                        end if
+                        ntok_pts = ntok
+                        if (sidx > 0) ntok_pts = min(ntok_pts, sidx - 1)
+                        if (midx > 0) ntok_pts = min(ntok_pts, midx - 1)
                         if (ntok_pts > 20) then
                             if (trim(obj%prim) == 'tube') then
                                 step = 3

@@ -2,7 +2,7 @@
 ! Port of tools/f3dc/desugar.py (read in full, 693 lines).
 ! Port contract: compiler/DESIGN.md.
 !
-!   desugar(program, bag) -> a NEW, flattened Program (dyn dict):
+!   desugar(program, bag, base_dir) -> a NEW, flattened Program (dyn dict):
 !     1. GroupStmt expansion: group transform props composed into
 !        each child, named children prefixed "group.name", the group
 !        statement itself disappears.
@@ -70,8 +70,11 @@ module f3dc_desugar
                       DYN_K_NULL, DYN_K_BOOL, DYN_K_INT, DYN_K_REAL, &
                       DYN_K_STR, DYN_K_LIST, DYN_K_DICT
   use f3dc_str, only: char_list, char_list_append, char_list_len, &
-                      char_list_at, fmt_int, to_lower
-  use f3dc_errors, only: error_bag_t, make_diagnostic, error_bag_add
+                      char_list_at, char_list_clear, fmt_int, to_lower, &
+                      str_split, str_join, path_dirname
+  use f3dc_errors, only: error_bag_t, make_diagnostic, error_bag_add, &
+                         error_bag_error_count
+  use f3dc_parser, only: f3dc_parse
   implicit none
   private
 
@@ -521,6 +524,8 @@ contains
   !   RepeatStmt  has "obj" + "mode"
   !   AnimStmt    has "verb"
   !   LoadStmt    has "path" + "file", no "kind"
+  !   ImportStmt  has "import_path" (v2.0 P3, parser-only node:
+  !               desugar expands it away before validate runs)
   !   ControlsStmt has "autorotate"
   !   OutputStmt  has "still" (parser shape), or the injected shape
   !               kind+path+format+width+height with "mode"
@@ -548,6 +553,8 @@ contains
                 dyn_dict_has(stmt, "kind")
     case ("GroupStmt")
       is_node = dyn_dict_has(stmt, "children")
+    case ("ImportStmt")
+      is_node = dyn_dict_has(stmt, "import_path")
     case ("RepeatStmt")
       is_node = dyn_dict_has(stmt, "obj") .and. &
                 dyn_dict_has(stmt, "mode")
@@ -815,6 +822,14 @@ contains
                           dyn_dict_get(g_props, "scale"))
       end if
     end if
+    ! P3: a group header's `mirror x|y|z` is inherited by children
+    ! that do not carry their own mirror (the child's own axis
+    ! wins; mirror is a single-axis prop, so there is no compose).
+    if (dyn_dict_has(g_props, "mirror") .and. &
+        .not. dyn_dict_has(props, "mirror")) then
+      call dyn_dict_set(props, "mirror", &
+                        dyn_dict_get(g_props, "mirror"))
+    end if
     call set_props(child, props)
     call get_attr(child, "name", nv, nf)
     if (nf .and. is_truthy(nv) .and. g_has_name) then
@@ -882,15 +897,86 @@ contains
       call dyn_dict_set(node, "obj", v)
   end subroutine set_body1
 
+  !> Apply a group's transform/prefix to a repeat statement's
+  !! templates (the repeat itself is expanded later, in the main
+  !! desugar loop, so only its templates are touched here).
+  subroutine apply_group_to_repeat(child, g_name, g_has_name, g_props)
+    type(dyn), intent(inout) :: child
+    character(len=*), intent(in) :: g_name
+    logical, intent(in) :: g_has_name
+    type(dyn), intent(in) :: g_props
+    type(dyn_arr) :: tpls
+    logical :: was_list, has_body
+    character(len=:), allocatable :: src_key
+    integer :: j
+    type(dyn) :: tpl
+    tpls%n = 0
+    tpls%cap = 0
+    call get_body1(child, tpls, was_list, src_key, has_body)
+    if (.not. has_body) return
+    do j = 1, tpls%n
+      tpl = dyn_copy(tpls%items(j))
+      if (tpl%kind /= DYN_K_NULL) then
+        call apply_group(tpl, g_name, g_has_name, g_props)
+        tpls%items(j) = dyn_copy(tpl)
+      end if
+    end do
+    call set_body1(child, tpls, was_list, src_key)
+  end subroutine apply_group_to_repeat
+
+  !> v2.0 P3: retarget an animation statement at a sibling of the
+  !! same group: an explicit target that names one of the group's
+  !! own statements (the `known` list, pre-prefix names for direct
+  !! children / post-inner-expansion names for a nested group's
+  !! output) gains the group prefix, exactly like a name does.
+  !! Targets of it/last/None keep the step-3b resolution, and a
+  !! target naming nothing in the group is left alone (it refers
+  !! to a statement outside the group).
+  subroutine prefix_anim_target(node, g_name, g_has_name, known)
+    type(dyn), intent(inout) :: node
+    character(len=*), intent(in) :: g_name
+    logical, intent(in) :: g_has_name
+    type(char_list), intent(in) :: known
+    type(dyn) :: tv
+    logical :: tf
+    character(len=:), allocatable :: t, low
+    if (.not. g_has_name) return
+    if (.not. is_node(node, "AnimStmt")) return
+    call get_attr(node, "target", tv, tf)
+    if (.not. tf .or. tv%kind /= DYN_K_STR) return
+    t = str_of(tv)
+    if (len(t) == 0) return
+    low = to_lower(t)
+    if (low == "it" .or. low == "last") return
+    if (.not. name_in(known, t)) return
+    call set_attr(node, "target", dyn_str(g_name // "." // t))
+  end subroutine prefix_anim_target
+
+  !> The truthy string "name" attributes of a statement list.
+  subroutine collect_names(stmts, names)
+    type(dyn_arr), intent(in) :: stmts
+    type(char_list), intent(inout) :: names
+    integer :: k
+    type(dyn) :: nv
+    logical :: nf
+    call char_list_clear(names)
+    do k = 1, stmts%n
+      call get_attr(stmts%items(k), "name", nv, nf)
+      if (nf .and. is_truthy(nv) .and. nv%kind == DYN_K_STR) &
+        call char_list_append(names, str_of(nv))
+    end do
+  end subroutine collect_names
+
   recursive subroutine expand_group(stmt, out)
     type(dyn), intent(in) :: stmt
     type(dyn_arr), intent(inout) :: out
     type(dyn) :: nv, g_props, cv, child
     logical :: nf, cf
-    character(len=:), allocatable :: g_name, src_key
-    logical :: g_has_name, was_list, has_body
-    type(dyn_arr) :: children, tpls
-    integer :: k
+    character(len=:), allocatable :: g_name
+    logical :: g_has_name
+    type(dyn_arr) :: children, sub
+    type(char_list) :: sib_names, sub_names
+    integer :: k, j
     call get_attr(stmt, "name", nv, nf)
     g_has_name = nf .and. is_truthy(nv) .and. nv%kind == DYN_K_STR
     g_name = str_of(nv)
@@ -905,34 +991,41 @@ contains
     else
       call arr_push(children, cv)
     end if
+    call collect_names(children, sib_names)
     do k = 1, children%n
       child = dyn_copy(children%items(k))
       if (is_node(child, "GroupStmt")) then
-        call expand_group(child, out)
+        ! Nested group (reachable from import expansion and repeat
+        ! templates; the parser itself allows one level in source):
+        ! expand the inner group first, then compose THIS group's
+        ! props/prefix over its output, so names double-prefix
+        ! (outer.inner.name) and transforms accumulate.
+        sub%n = 0
+        sub%cap = 0
+        call expand_group(child, sub)
+        call collect_names(sub, sub_names)
+        do j = 1, sub%n
+          child = dyn_copy(sub%items(j))
+          if (is_node(child, "RepeatStmt")) then
+            call apply_group_to_repeat(child, g_name, g_has_name, &
+                                       g_props)
+            call arr_push(out, child)
+            cycle
+          end if
+          call apply_group(child, g_name, g_has_name, g_props)
+          call prefix_anim_target(child, g_name, g_has_name, &
+                                  sub_names)
+          call arr_push(out, child)
+        end do
         cycle
       end if
       if (is_node(child, "RepeatStmt")) then
-        tpls%n = 0
-        tpls%cap = 0
-        call get_body1(child, tpls, was_list, src_key, has_body)
-        if (has_body) then
-          block
-            integer :: j
-            type(dyn) :: tpl
-            do j = 1, tpls%n
-              tpl = dyn_copy(tpls%items(j))
-              if (tpl%kind /= DYN_K_NULL) then
-                call apply_group(tpl, g_name, g_has_name, g_props)
-                tpls%items(j) = dyn_copy(tpl)
-              end if
-            end do
-          end block
-          call set_body1(child, tpls, was_list, src_key)
-        end if
+        call apply_group_to_repeat(child, g_name, g_has_name, g_props)
         call arr_push(out, child)
         cycle
       end if
       call apply_group(child, g_name, g_has_name, g_props)
+      call prefix_anim_target(child, g_name, g_has_name, sib_names)
       call arr_push(out, child)
     end do
   end subroutine expand_group
@@ -1301,6 +1394,319 @@ contains
   end subroutine merge_props
 
   ! ==================================================================
+  ! Import expansion (v2.0 P3-A)
+  !
+  !   import "parts/fin.f3d" as fin at 0 1 0
+  !
+  ! desugar resolves the path against the importing file's
+  ! directory, reads + parses the part with f3dc_parse (the part's
+  ! own path as source name, so its diagnostics point at the part),
+  ! recursively expands any imports inside it, and wraps the result
+  ! in a synthetic group node (name = the `as` name, props = the
+  ! import line's props) that the ordinary expand_group machinery
+  ! then prefixes/composes like a hand-written group.
+  !
+  ! Rules:
+  !   - Paths are relative; absolute paths are E103.
+  !   - The lexically canonicalised resolved path must stay inside
+  !     the ROOT base_dir tree (the directory of the top-level .f3d
+  !     file); escaping it via ".." is E103.  (Containment is
+  !     lexical: symlinks are not resolved.)
+  !   - A missing/unreadable part is E501.
+  !   - A part must not contain scene / camera / render / export
+  !     statements (E103, checked recursively through its groups).
+  !   - Cycles are E504 with the chain of canonical paths.  The
+  !     expansion stack is seeded with the root file's own path
+  !     (the program's source_name) when it is known.
+  !   - Every distinct part file read is recorded once, in
+  !     first-read order, in the output program's "_import_deps"
+  !     dyn list (canonical resolved path strings) for the future
+  !     preview watcher.  The key is only present when at least one
+  !     import was read, and no emitter reads it, so it never
+  !     appears in any emitted artifact.
+  ! ==================================================================
+
+  !> Lexical path canonicalisation: split on "/", drop "" and "."
+  !! components, resolve ".." against earlier components (kept
+  !! only as leading ".." of a relative path).  "" canonicalises
+  !! to "."; an absolute path keeps its leading "/".
+  function canon_path(path) result(out)
+    character(len=*), intent(in) :: path
+    character(len=:), allocatable :: out
+    type(char_list) :: parts, comps, tmp
+    logical :: absolute
+    character(len=:), allocatable :: c
+    integer :: i, j
+    absolute = len(path) > 0 .and. path(1:1) == "/"
+    call str_split(path, "/", parts)
+    do i = 1, char_list_len(parts)
+      c = char_list_at(parts, i)
+      if (c == "" .or. c == ".") cycle
+      if (c == "..") then
+        if (char_list_len(comps) > 0) then
+          if (char_list_at(comps, char_list_len(comps)) /= "..") then
+            call char_list_clear(tmp)
+            do j = 1, char_list_len(comps) - 1
+              call char_list_append(tmp, char_list_at(comps, j))
+            end do
+            comps = tmp
+            cycle
+          end if
+        end if
+        if (.not. absolute) call char_list_append(comps, "..")
+        cycle
+      end if
+      call char_list_append(comps, c)
+    end do
+    out = str_join(comps, "/")
+    if (absolute) then
+      out = "/" // out
+    else if (len(out) == 0) then
+      out = "."
+    end if
+  end function canon_path
+
+  !> dir // "/" // rel (no double slash, empty dir passes rel).
+  function join_dir(dir, rel) result(out)
+    character(len=*), intent(in) :: dir, rel
+    character(len=:), allocatable :: out
+    if (len(dir) == 0) then
+      out = rel
+    else if (dir(len(dir):len(dir)) == "/") then
+      out = dir // rel
+    else
+      out = dir // "/" // rel
+    end if
+  end function join_dir
+
+  !> Is canonical `resolved` inside the canonical root directory?
+  logical function path_contained(resolved, root)
+    character(len=*), intent(in) :: resolved, root
+    if (root == "/") then
+      path_contained = len(resolved) > 0 .and. resolved(1:1) == "/"
+    else if (root == ".") then
+      path_contained = .not. (resolved == ".." .or. &
+        (len(resolved) >= 3 .and. resolved(1:3) == "../"))
+    else
+      path_contained = len(resolved) > len(root) + 1 .and. &
+        resolved(1:len(root) + 1) == root // "/"
+    end if
+  end function path_contained
+
+  !> Whole-file read (same stream-read shape as the CLI's read_file).
+  subroutine read_text_file(path, text, ok)
+    character(len=*), intent(in) :: path
+    character(len=:), allocatable, intent(out) :: text
+    logical, intent(out) :: ok
+    integer :: unit, ios, sz
+    logical :: there
+    ok = .false.
+    text = ""
+    inquire (file=path, exist=there, size=sz)
+    if (.not. there) return
+    open (newunit=unit, file=path, access="stream", &
+          form="unformatted", status="old", iostat=ios)
+    if (ios /= 0) return
+    allocate (character(len=max(sz, 0)) :: text)
+    if (sz > 0) read (unit, iostat=ios) text
+    close (unit)
+    ok = (ios == 0)
+  end subroutine read_text_file
+
+  !> A synthetic group node with the parser's group_node shape.
+  function make_synth_group(name, props, children_list, line_no) &
+      result(node)
+    character(len=*), intent(in) :: name
+    type(dyn), intent(in) :: props, children_list
+    integer(int64), intent(in) :: line_no
+    type(dyn) :: node
+    node = dyn_dict()
+    call dyn_dict_set(node, "name", dyn_str(name))
+    call dyn_dict_set(node, "props", dyn_copy(props))
+    call dyn_dict_set(node, "body", dyn_list())
+    call dyn_dict_set(node, "span", dyn_null())
+    call dyn_dict_set(node, "children", dyn_copy(children_list))
+    call dyn_dict_set(node, "objects", dyn_copy(children_list))
+    call dyn_dict_set(node, "statements", dyn_copy(children_list))
+    call dyn_dict_set(node, "line", dyn_int(line_no))
+  end function make_synth_group
+
+  !> Part restriction walk: scene/camera/output statements are
+  !! forbidden in an imported part (groups are walked through).
+  recursive subroutine check_part(stmts, resolved, bag, bad)
+    type(dyn_arr), intent(in) :: stmts
+    character(len=*), intent(in) :: resolved
+    type(error_bag_t), intent(inout) :: bag
+    logical, intent(out) :: bad
+    integer :: k
+    type(dyn) :: node, cv, kv
+    logical :: cf
+    type(dyn_arr) :: kids
+    character(len=:), allocatable :: kind
+    bad = .false.
+    do k = 1, stmts%n
+      node = stmts%items(k)
+      kind = ""
+      if (is_node(node, "SceneStmt")) then
+        kind = "scene"
+      else if (is_node(node, "CameraStmt")) then
+        kind = "camera"
+      else if (is_node(node, "OutputStmt")) then
+        kv = dyn_dict_get(node, "kind")
+        if (kv%kind == DYN_K_STR) then
+          kind = str_of(kv)
+        else
+          kind = "render"
+        end if
+      end if
+      if (len(kind) > 0) then
+        call emit_diag(bag, "E103", "error", &
+          "imported part '" // resolved // "' must not contain a '" &
+          // kind // "' statement (parts define objects, groups " &
+          // "and animations only)")
+        bad = .true.
+        return
+      end if
+      if (is_node(node, "GroupStmt")) then
+        call get_attr(node, "children", cv, cf)
+        kids%n = 0
+        kids%cap = 0
+        if (cf .and. cv%kind == DYN_K_LIST) &
+          call arr_from_list(kids, cv)
+        call check_part(kids, resolved, bag, bad)
+        if (bad) return
+      end if
+    end do
+  end subroutine check_part
+
+  !> Expand one import statement into a synthetic group appended
+  !! to `out` (or nothing, after recording the diagnostic).
+  recursive subroutine expand_one_import(node, cur_dir, root_canon, &
+                                         stack, bag, deps, &
+                                         deps_seen, out)
+    type(dyn), intent(in) :: node
+    character(len=*), intent(in) :: cur_dir, root_canon
+    type(char_list), intent(in) :: stack
+    type(error_bag_t), intent(inout) :: bag
+    type(dyn), intent(inout) :: deps
+    type(char_list), intent(inout) :: deps_seen
+    type(dyn_arr), intent(inout) :: out
+    character(len=:), allocatable :: path_str, as_name, resolved
+    character(len=:), allocatable :: text, chain
+    type(dyn) :: iprops, part_prog, pv, lv
+    logical :: pf, rok, bad
+    type(dyn_arr) :: part_stmts, sub_out
+    type(char_list) :: stack2
+    integer :: nerr0, i
+    path_str = str_of(dyn_dict_get(node, "import_path"))
+    as_name = str_of(dyn_dict_get(node, "name"))
+    call props_of(node, iprops)
+    if (len(path_str) > 0 .and. path_str(1:1) == "/") then
+      call emit_diag(bag, "E103", "error", &
+        "import '" // path_str // "': absolute paths are not " &
+        // "allowed (give a path relative to the importing file)")
+      return
+    end if
+    resolved = canon_path(join_dir(cur_dir, path_str))
+    if (.not. path_contained(resolved, root_canon)) then
+      call emit_diag(bag, "E103", "error", &
+        "import '" // path_str // "' resolves to '" // resolved &
+        // "', which is outside the project directory '" &
+        // root_canon // "'")
+      return
+    end if
+    if (name_in(stack, resolved)) then
+      chain = ""
+      do i = 1, char_list_len(stack)
+        if (i > 1) chain = chain // " -> "
+        chain = chain // char_list_at(stack, i)
+      end do
+      if (len(chain) > 0) chain = chain // " -> "
+      chain = chain // resolved
+      call emit_diag(bag, "E504", "error", &
+                     "import cycle: " // chain)
+      return
+    end if
+    call read_text_file(resolved, text, rok)
+    if (.not. rok) then
+      call emit_diag(bag, "E501", "error", &
+        "could not load import '" // path_str // "' (looked for " &
+        // resolved // ")")
+      return
+    end if
+    if (.not. name_in(deps_seen, resolved)) then
+      call char_list_append(deps_seen, resolved)
+      call dyn_list_push(deps, dyn_str(resolved))
+    end if
+    nerr0 = error_bag_error_count(bag)
+    call f3dc_parse(text, resolved, bag, part_prog)
+    if (error_bag_error_count(bag) > nerr0) return
+    part_stmts%n = 0
+    part_stmts%cap = 0
+    call get_attr(part_prog, "statements", pv, pf)
+    if (pf .and. pv%kind == DYN_K_LIST) &
+      call arr_from_list(part_stmts, pv)
+    call check_part(part_stmts, resolved, bag, bad)
+    if (bad) return
+    stack2 = stack
+    call char_list_append(stack2, resolved)
+    sub_out%n = 0
+    sub_out%cap = 0
+    call expand_imports(part_stmts, path_dirname(resolved), &
+                        root_canon, stack2, bag, deps, deps_seen, &
+                        sub_out)
+    lv = dyn_dict_get(node, "line")
+    call arr_push(out, make_synth_group(as_name, iprops, &
+                                        arr_to_list(sub_out), &
+                                        to_int64(lv)))
+  end subroutine expand_one_import
+
+  !> Replace every import statement in a statement list by its
+  !! synthetic group, in source order, recursing into group bodies
+  !! (whose imports belong to the same file, hence the same
+  !! cur_dir).  All other statements pass through untouched.
+  recursive subroutine expand_imports(stmts_in, cur_dir, root_canon, &
+                                      stack, bag, deps, deps_seen, &
+                                      out)
+    type(dyn_arr), intent(in) :: stmts_in
+    character(len=*), intent(in) :: cur_dir, root_canon
+    type(char_list), intent(in) :: stack
+    type(error_bag_t), intent(inout) :: bag
+    type(dyn), intent(inout) :: deps
+    type(char_list), intent(inout) :: deps_seen
+    type(dyn_arr), intent(inout) :: out
+    integer :: k
+    type(dyn) :: node, cv, sub_list
+    logical :: cf
+    type(dyn_arr) :: kids, sub
+    do k = 1, stmts_in%n
+      node = dyn_copy(stmts_in%items(k))
+      if (is_node(node, "ImportStmt")) then
+        call expand_one_import(node, cur_dir, root_canon, stack, &
+                               bag, deps, deps_seen, out)
+      else if (is_node(node, "GroupStmt")) then
+        call get_attr(node, "children", cv, cf)
+        if (cf .and. cv%kind == DYN_K_LIST) then
+          kids%n = 0
+          kids%cap = 0
+          call arr_from_list(kids, cv)
+          sub%n = 0
+          sub%cap = 0
+          call expand_imports(kids, cur_dir, root_canon, stack, &
+                              bag, deps, deps_seen, sub)
+          sub_list = arr_to_list(sub)
+          call dyn_dict_set(node, "children", dyn_copy(sub_list))
+          call dyn_dict_set(node, "objects", dyn_copy(sub_list))
+          call dyn_dict_set(node, "statements", dyn_copy(sub_list))
+        end if
+        call arr_push(out, node)
+      else
+        call arr_push(out, node)
+      end if
+    end do
+  end subroutine expand_imports
+
+  ! ==================================================================
   ! The pass (desugar)
   ! ==================================================================
 
@@ -1385,19 +1791,24 @@ contains
     end do
   end function any_node
 
-  !> desugar(program, bag) -> new Program.  In Fortran the input is
-  !! not mutated (Python deep-copies it first, with the same effect)
-  !! and bag is required (pass a scratch bag for Python's bag=None).
-  subroutine desugar(program_in, bag, program_out)
+  !> desugar(program, bag, base_dir) -> new Program.  In Fortran the
+  !! input is not mutated (Python deep-copies it first, with the
+  !! same effect) and bag is required (pass a scratch bag for
+  !! Python's bag=None).  base_dir is the directory of the .f3d
+  !! file the program came from (v2.0 P3: import statements are
+  !! resolved against it; it is also the containment root).
+  subroutine desugar(program_in, bag, base_dir, program_out)
     type(dyn), intent(in) :: program_in
     type(error_bag_t), intent(inout) :: bag
+    character(len=*), intent(in) :: base_dir
     type(dyn), intent(out) :: program_out
-    type(dyn) :: work, v, span0
+    type(dyn) :: work, v, span0, import_deps
     type(dyn_arr) :: stmts, flat, expanded, injected
     logical :: found, was_empty
     integer(int64) :: budget, used
     integer :: k
     work = dyn_copy(program_in)
+    import_deps = dyn_list()
     stmts%n = 0
     stmts%cap = 0
     call get_attr(work, "statements", v, found)
@@ -1417,6 +1828,29 @@ contains
       end if
     end block
     was_empty = (stmts%n == 0)
+
+    ! 0. Expand import statements (v2.0 P3), in source order, before
+    ! group/repeat expansion: each import becomes a synthetic group
+    ! node that step 1 expands like a hand-written group.
+    block
+      type(dyn_arr) :: imp_out
+      type(char_list) :: stack, deps_seen
+      type(dyn) :: sv
+      logical :: sf
+      character(len=:), allocatable :: root_canon
+      root_canon = canon_path(base_dir)
+      call raw_get(work, "source_name", sv, sf)
+      if (.not. sf .or. sv%kind /= DYN_K_STR) &
+        call raw_get(work, "source", sv, sf)
+      if (sf .and. sv%kind == DYN_K_STR .and. &
+          len(str_of(sv)) > 0) &
+        call char_list_append(stack, canon_path(str_of(sv)))
+      imp_out%n = 0
+      imp_out%cap = 0
+      call expand_imports(stmts, base_dir, root_canon, stack, bag, &
+                          import_deps, deps_seen, imp_out)
+      stmts = imp_out
+    end block
 
     ! 1-2. Expand groups and repeats, in source order.
     flat%n = 0
@@ -1599,6 +2033,11 @@ contains
       call arr_push(flat, make_default_output(span0))
 
     program_out = make_program(arr_to_list(flat), span0)
+    ! v2.0 P3: dependency record for the future preview watcher
+    ! (see the import-expansion section header).  Only present when
+    ! at least one part file was read; no emitter reads this key.
+    if (dyn_list_len(import_deps) > 0) &
+      call dyn_dict_set(program_out, "_import_deps", import_deps)
   end subroutine desugar
 
   !> One ANIM_DEFAULTS entry: set props[key] when the key is absent

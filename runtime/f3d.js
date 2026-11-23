@@ -5,7 +5,7 @@
 // so stills are deterministic and match native output. A WebGL1 path is
 // deliberately NOT shipped in v1: correct and small beats fast and
 // wrong; WebGL acceleration is a later wave. Minified by the Makefile.
-// Scene (v2): {objects:[{prim,color,pos,rotate,scale,size,size3,radius,
+// Scene (v2): {objects:[{prim,color,pos,rotate,scale,mirror,size,size3,radius,
 // height,segments,material,triangles}],camera,lights,animations,bg,
 // width,height}; legacy v1 {triangles:[{v,color}]} also loads.
 // Anim closed forms mirror src/animation.f90 exactly (see animState):
@@ -98,9 +98,25 @@ function build(obj){ // -> {tris, color|null}
   else if(prim==='tris'||obj.triangles)(obj.triangles||[]).forEach(function(t){
     var vs=t.v||t.verts||t.vertices||t;if(vs&&vs.length===3){var e=[v3(vs[0],[0,0,0]),v3(vs[1],[0,0,0]),v3(vs[2],[0,0,0]),0,color(t.color||t.c,null)],nn=t.normals||t[5];
       if(nn&&nn.length===3)e[5]=[v3(nn[0],[0,0,0]),v3(nn[1],[0,0,0]),v3(nn[2],[0,0,0])];o.push(e);}});
+  // mirror "x"|"y"|"z" (P3): reflect local vertices + index-5
+  // normals across the named axis through the local origin.
+  // Baking it here, before xform applies scale/rotation/
+  // translation, gives exactly T*Ry*Rx*Rz*S*M, the engine's
+  // order. The composed determinant is -det(scale) (rotations
+  // have det +1), so when it is negative (det(scale) > 0) swap
+  // vertex order b/c -- and the normals entries likewise --
+  // so face normals, smooth shading and painter behaviour
+  // keep the unmirrored outward convention.
+  var sc=v3(obj.scale,[1,1,1]),mi=obj.mirror?'xyz'.indexOf(String(obj.mirror).toLowerCase()):-1;
+  if(mi>=0){var flip=sc[0]*sc[1]*sc[2]>0;
+    o.forEach(function(t){var k,vv,nn2;
+      for(k=0;k<3;k++){vv=t[k].slice();vv[mi]=-vv[mi];t[k]=vv;}
+      if(t[5])for(k=0;k<3;k++){nn2=t[5][k].slice();nn2[mi]=-nn2[mi];t[5][k]=nn2;}
+      if(flip){vv=t[1];t[1]=t[2];t[2]=vv;
+        if(t[5]){nn2=t[5][1];t[5][1]=t[5][2];t[5][2]=nn2;}}});}
   return{tris:o,prim:prim,color:color(obj.color,null),
     pos:v3(obj.pos||obj.position,[0,0,0]),rot:v3(obj.rotate||obj.rotation,[0,0,0]),
-    scl:v3(obj.scale,[1,1,1]),name:obj.name||'',mat:String(obj.material||'lambert').toLowerCase(),
+    scl:sc,name:obj.name||'',mat:String(obj.material||'lambert').toLowerCase(),
     shading:obj.shading?String(obj.shading).toLowerCase():('sphere,cylinder,cone,capsule,tube,lathe,torus,torusknot'.split(',').indexOf(prim)>=0?'smooth':'flat')};}
 function xformN(p,rot,scl){return norm(xform(p,[0,0,0],rot,scl));} // scale->Rz->Rx->Ry, no translate
 // ---- animation evaluation: returns modified {pos,rot,scl} ----

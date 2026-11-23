@@ -562,9 +562,18 @@ contains
         integer, intent(in) :: rgb(3), material_id
         type(Triangle), allocatable :: tmp(:)
         type(Triangle) :: t
+        type(vec3) :: swap_v
         integer :: old_n, i, k
+        logical :: flip
 
         if (src%num_triangles <= 0) return
+        ! Negative-determinant model (reflection, or an odd number of
+        ! negative scale axes) reverses triangle winding.  Swapping
+        ! vertices 2/3 (and their vertex normals) after the transform
+        ! restores the original orientation, so the face normal
+        ! recomputed from winding below matches the unmirrored
+        ! convention.  det >= 0 takes exactly the pre-P3 path.
+        flip = mat4_determinant(model) < 0.0_dp
         if (allocated(dst%triangles) .and. dst%num_triangles > 0) then
             old_n = dst%num_triangles
         else
@@ -577,6 +586,9 @@ contains
             do k = 1, 3
                 t%v(k) = mat4_transform_vec3(model, src%triangles(i)%v(k), .true.)
             end do
+            if (flip) then
+                swap_v = t%v(2); t%v(2) = t%v(3); t%v(3) = swap_v
+            end if
             t%normal = compute_triangle_normal(t%v(1), t%v(2), t%v(3))
             if (t%smooth) then
                 ! Vertex normals transform as DIRECTIONS (is_point=.false.:
@@ -585,6 +597,9 @@ contains
                     t%vn(k) = vec3_normalize(mat4_transform_vec3( &
                         model, src%triangles(i)%vn(k), .false.))
                 end do
+                if (flip) then
+                    swap_v = t%vn(2); t%vn(2) = t%vn(3); t%vn(3) = swap_v
+                end if
             else
                 ! Flat: vn follows the transformed face normal.
                 call tri_set_flat_vn(t)

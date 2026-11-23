@@ -76,11 +76,11 @@ module f3dc_ext_geometry
     [32, 32, 16, 12, 24, 0, 0, 0, 0, 0, 48]
   character(16), parameter :: POLY_PRIMS(4) = [character(16) :: &
     "icosahedron", "octahedron", "tetrahedron", "dodecahedron"]
-  character(16), parameter :: COMMON_PROPS(20) = [character(16) :: &
+  character(16), parameter :: COMMON_PROPS(22) = [character(16) :: &
     "at", "pos", "position", "rotate", "rot", "scale", "material", &
     "segments", "detail", "capped", "open", "texture", "colour", &
     "color", "metalness", "roughness", "specular", "shininess", &
-    "name", "named"]
+    "name", "named", "shading", "mirror"]
 
 contains
 
@@ -960,7 +960,7 @@ contains
       key = char_list_at(keys, k)
       allowed = prim_prop_allowed(prim, key)
       if (.not. allowed) then
-        do i = 1, 20
+        do i = 1, 22
           if (key == trim(COMMON_PROPS(i))) allowed = .true.
         end do
       end if

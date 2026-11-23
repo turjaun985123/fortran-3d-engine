@@ -61,13 +61,13 @@ module f3dc_errors
   end type str_box_t
 
   ! ERROR_CODES: stable, append-only code -> short title (errors.py).
-  integer, parameter :: N_CODES = 21
+  integer, parameter :: N_CODES = 22
   character(len=4), parameter :: CODE_KEYS(N_CODES) = [ &
     "E101", "E102", "E103", "E104", "E110", &
     "E201", "E202", "E203", "E204", "E205", &
     "E301", "E302", "E303", "E401", "E402", &
-    "E501", "E502", "E820", "W101", "W102", &
-    "W201"]
+    "E501", "E502", "E504", "E820", "W101", &
+    "W102", "W201"]
   character(len=32), parameter :: CODE_TITLES(N_CODES) = [ &
     "unexpected token              ", &
     "expected number               ", &
@@ -86,6 +86,7 @@ module f3dc_errors
     "no objects                    ", &
     "file not found                ", &
     "cannot write output           ", &
+    "import cycle                  ", &
     "security/limit violation      ", &
     "default injected              ", &
     "statement replaced            ", &
@@ -98,7 +99,8 @@ contains
   ! ------------------------------------------------------------------
 
   pure integer function error_code_count()
-    error_code_count = 21  ! entries in the Python ERROR_CODES dict
+    error_code_count = 22  ! entries in the ERROR_CODES table (E504 is
+                           ! native-only: import cycle, v2.0 P3)
   end function error_code_count
 
   !> Title for a code; found=.false. when the code is not in the table.
@@ -109,7 +111,7 @@ contains
     integer :: k
     found = .false.
     title = ""
-    do k = 1, 21
+    do k = 1, N_CODES
       if (len(code) == 4 .and. code == CODE_KEYS(k)) then
         title = trim(CODE_TITLES(k))
         found = .true.

@@ -1,0 +1,17 @@
+# Forge3D example: a rocket assembled from imported parts (v2.0 P3).
+# The body is one part file; the fin part is imported twice -- the
+# second copy is shifted across and mirrored, so a single fin file
+# makes both fins. Compare rocket.f3d-style hand-written scenes:
+# parts keep reusable models in one place.
+scene "rocket-parts" size 640 480 background black shadow soft
+camera at 5.5 2 11 look 0 0 0 fov 60
+light directional dir -0.5 -1 -0.7 strength 1.6
+light point white at 4 2 8 intensity 60 distance 0 decay 2
+light ambient strength 0.45
+plane ground gray at 0 -4.2 0 size 18 material standard metalness 0 roughness 0.95
+sphere moon gray at -6.5 3.5 -4 radius 0.8 material basic
+import "parts/rocket-body.f3d" as rocket
+import "parts/rocket-fin.f3d" as fin_r at 1.0 -2.6 -0.09
+import "parts/rocket-fin.f3d" as fin_l at -1.0 -2.6 -0.09 mirror x
+cone flame orange at 0 -3.5 0 radius 0.8 height 2 rotate 180 0 0 material basic
+render
