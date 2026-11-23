@@ -190,6 +190,9 @@ module f3dc_validate
     type(dyn) :: camera_node, controls_node
     type(dyn) :: env_props
     character(:), allocatable :: scene_name
+    ! P1: scene-level `shading smooth|flat` default (explicit only).
+    character(:), allocatable :: scene_shading
+    logical :: has_scene_shading = .false.
     integer(int64) :: width = 640_int64, height = 480_int64
     integer :: bg(3) = DEFAULT_BG
     type(dyn) :: names              ! dict: name -> node
@@ -1651,6 +1654,12 @@ contains
     end do
     call vfield(node, props, [character(12) :: "name", "title"], v)
     if (v%kind == DYN_K_STR .and. len(v%s) > 0) vs%scene_name = v%s
+    call vfield(node, props, [character(12) :: "shading"], v)
+    if (v%kind == DYN_K_STR .and. &
+        (to_lower(v%s) == "smooth" .or. to_lower(v%s) == "flat")) then
+      vs%scene_shading = to_lower(v%s)
+      vs%has_scene_shading = .true.
+    end if
     call vfield(node, props, [character(12) :: "width", "w"], v)
     call get_int(v, w, has_w)
     call vfield(node, props, [character(12) :: "height", "h"], v)
@@ -1696,6 +1705,8 @@ contains
     logical, intent(in) :: has_forced, has_load
     type(dyn) :: props, v, ir_obj, exts, tri_props
     character(:), allocatable :: prim, name, material, detail
+    character(:), allocatable :: shading_emit, prim_shading_default
+    logical :: has_shading_emit
     integer :: rgb(3)
     logical :: has_rgb, has_mat
     real(real64) :: size, radius, obj_height, tube, width_v, depth_v
@@ -1860,6 +1871,31 @@ contains
     else
       detail = "med"
     end if
+    ! P1 shading resolution.  Primitive default: smooth for the
+    ! curved prims, flat for everything else.  The resolved default
+    ! is NEVER emitted; the IR carries "shading" only when it was
+    ! explicitly determined -- the object's own prop (always), or
+    ! the scene-level default expanded onto objects whose primitive
+    ! default differs from it.
+    select case (prim)
+    case ("sphere", "cylinder", "cone", "capsule", "tube", &
+          "lathe", "torus", "torusknot")
+      prim_shading_default = "smooth"
+    case default
+      prim_shading_default = "flat"
+    end select
+    has_shading_emit = .false.
+    shading_emit = ""
+    call vfield(node, props, [character(12) :: "shading"], v)
+    if (v%kind == DYN_K_STR .and. &
+        (to_lower(v%s) == "smooth" .or. to_lower(v%s) == "flat")) then
+      shading_emit = to_lower(v%s)
+      has_shading_emit = .true.
+    else if (vs%has_scene_shading .and. &
+             vs%scene_shading /= prim_shading_default) then
+      shading_emit = vs%scene_shading
+      has_shading_emit = .true.
+    end if
     if (has_segments .and. (segments < MIN_SEGMENTS .or. &
         segments > MAX_SEGMENTS)) then
       call verrn("E301", "segments is " // istr(segments) // &
@@ -1974,6 +2010,8 @@ contains
       call dyn_dict_set(ir_obj, "segments", dyn_null())
     end if
     call dyn_dict_set(ir_obj, "detail", dyn_str(detail))
+    if (has_shading_emit) &
+      call dyn_dict_set(ir_obj, "shading", dyn_str(shading_emit))
     call dyn_dict_set(ir_obj, "capped", dyn_bool(capped))
     call dyn_dict_set(ir_obj, "material", dyn_str(material))
     call dyn_dict_set(ir_obj, "triangles", raw_tris)
@@ -2092,6 +2130,8 @@ contains
     vs%controls_node = dyn_null()
     vs%env_props = dyn_dict()
     vs%scene_name = "untitled"
+    vs%scene_shading = ""
+    vs%has_scene_shading = .false.
     vs%width = 640_int64
     vs%height = 480_int64
     vs%bg = DEFAULT_BG

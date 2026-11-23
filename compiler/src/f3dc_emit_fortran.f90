@@ -1760,6 +1760,13 @@ contains
                 line = line // " " // char_list_at(extra, j)
               end do
             end if
+            ! P1: explicit shading token goes last on the line.
+            block
+              type(dyn) :: shv
+              shv = gv(obj, "shading")
+              if (shv%kind == DYN_K_STR) &
+                line = line // " shading " // to_lower(py_str(shv))
+            end block
             call char_list_append(lines, line)
           end block
         end if

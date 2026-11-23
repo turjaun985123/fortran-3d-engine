@@ -56,6 +56,8 @@ contains
             m%triangles(idx)%v = [top_pole, b, a]
             m%triangles(idx)%normal = compute_triangle_normal( &
                 m%triangles(idx)%v(1), m%triangles(idx)%v(2), m%triangles(idx)%v(3))
+            call tri_set_smooth(m%triangles(idx), capsule_top_vn(top_pole, hh), &
+                                capsule_top_vn(b, hh), capsule_top_vn(a, hh))
             m%triangles(idx)%color = [255, 255, 255]
         end do
 
@@ -72,11 +74,15 @@ contains
                 m%triangles(idx)%v = [a, b, c]
                 m%triangles(idx)%normal = compute_triangle_normal( &
                     m%triangles(idx)%v(1), m%triangles(idx)%v(2), m%triangles(idx)%v(3))
+                call tri_set_smooth(m%triangles(idx), capsule_top_vn(a, hh), &
+                                    capsule_top_vn(b, hh), capsule_top_vn(c, hh))
                 m%triangles(idx)%color = [255, 255, 255]
                 idx = idx + 1
                 m%triangles(idx)%v = [a, c, d]
                 m%triangles(idx)%normal = compute_triangle_normal( &
                     m%triangles(idx)%v(1), m%triangles(idx)%v(2), m%triangles(idx)%v(3))
+                call tri_set_smooth(m%triangles(idx), capsule_top_vn(a, hh), &
+                                    capsule_top_vn(c, hh), capsule_top_vn(d, hh))
                 m%triangles(idx)%color = [255, 255, 255]
             end do
         end do
@@ -94,11 +100,15 @@ contains
             m%triangles(idx)%v = [b1, t2, b2]
             m%triangles(idx)%normal = compute_triangle_normal( &
                 m%triangles(idx)%v(1), m%triangles(idx)%v(2), m%triangles(idx)%v(3))
+            call tri_set_smooth(m%triangles(idx), capsule_radial_vn(b1), &
+                                capsule_radial_vn(t2), capsule_radial_vn(b2))
             m%triangles(idx)%color = [255, 255, 255]
             idx = idx + 1
             m%triangles(idx)%v = [b1, t1, t2]
             m%triangles(idx)%normal = compute_triangle_normal( &
                 m%triangles(idx)%v(1), m%triangles(idx)%v(2), m%triangles(idx)%v(3))
+            call tri_set_smooth(m%triangles(idx), capsule_radial_vn(b1), &
+                                capsule_radial_vn(t1), capsule_radial_vn(t2))
             m%triangles(idx)%color = [255, 255, 255]
         end do
 
@@ -117,11 +127,15 @@ contains
                 m%triangles(idx)%v = [d, c, b]
                 m%triangles(idx)%normal = compute_triangle_normal( &
                     m%triangles(idx)%v(1), m%triangles(idx)%v(2), m%triangles(idx)%v(3))
+                call tri_set_smooth(m%triangles(idx), capsule_bot_vn(d, hh), &
+                                    capsule_bot_vn(c, hh), capsule_bot_vn(b, hh))
                 m%triangles(idx)%color = [255, 255, 255]
                 idx = idx + 1
                 m%triangles(idx)%v = [d, b, a]
                 m%triangles(idx)%normal = compute_triangle_normal( &
                     m%triangles(idx)%v(1), m%triangles(idx)%v(2), m%triangles(idx)%v(3))
+                call tri_set_smooth(m%triangles(idx), capsule_bot_vn(d, hh), &
+                                    capsule_bot_vn(b, hh), capsule_bot_vn(a, hh))
                 m%triangles(idx)%color = [255, 255, 255]
             end do
         end do
@@ -135,11 +149,37 @@ contains
             m%triangles(idx)%v = [bot_pole, a, b]
             m%triangles(idx)%normal = compute_triangle_normal( &
                 m%triangles(idx)%v(1), m%triangles(idx)%v(2), m%triangles(idx)%v(3))
+            call tri_set_smooth(m%triangles(idx), capsule_bot_vn(bot_pole, hh), &
+                                capsule_bot_vn(a, hh), capsule_bot_vn(b, hh))
             m%triangles(idx)%color = [255, 255, 255]
         end do
 
         m%num_triangles = idx
     end subroutine create_capsule
+
+    ! Vertex normal on the top hemisphere: direction from the
+    ! hemisphere centre (0, hh, 0) to the vertex, normalised.
+    pure function capsule_top_vn(p, hh) result(n)
+        type(vec3), intent(in) :: p
+        real(dp), intent(in) :: hh
+        type(vec3) :: n
+        n = vec3_normalize(vec3_sub(p, vec3_create(0.0_dp, hh, 0.0_dp)))
+    end function capsule_top_vn
+
+    ! Vertex normal on the bottom hemisphere: centre (0, -hh, 0).
+    pure function capsule_bot_vn(p, hh) result(n)
+        type(vec3), intent(in) :: p
+        real(dp), intent(in) :: hh
+        type(vec3) :: n
+        n = vec3_normalize(vec3_sub(p, vec3_create(0.0_dp, -hh, 0.0_dp)))
+    end function capsule_bot_vn
+
+    ! Vertex normal on the cylindrical barrel: radial (away from Y axis).
+    pure function capsule_radial_vn(p) result(n)
+        type(vec3), intent(in) :: p
+        type(vec3) :: n
+        n = vec3_normalize(vec3_create(p%x, 0.0_dp, p%z))
+    end function capsule_radial_vn
 
     ! Point on ring j (1..hr) of the top hemisphere: the profile angle
     ! phi runs from 0 at the pole to pi/2 at the equator in hr steps.

@@ -107,6 +107,7 @@ contains
             m%triangles(i)%normal = compute_triangle_normal( &
                 m%triangles(i)%v(1), m%triangles(i)%v(2), &
                 m%triangles(i)%v(3))
+            m%triangles(i)%vn = [m%triangles(i)%normal, m%triangles(i)%normal, m%triangles(i)%normal]
             m%triangles(i)%color = [255, 255, 255]
         end do
 

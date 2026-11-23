@@ -16,7 +16,7 @@
    },
    "build": {
     "artifacts": {
-     "animated.html": "82736d863b9a7c22ccfa2168436d6c2d38e4f27473670a4ff8eb9ed12fec1173",
+     "animated.html": "a28b104b0ac697229b90d3e0eb0b034d75f823f5ae458ea0f60b3e8123b4d634",
      "animated.js": "19d9989ae8e5ce288de4cd74ed8301e37923fe28293e144001f239e93752c33a",
      "animated.json": "20a87f466528cfacfa291ab06f034270ace8fc7feec852acd14f7e6d6cfe08df",
      "animated.legacy.json": "4da18e236a476faaf17a275ed06a734526c6efcb61d02eb51a431d9324e553df",
@@ -38,7 +38,7 @@
    },
    "build": {
     "artifacts": {
-     "geometries.html": "1d02f37d8bcaee7aff4ef96281ddc68f005d543d59bc3ba001a8310ec992f414",
+     "geometries.html": "e67910c637ca81629c56314e083558572f4ecce2537a9d9ca6e58187c87b97d5",
      "geometries.js": "b73f753d90a51478db9a626c869aa85ef158a0d88e60995679a3445baa07edfa",
      "geometries.json": "087e0d65343d5b027fb50c4b293279adc66fb272335cd21215bd666afcbd2962",
      "geometries.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
@@ -64,7 +64,7 @@
    },
    "build": {
     "artifacts": {
-     "hello-cube.html": "0fecfefe57d530221a7d347883882ed4382e8f42a74a4fa487dd17bab28dd9c9",
+     "hello-cube.html": "111b5625fb2840c1b1e7be1b2296a0a97e5041b9235b1b6099449a713b27bf66",
      "hello-cube.js": "0679b595fd4e594acf7179072edd24e6004e34c6ffa9b9558d38dc2b66d5f55c",
      "hello-cube.json": "d3980294aaf012c2b380df2c1f06744dc0ac8572963d22d0a473eedca27031d8",
      "hello-cube.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
@@ -86,7 +86,7 @@
    },
    "build": {
     "artifacts": {
-     "lighting-showcase.html": "a892ceca5a2ae4c007da7ae141d05fcd1e37ff2b857030e7274e8bb33f201eb4",
+     "lighting-showcase.html": "7dc8964be35c6e04349dc5226a02f69e54b1bc636fdc4c72575dc910e0c87c6b",
      "lighting-showcase.js": "57fa09d1b3337ec134540cd5d312c4342a5e7fcd9213b92997d4ef78d0463678",
      "lighting-showcase.json": "45bece3796968dbe889cfc86ba13197d067ed281538f38e9b3b2eaf8b444975c",
      "lighting-showcase.legacy.json": "48736f03a9f60da89982f909ebf161f857d64fa044c8824888cb51985251736b",
@@ -108,7 +108,7 @@
    },
    "build": {
     "artifacts": {
-     "materials.html": "f428ced619485e6e1d698177732feaa5cc241aed482dfe81ab16094e3d1fdb46",
+     "materials.html": "bcee5391068931d9231fd93463613b40048301e9a4c2a99188a010bb327b742b",
      "materials.js": "ab571134ff0d6f3247eadf207a025d3846ee96ed97188f69c9b0e13d37898753",
      "materials.json": "420f65462be687af7cdd7704f146bee96b7a64084e447dcd036a73860f274102",
      "materials.legacy.json": "930fa4a6ec934d11687c13b915845dbd00ffdcc77398af863cc3888caa12b566",
@@ -132,7 +132,7 @@
    },
    "build": {
     "artifacts": {
-     "multi-object.html": "d03760de8e704bdea86710006921c9c359ebc5b2d61c54ed7e799f90e377399d",
+     "multi-object.html": "e1ba88bab27bfa87d30164d8954546bd27b28157c6ba61eca8bc74361261a31a",
      "multi-object.js": "eb2defefa859ab3aee6275f7f4df68a1db6d91a39ad2879bc39ddcf226f67529",
      "multi-object.json": "5eec7baceb92a15b433241adef5d5cdb1fb2e491baea7ceb776e01e9a178d53d",
      "multi-object.legacy.json": "bfedf48a8ce681ccbff1f6795d094db783eb1fcdfd7a34d22d041d28d2c7f235",
@@ -154,13 +154,13 @@
    },
    "build": {
     "artifacts": {
-     "multi-scene-multi-scene-one.html": "804cc700fe08b22b843942f642d6393c06ed94a826e797f8c73870fcf2924f7a",
+     "multi-scene-multi-scene-one.html": "9ce25d9b295fa4001a229cf503bdbe7f2c6d600ba23962d0d87a6f1fc2ff3af7",
      "multi-scene-multi-scene-one.js": "b01d10797a86b84383b7960424b4dca040c753a79c3d614134f2fae82a12cf4c",
      "multi-scene-multi-scene-one.json": "036fbf1b8ae2b75d160357b9235e716151cdeb54e21e0b5c8d76550274cf9052",
      "multi-scene-multi-scene-one.legacy.json": "08bbc759f0c3f34906ec51e2ec7e4dd0f59e5e71c4cd321ebfaba4a85c20505e",
      "multi-scene-multi-scene-one.scene": "d0c5fa38859a3d02a684b27b9a3b02e417b7586500bd16fd0bfe058265385950",
      "multi-scene-multi-scene-one_scene.f90": "b7fb641e368cc25ef8abedccaf4508022df966ebf90c8c36df3a585560a90559",
-     "multi-scene-multi-scene-two.html": "e0d380d94584c6c7ecaae9eabf7b842902f928e69a64c20f74f870597b845ac4",
+     "multi-scene-multi-scene-two.html": "30a7695e6f0e5ee401226423d6ef3065c4215b3e0d41ecb0f315e4c2b5630197",
      "multi-scene-multi-scene-two.js": "dc513bca13d4f433b6b05d5cefe73d0a17d19307153bed9c8ce30b7d8450f1fc",
      "multi-scene-multi-scene-two.json": "77fd28c3477e507626b5d5f61543a33ad64f8506ebb73d8e6230c046e1a6ba72",
      "multi-scene-multi-scene-two.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
@@ -182,7 +182,7 @@
    },
    "build": {
     "artifacts": {
-     "post-ortho.html": "f9e8359ca393444bc4ae8e57cf2eaffded48eebcd1547c1d97f8b0c623330ba6",
+     "post-ortho.html": "546e883376c0b098d802b6dbf846bcd0639ea857fafcdd942db5a8d276e36a87",
      "post-ortho.js": "594abd96d0821b26f9a737160b9617ebef8ae99b8462145c2b5b9fb87e0bde98",
      "post-ortho.json": "cea834fc214186c46f4966d92a430f346965ac646d245a4e96e05ef3c6634ea8",
      "post-ortho.legacy.json": "f670c35a88a6131a4834020637e5889bd2db8e15b1f1bf2b3cdb78ad1592d2e7",
@@ -204,7 +204,7 @@
    },
    "build": {
     "artifacts": {
-     "waveb-showcase.html": "f995187e79bfe80af83f13e1710416595343121bf2f1ccf0016b393fd68d8940",
+     "waveb-showcase.html": "759139f85fed613071fd1ecd1893cd1fabd09cb6007b3caed812ef51ef3a91b4",
      "waveb-showcase.js": "3d7cda3fdd7c70006ddd4230cae2a9b837f51e3fe244e53b9601ee4be13a2e0b",
      "waveb-showcase.json": "59bf5ece398a315beb2e11f5f963a0dd13860a0cba6027e6e5f7af279ae54ada",
      "waveb-showcase.legacy.json": "c42356ade93a43347d233191a988b867be3b02e21d9de6e9771b67c759d325e2",
@@ -226,7 +226,7 @@
    },
    "build": {
     "artifacts": {
-     "wavee-showcase.html": "56760c0313719d0016e70da7c0f5a5e3fe07bd499f5429803f438125ae85cfc7",
+     "wavee-showcase.html": "6546bdf0eddd158825bbae8ffdffbd72f2bbec01406c0211f335b0725b30a8f4",
      "wavee-showcase.js": "7a45a6248c90856144b0721858ea35301c45a251728840025cbdb20881c603e1",
      "wavee-showcase.json": "3b29f4f3512d9b13658e8f6e77cd6714f59863e9f5b767b1f1d43b09859dd9cf",
      "wavee-showcase.legacy.json": "8579fbaa10ba77196e16a72eae6a92c752318f441c7a26f5efc84040ca67fa68",

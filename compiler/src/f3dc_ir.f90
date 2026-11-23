@@ -919,6 +919,11 @@ contains
           call dset(osub, "segments", dyn_dict_get(obj, "segments"))
           call dset(osub, "detail", dget_or(obj, "detail", &
                                             dyn_str("med")))
+          ! P1: "shading" is carried only when the IR object has it
+          ! (validate sets it only for explicitly determined values),
+          ! so objects without it serialise byte-identically.
+          if (dyn_dict_has(obj, "shading")) &
+            call dset(osub, "shading", dyn_dict_get(obj, "shading"))
           call dset(osub, "capped", dget_or(obj, "capped", &
                                             dyn_bool(.true.)))
           call dset(osub, "material", dget_or(obj, "material", &
@@ -1070,20 +1075,27 @@ contains
               if (capv%kind == DYN_K_BOOL) capped = capv%b
             end block
           end if
-          call dyn_list_push(arr, ir_object_make( &
-            str_of(obj, "name"), str_of(obj, "prim"), &
-            list_or_null(dyn_dict_get(obj, "color")), &
-            list_or_default(obj, "pos", ir_vec3_ints(0, 0, 0)), &
-            list_or_default(obj, "rotate", ir_vec3_ints(0, 0, 0)), &
-            list_or_default(obj, "scale", ir_vec3_ints(1, 1, 1)), &
-            dget_or(obj, "size", dyn_real(2.0_real64)), &
-            list_or_null(dyn_dict_get(obj, "size3")), &
-            dyn_dict_get(obj, "radius"), &
-            dyn_dict_get(obj, "height"), &
-            dyn_dict_get(obj, "segments"), &
-            str_or(obj, "detail", "med"), capped, &
-            str_or(obj, "material", "lambert"), tri, &
-            dyn_dict_get(obj, "source_file"), ext))
+          block
+            type(dyn) :: new_obj
+            new_obj = ir_object_make( &
+              str_of(obj, "name"), str_of(obj, "prim"), &
+              list_or_null(dyn_dict_get(obj, "color")), &
+              list_or_default(obj, "pos", ir_vec3_ints(0, 0, 0)), &
+              list_or_default(obj, "rotate", ir_vec3_ints(0, 0, 0)), &
+              list_or_default(obj, "scale", ir_vec3_ints(1, 1, 1)), &
+              dget_or(obj, "size", dyn_real(2.0_real64)), &
+              list_or_null(dyn_dict_get(obj, "size3")), &
+              dyn_dict_get(obj, "radius"), &
+              dyn_dict_get(obj, "height"), &
+              dyn_dict_get(obj, "segments"), &
+              str_or(obj, "detail", "med"), capped, &
+              str_or(obj, "material", "lambert"), tri, &
+              dyn_dict_get(obj, "source_file"), ext)
+            if (dyn_dict_has(obj, "shading")) &
+              call dset(new_obj, "shading", &
+                        dyn_dict_get(obj, "shading"))
+            call dyn_list_push(arr, new_obj)
+          end block
         end block
       end do
     end if

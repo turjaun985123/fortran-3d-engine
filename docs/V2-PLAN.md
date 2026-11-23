@@ -463,3 +463,56 @@ on the remote (`gh release list` empty for v2.0).
 (Filled in during execution: per phase — what shipped, files,
 commit hashes, push/CI status, and every regenerated test
 expectation with its cause.)
+
+### P1 — Smooth shading / vertex normals (shipped)
+
+- Engine: `Triangle` gained per-vertex normals `vn(3)` + `smooth`
+  flag (`src/mesh.f90`); analytic normals in the curved builders
+  (sphere/cylinder/cone in core, `geo_capsule`, `geo_tube`,
+  `geo_lathe`, `geo_torusknot`); flat builders set
+  `vn = [normal, normal, normal]` (`geo_flat`, `geo_extrude`,
+  `geo_poly`). Rasterizer: Gouraud interpolation in the legacy
+  path + per-pixel interpolated normals in the env/PBR path
+  (`src/renderer.f90`); flat triangles bit-identical. Scene layer
+  parses `shading smooth|flat` (`src/scene.f90`).
+- Compiler: `shading` object/scene property (`f3dc_parser`,
+  `f3dc_validate`, `f3dc_ir`, `f3dc_emit_fortran`); bad value →
+  E103, duplicate → E110. Explicit-only emission keeps all
+  pre-P1 artifacts byte-identical.
+- JS runtime: smooth normals in core + geo builders, Gouraud via
+  subdivision in Canvas2D, per-vertex normals (`aNorm`) in the
+  WebGL2 sidecar. Minified core 12,486 → 14,387 bytes (budget
+  15,360).
+- Measured: default sphere scene 159 distinct colours (was ~20
+  faceted); explicit `shading smooth` ≡ default; `shading flat`
+  restores faceting. Golden byte-identical. Full suite PASS
+  (native + 151 JS + 55 e2e + 30 Fortran programs).
+- New test: `tests/fortran/test_smooth_normals.f90` (4,022
+  assertions: sphere/cylinder/cone/torus analytic normals,
+  transform preservation).
+
+Hash changes (cause: P1 JS smooth shading inlined into `.html`
+artifacts; nothing else moved — all `.scene`/`.json`/`.js`/
+`_scene.f90` artifacts byte-identical, verified against a
+pre-P1 build):
+
+- `tests/native/corpus.json` — 91 `.html` artifact hashes.
+- `tests/native/examples.json` — 11 `.html` artifact hashes.
+- `tests/native/cli_battery.json` — 2 `.html` artifact hashes.
+
+Test re-aims (expectations updated to the new, correct
+behaviour; no assertion dropped):
+
+- `tests/compiler/test_f3d_geo_js.js` — tri entries may carry
+  the optional normals element; torusknot normals added to
+  `runtime/f3d-geo.js`.
+- `tests/compiler/test_f3d_webgl2_js.js` — WebGL2 sidecar now
+  uploads unshaded colours + `aNorm` attribute and shades in
+  the vertex shader (`uLight`/`uAmbient` uniforms).
+- `tests/e2e/test_wavea_e2e.sh` — shadow probe pixels moved
+  (104,59)/(105,59) → (73,54)/(74,54) with region
+  (72–76, 53–56): the old probes sat on the metal sphere,
+  whose smooth shading removed the spot delta there; the
+  shadow itself is unchanged (exactly 10 darkened pixels,
+  0 lightened, soft vs off in both engines; the plane in this
+  scene receives no spot light in either engine).

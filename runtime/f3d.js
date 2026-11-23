@@ -51,32 +51,38 @@ function rotAxis(p,axis,deg){ // rotate a position about the origin
   return[x*c+z*s,y,-x*s+z*c];}
 // ---- geometry builders: each returns [[a,b,c,faceIdx],...] ----
 // Windings mirror src/mesh.f90 so flat normals match native output.
-function tri(o,a,b,c,f){o.push([a,b,c,f||0]);}
+function tri(o,a,b,c,f,n){var t=[a,b,c,f||0];if(n)t[5]=n;o.push(t);}
 function cube(o,s3){var hx=s3[0]/2,hy=s3[1]/2,hz=s3[2]/2,
   p=[[-hx,-hy,-hz],[hx,-hy,-hz],[hx,hy,-hz],[-hx,hy,-hz],[-hx,-hy,hz],[hx,-hy,hz],[hx,hy,hz],[-hx,hy,hz]],
   F=[[0,2,1],[0,3,2],[1,6,5],[1,2,6],[5,7,4],[5,6,7],[4,3,0],[4,7,3],[3,6,2],[3,7,6],[4,1,5],[4,0,1]];
   F.forEach(function(f,i){tri(o,p[f[0]],p[f[1]],p[f[2]],i>>1);});}
 function sphere(o,r,seg){seg=Math.max(3,seg|0);var rings=Math.max(2,(seg*3/4)|0),i,j;
   function pt(jj,ii){var ph=Math.PI*jj/rings,th=2*Math.PI*ii/seg;return[r*Math.sin(ph)*Math.cos(th),r*Math.cos(ph),r*Math.sin(ph)*Math.sin(th)];}
-  var top=[0,r,0],bot=[0,-r,0];
-  for(i=0;i<seg;i++){tri(o,top,pt(1,(i+1)%seg),pt(1,i));}
-  for(j=1;j<rings-1;j++)for(i=0;i<seg;i++){var a=pt(j,i),b=pt(j,(i+1)%seg),c=pt(j+1,(i+1)%seg),d=pt(j+1,i);tri(o,a,b,c);tri(o,a,c,d);}
-  for(i=0;i<seg;i++){tri(o,bot,pt(rings-1,i),pt(rings-1,(i+1)%seg));}}
+  function nr(jj,ii){var ph=Math.PI*jj/rings,th=2*Math.PI*ii/seg;return[Math.sin(ph)*Math.cos(th),Math.cos(ph),Math.sin(ph)*Math.sin(th)];}
+  var top=[0,r,0],bot=[0,-r,0],nt=[0,1,0],nb=[0,-1,0];
+  for(i=0;i<seg;i++){tri(o,top,pt(1,(i+1)%seg),pt(1,i),0,[nt,nr(1,(i+1)%seg),nr(1,i)]);}
+  for(j=1;j<rings-1;j++)for(i=0;i<seg;i++){var a=pt(j,i),b=pt(j,(i+1)%seg),c=pt(j+1,(i+1)%seg),d=pt(j+1,i);
+    tri(o,a,b,c,0,[nr(j,i),nr(j,(i+1)%seg),nr(j+1,(i+1)%seg)]);tri(o,a,c,d,0,[nr(j,i),nr(j+1,(i+1)%seg),nr(j+1,i)]);}
+  for(i=0;i<seg;i++){tri(o,bot,pt(rings-1,i),pt(rings-1,(i+1)%seg),0,[nb,nr(rings-1,i),nr(rings-1,(i+1)%seg)]);}}
 function cylinder(o,r,h,seg,cap){seg=Math.max(3,seg|0);var hh=h/2,i;
   function pt(y,ii){var th=2*Math.PI*ii/seg;return[r*Math.cos(th),y,r*Math.sin(th)];}
-  for(i=0;i<seg;i++){var b1=pt(-hh,i),b2=pt(-hh,(i+1)%seg),t1=pt(hh,i),t2=pt(hh,(i+1)%seg);
-    tri(o,b1,t2,b2);tri(o,b1,t1,t2);
+  function rn(ii){var th=2*Math.PI*ii/seg;return[Math.cos(th),0,Math.sin(th)];}
+  for(i=0;i<seg;i++){var b1=pt(-hh,i),b2=pt(-hh,(i+1)%seg),t1=pt(hh,i),t2=pt(hh,(i+1)%seg),n1=rn(i),n2=rn((i+1)%seg);
+    tri(o,b1,t2,b2,0,[n1,n2,n2]);tri(o,b1,t1,t2,0,[n1,n1,n2]);
     if(cap){tri(o,[0,hh,0],t2,t1);tri(o,[0,-hh,0],b1,b2);}}}
 function cone(o,r,h,seg,cap){seg=Math.max(3,seg|0);var hh=h/2,apex=[0,hh,0],i;
   function pt(ii){var th=2*Math.PI*ii/seg;return[r*Math.cos(th),-hh,r*Math.sin(th)];}
-  for(i=0;i<seg;i++){var b1=pt(i),b2=pt((i+1)%seg);tri(o,b1,apex,b2);if(cap)tri(o,[0,-hh,0],b1,b2);}}
+  function sn(ii){var th=2*Math.PI*ii/seg;return norm([h*Math.cos(th),r,h*Math.sin(th)]);}
+  for(i=0;i<seg;i++){var b1=pt(i),b2=pt((i+1)%seg);tri(o,b1,apex,b2,0,[sn(i),sn(i),sn((i+1)%seg)]);if(cap)tri(o,[0,-hh,0],b1,b2);}}
 function plane(o,w,d){var a=[-w/2,0,-d/2],b=[w/2,0,-d/2],c=[w/2,0,d/2],e=[-w/2,0,d/2];tri(o,a,c,b);tri(o,a,e,c);tri(o,a,b,c);tri(o,a,c,e);} // double-sided since Wave C (D1): back pair mirrors mesh.f90 create_plane
 function pyramid(o,base,h){var hb=base/2,hh=h/2,apex=[0,hh,0],
   p=[[-hb,-hh,-hb],[hb,-hh,-hb],[hb,-hh,hb],[-hb,-hh,hb]],i;
   for(i=0;i<4;i++)tri(o,p[i],apex,p[(i+1)%4]);tri(o,p[3],p[1],p[2]);tri(o,p[3],p[0],p[1]);}
 function torus(o,R,tube,seg,tseg){seg=Math.max(3,seg|0);tseg=Math.max(3,tseg|0);var i,j;
   function pt(ii,jj){var th=2*Math.PI*ii/seg,ph=2*Math.PI*jj/tseg,rr=R+tube*Math.cos(ph);return[rr*Math.cos(th),tube*Math.sin(ph),rr*Math.sin(th)];}
-  for(i=0;i<seg;i++)for(j=0;j<tseg;j++){var a=pt(i,j),b=pt((i+1)%seg,j),c=pt((i+1)%seg,(j+1)%tseg),d=pt(i,(j+1)%tseg);tri(o,a,d,c);tri(o,a,c,b);}}
+  function tn(ii,jj){var th=2*Math.PI*ii/seg,ph=2*Math.PI*jj/tseg;return[Math.cos(ph)*Math.cos(th),Math.sin(ph),Math.cos(ph)*Math.sin(th)];}
+  for(i=0;i<seg;i++)for(j=0;j<tseg;j++){var a=pt(i,j),b=pt((i+1)%seg,j),c=pt((i+1)%seg,(j+1)%tseg),d=pt(i,(j+1)%tseg);
+    tri(o,a,d,c,0,[tn(i,j),tn(i,(j+1)%tseg),tn((i+1)%seg,(j+1)%tseg)]);tri(o,a,c,b,0,[tn(i,j),tn((i+1)%seg,(j+1)%tseg),tn((i+1)%seg,j)]);}}
 function build(obj){ // -> {tris, color|null}
   var o=[],prim=String(obj.prim||'cube').toLowerCase(),size=obj.size!=null?+obj.size:2,
     s3=obj.size3?v3(obj.size3,[size,size,size]):[size,size,size],
@@ -90,10 +96,13 @@ function build(obj){ // -> {tris, color|null}
   else if(prim==='pyramid')pyramid(o,size,h);
   else if(prim==='torus')torus(o,obj.radius!=null?+obj.radius:1,obj.tube!=null?+obj.tube:(obj.rings?size/4:0.35),seg,obj.rings!=null?+obj.rings:12);
   else if(prim==='tris'||obj.triangles)(obj.triangles||[]).forEach(function(t){
-    var vs=t.v||t.verts||t.vertices||t;if(vs&&vs.length===3)o.push([v3(vs[0],[0,0,0]),v3(vs[1],[0,0,0]),v3(vs[2],[0,0,0]),0,color(t.color||t.c,null)]);});
+    var vs=t.v||t.verts||t.vertices||t;if(vs&&vs.length===3){var e=[v3(vs[0],[0,0,0]),v3(vs[1],[0,0,0]),v3(vs[2],[0,0,0]),0,color(t.color||t.c,null)],nn=t.normals||t[5];
+      if(nn&&nn.length===3)e[5]=[v3(nn[0],[0,0,0]),v3(nn[1],[0,0,0]),v3(nn[2],[0,0,0])];o.push(e);}});
   return{tris:o,prim:prim,color:color(obj.color,null),
     pos:v3(obj.pos||obj.position,[0,0,0]),rot:v3(obj.rotate||obj.rotation,[0,0,0]),
-    scl:v3(obj.scale,[1,1,1]),name:obj.name||'',mat:String(obj.material||'lambert').toLowerCase()};}
+    scl:v3(obj.scale,[1,1,1]),name:obj.name||'',mat:String(obj.material||'lambert').toLowerCase(),
+    shading:obj.shading?String(obj.shading).toLowerCase():('sphere,cylinder,cone,capsule,tube,lathe,torus,torusknot'.split(',').indexOf(prim)>=0?'smooth':'flat')};}
+function xformN(p,rot,scl){return norm(xform(p,[0,0,0],rot,scl));} // scale->Rz->Rx->Ry, no translate
 // ---- animation evaluation: returns modified {pos,rot,scl} ----
 function animState(obj,anims,t){
   var pos=obj.pos.slice(),rot=obj.rot.slice(),scl=obj.scl.slice();
@@ -158,17 +167,27 @@ function create(el,scene){
     objs.forEach(function(o){
       var st=animState(o,anims,time);
       o.tris.forEach(function(tr){
-        var vs=[],dep=0,n,i;
+        var vs=[],vd=[],dep=0,n,i;
         for(i=0;i<3;i++){var w=xform(tr[i],st.pos,st.rot,st.scl),rel=sub(w,ep),
           vx=dot(r,rel),vy=dot(u,rel),vz=-dot(f,rel); // view space, front = -z
           var cw=-vz;if(cw<near)cw=near;
-          vs.push([(vx/(asp*th)/cw+1)*W/2,(1-vy/th/cw)*H/2]);dep+=-vz;}
+          vs.push([(vx/(asp*th)/cw+1)*W/2,(1-vy/th/cw)*H/2]);dep+=-vz;vd.push(-vz);}
         var a=vs[0],b=vs[1],cc=vs[2];
         var w0=xform(tr[0],st.pos,st.rot,st.scl),w1=xform(tr[1],st.pos,st.rot,st.scl),w2=xform(tr[2],st.pos,st.rot,st.scl);
         n=norm(cross(sub(w1,w0),sub(w2,w0)));
         var col=tr[4]||o.color||(o.prim==='cube'||o.prim==='box'?PALETTE[tr[3]%6]:[255,255,255]);
         var inten=o.mat==='basic'?1:0.25+0.75*Math.max(0,-dot(n,ld));
-        faces.push({vs:vs,dep:dep/3,col:col,i:inten});});});
+        if(o.shading==='smooth'&&tr[5]){ // Gouraud via fixed subdivision: n=4/edge, 16 sub-tris, centroid intensity; sub-tris are separate faces with their own centroid depths
+          var vi=tr[5].map(function(q){var wn=xformN(q,st.rot,st.scl);return o.mat==='basic'?1:0.25+0.75*Math.max(0,-dot(wn,ld));}),
+            N=4,GP=[],GI=[],GD=[],ii,jj,k;
+          for(ii=0;ii<=N;ii++)for(jj=0;jj<=N-ii;jj++){var wA=(N-ii-jj)/N,wB=ii/N,wC=jj/N;
+            GP.push([wA*vs[0][0]+wB*vs[1][0]+wC*vs[2][0],wA*vs[0][1]+wB*vs[1][1]+wC*vs[2][1]]);
+            GI.push(wA*vi[0]+wB*vi[1]+wC*vi[2]);GD.push(wA*vd[0]+wB*vd[1]+wC*vd[2]);}
+          function gi(x,y){return x*(N+1)-x*(x-1)/2+y;}
+          function sub3(p,q,s){faces.push({vs:[GP[p],GP[q],GP[s]],dep:(GD[p]+GD[q]+GD[s])/3,col:col,i:(GI[p]+GI[q]+GI[s])/3});}
+          for(ii=0;ii<N;ii++)for(jj=0;jj<N-ii;jj++){sub3(gi(ii,jj),gi(ii+1,jj),gi(ii,jj+1));
+            if(jj<N-1-ii)sub3(gi(ii+1,jj+1),gi(ii+1,jj),gi(ii,jj+1));}
+        }else faces.push({vs:vs,dep:dep/3,col:col,i:inten});});});
     faces.sort(function(a,b){return b.dep-a.dep;}); // painter: far first
     faces.forEach(function(fc){ctx.beginPath();ctx.moveTo(fc.vs[0][0],fc.vs[0][1]);
       ctx.lineTo(fc.vs[1][0],fc.vs[1][1]);ctx.lineTo(fc.vs[2][0],fc.vs[2][1]);ctx.closePath();

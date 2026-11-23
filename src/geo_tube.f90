@@ -156,10 +156,21 @@ contains
                 idx = idx + 1
                 m%triangles(idx)%v = [a, b, c]
                 m%triangles(idx)%normal = compute_triangle_normal(a, b, c)
+                ! Vertex normal = radial direction from the path point
+                ! of the vertex's ring (the parallel-transport frame
+                ! direction the ring vertex was built from).
+                call tri_set_smooth(m%triangles(idx), &
+                    vec3_normalize(vec3_sub(a, pts(i))), &
+                    vec3_normalize(vec3_sub(b, pts(i))), &
+                    vec3_normalize(vec3_sub(c, pts(i + 1))))
                 m%triangles(idx)%color = [255, 255, 255]
                 idx = idx + 1
                 m%triangles(idx)%v = [a, c, dd]
                 m%triangles(idx)%normal = compute_triangle_normal(a, c, dd)
+                call tri_set_smooth(m%triangles(idx), &
+                    vec3_normalize(vec3_sub(a, pts(i))), &
+                    vec3_normalize(vec3_sub(c, pts(i + 1))), &
+                    vec3_normalize(vec3_sub(dd, pts(i + 1))))
                 m%triangles(idx)%color = [255, 255, 255]
             end do
         end do
@@ -173,6 +184,9 @@ contains
             idx = idx + 1
             m%triangles(idx)%v = [cen, b, a]
             m%triangles(idx)%normal = compute_triangle_normal(cen, b, a)
+            m%triangles(idx)%vn = [m%triangles(idx)%normal, &
+                                   m%triangles(idx)%normal, &
+                                   m%triangles(idx)%normal]
             m%triangles(idx)%color = [255, 255, 255]
         end do
 
@@ -185,6 +199,9 @@ contains
             idx = idx + 1
             m%triangles(idx)%v = [cen, a, b]
             m%triangles(idx)%normal = compute_triangle_normal(cen, a, b)
+            m%triangles(idx)%vn = [m%triangles(idx)%normal, &
+                                   m%triangles(idx)%normal, &
+                                   m%triangles(idx)%normal]
             m%triangles(idx)%color = [255, 255, 255]
         end do
 

@@ -77,7 +77,7 @@ class MockGL {
   createBuffer() { this.rec('createBuffer', arguments);
     return { buffer: true, id: this.calls.length }; }
   getAttribLocation(p, n) { this.rec('getAttribLocation',
-    arguments); return n === 'aPos' ? 0 : 1; }
+    arguments); return n === 'aPos' ? 0 : n === 'aColor' ? 1 : 2; }
   getUniformLocation(p, n) { this.rec('getUniformLocation',
     arguments); return { uniform: n }; }
   useProgram(p) { this.rec('useProgram', arguments); }
@@ -91,6 +91,8 @@ class MockGL {
     this.rec('enableVertexAttribArray', arguments); }
   uniformMatrix4fv(l, t, d) {
     this.rec('uniformMatrix4fv', arguments); }
+  uniform3f(l, x, y, z) { this.rec('uniform3f', arguments); }
+  uniform1f(l, v) { this.rec('uniform1f', arguments); }
   drawArrays(m, f, c) { this.rec('drawArrays', arguments); }
 }
 function makeCanvas(glOrFn) {
@@ -207,7 +209,8 @@ test('test_create_compiles_links_and_makes_buffers', () => {
   assert.ok(r, 'create must return a renderer');
   assert.strictEqual(r.gl, gl);
   assert.ok(r.program);
-  assert.ok(r.buffers.position && r.buffers.color);
+  assert.ok(r.buffers.position && r.buffers.color
+    && r.buffers.normal);
   // Shaders compiled with the exact exported sources.
   const srcs = gl.find('shaderSource');
   assert.strictEqual(srcs.length, 2);
@@ -218,12 +221,14 @@ test('test_create_compiles_links_and_makes_buffers', () => {
   assert.strictEqual(gl.find('compileShader').length, 2);
   assert.strictEqual(gl.find('attachShader').length, 2);
   assert.strictEqual(gl.find('linkProgram').length, 1);
-  assert.strictEqual(gl.find('createBuffer').length, 2);
+  assert.strictEqual(gl.find('createBuffer').length, 3);
   const attrs = gl.find('getAttribLocation')
     .map(c => c.args[1]);
-  assert.deepStrictEqual(attrs, ['aPos', 'aColor']);
-  assert.strictEqual(
-    gl.find('getUniformLocation')[0].args[1], 'uMVP');
+  assert.deepStrictEqual(attrs, ['aPos', 'aColor', 'aNorm']);
+  const uniforms = gl.find('getUniformLocation')
+    .map(c => c.args[1]);
+  assert.deepStrictEqual(uniforms,
+    ['uMVP', 'uLight', 'uAmbient']);
 });
 
 test('test_create_null_on_unavailable_compile_and_link_failure', () => {
@@ -241,11 +246,13 @@ test('test_create_null_on_unavailable_compile_and_link_failure', () => {
 test('test_render_scene_gl_calls', () => {
   needW();
   // Both TRIS share the (0,0,0),(1,0,0),(0,1,0)
-  // orientation, so both get the same JS-computed
-  // Lambert intensity by default (no longer flat).
-  const inten = lambertIntensity([[0, 0, 0], [1, 0, 0], [0, 1, 0]]);
-  const exp0 = shadedColour([255, 0, 0], inten);
-  const exp1 = shadedColour([0, 128, 255], inten);
+  // orientation. Since P1 the colour buffer holds the
+  // UNSHADED base colours (shading moved into the vertex
+  // shader), and the third buffer holds each tri's face
+  // normal (0,0,1) for all three vertices (flat payload),
+  // so the shader reproduces the old Lambert result.
+  const exp0 = [1, 0, 0];
+  const exp1 = [0, 128 / 255, 1];
   const gl = new MockGL();
   const r = W.create(makeCanvas(gl));
   gl.calls.length = 0;
@@ -263,24 +270,47 @@ test('test_render_scene_gl_calls', () => {
   assert.ok(near(cc[0], 25 / 255) && near(cc[1], 25 / 255)
     && near(cc[2], 35 / 255) && near(cc[3], 1),
     'clearColor=' + cc);
-  // bufferData: positions tris*9, colours tris*9 in 0..1.
+  // bufferData: positions, colours and normals, each
+  // tris*9 (colours in 0..1).
   const bd = gl.find('bufferData');
-  assert.strictEqual(bd.length, 2);
+  assert.strictEqual(bd.length, 3);
   assert.ok(bd[0].args[1] instanceof Float32Array);
   assert.ok(bd[1].args[1] instanceof Float32Array);
+  assert.ok(bd[2].args[1] instanceof Float32Array);
   assert.strictEqual(bd[0].args[1].length, TRIS.length * 9);
   assert.strictEqual(bd[1].args[1].length, TRIS.length * 9);
+  assert.strictEqual(bd[2].args[1].length, TRIS.length * 9);
   assert.deepStrictEqual(Array.from(bd[0].args[1]),
     [0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 1, 0, 1, 1]);
   const cols = Array.from(bd[1].args[1]);
   assert.ok(cols.every(v => v >= 0 && v <= 1),
     'colours out of 0..1: ' + cols);
   // 1e-6 here: colours pass through a Float32Array, so
-  // the shaded values are only float32-exact.
+  // the values are only float32-exact.
   assert.ok(near3(cols.slice(0, 3), exp0, 1e-6),
-    'tri0 shaded colour=' + cols.slice(0, 3));
+    'tri0 unshaded colour=' + cols.slice(0, 3));
   assert.ok(near3(cols.slice(9, 12), exp1, 1e-6),
-    'tri1 shaded colour=' + cols.slice(9, 12));
+    'tri1 unshaded colour=' + cols.slice(9, 12));
+  // Normals buffer: both tris are flat payloads facing
+  // +Z, so every vertex normal is the face normal (0,0,1).
+  const nors = Array.from(bd[2].args[1]);
+  for (let k = 0; k < TRIS.length * 3; k++)
+    assert.ok(near3(nors.slice(k * 3, k * 3 + 3), [0, 0, 1],
+      1e-6), 'vertex ' + k + ' normal=' + nors.slice(k * 3,
+      k * 3 + 3));
+  // Light uniforms for the shader Lambert: uLight is the
+  // normalised default light direction, uAmbient 0.25.
+  const u3 = gl.find('uniform3f');
+  assert.strictEqual(u3.length, 1);
+  assert.strictEqual(u3[0].args[0].uniform, 'uLight');
+  const expLd = norm([-0.5, -1.0, -0.7]);
+  assert.ok(near3(Array.from(u3[0].args.slice(1)), expLd,
+    1e-6), 'uLight=' + u3[0].args.slice(1));
+  const u1 = gl.find('uniform1f');
+  assert.strictEqual(u1.length, 1);
+  assert.strictEqual(u1[0].args[0].uniform, 'uAmbient');
+  assert.ok(near(u1[0].args[1], 0.25), 'uAmbient='
+    + u1[0].args[1]);
   // MVP uniform: 16 elements, untransposed.
   const um = gl.find('uniformMatrix4fv');
   assert.strictEqual(um.length, 1);
@@ -297,11 +327,13 @@ test('test_render_scene_gl_calls', () => {
 
 test('test_render_scene_flat_and_object_payloads', () => {
   needW();
-  // The object payload below has the same orientation as
-  // in test_render_scene_gl_calls, so its green channel is
-  // shaded by the JS-computed Lambert intensity.
-  const inten = lambertIntensity([[0, 0, 0], [1, 0, 0], [0, 1, 0]]);
-  const expGreen = shadedColour([0, 255, 0], inten);
+  // Since P1 the colour buffer holds the UNSHADED base
+  // colour (shading moved into the vertex shader): green
+  // [0,255,0] uploads as exactly (0,1,0). The normals
+  // buffer holds the tri's face normal (0,0,1) for all
+  // three vertices (flat payload), so the shader
+  // reproduces the old Lambert result for this
+  // front-facing tri.
   // Flat soup (raycast form) and scene-object triangles
   // upload the same counts as the f3d.js build() shape.
   const gl = new MockGL();
@@ -312,6 +344,7 @@ test('test_render_scene_flat_and_object_payloads', () => {
   let bd = gl.find('bufferData');
   assert.strictEqual(bd[0].args[1].length, 9);
   assert.strictEqual(bd[1].args[1].length, 9);
+  assert.strictEqual(bd[2].args[1].length, 9);
   assert.strictEqual(gl.find('drawArrays')[0].args[2], 3);
   gl.calls.length = 0;
   assert.strictEqual(W.renderScene(r,
@@ -319,9 +352,15 @@ test('test_render_scene_flat_and_object_payloads', () => {
     IDENT), 1);
   bd = gl.find('bufferData');
   assert.ok(near3(Array.from(bd[1].args[1]).slice(0, 3),
-    expGreen, 1e-6),
-    'object payload shaded colour='
+    [0, 1, 0], 1e-6),
+    'object payload unshaded colour='
     + Array.from(bd[1].args[1]).slice(0, 3));
+  const objNors = Array.from(bd[2].args[1]);
+  for (let k = 0; k < 3; k++)
+    assert.ok(near3(objNors.slice(k * 3, k * 3 + 3),
+      [0, 0, 1], 1e-6),
+      'object payload vertex ' + k + ' normal='
+      + objNors.slice(k * 3, k * 3 + 3));
   assert.strictEqual(W.renderScene(null, TRIS, IDENT), 0);
   assert.strictEqual(W.renderScene(r, [], IDENT), 0);
 });
@@ -378,24 +417,72 @@ const FRONT = [[0, 0, 0], [1, 0, 0], [0, 1, 0]];
 // Back-facing: reversed winding, normal (0,0,-1).
 const BACK = [[0, 0, 0], [0, 1, 0], [1, 0, 0]];
 
-function colourCheck(tris, opts, expected) {
+function colourCheck(tris, opts, base, expectedNormal,
+                     expectedIntensity) {
   needW();
+  // A mock GL cannot run GLSL, so verify the INPUTS to
+  // the vertex shader instead of shaded output colours:
+  // the colour buffer (UNSHADED base colour / 255), the
+  // normals buffer (the tri's face normal at every
+  // vertex, flat payload), and the uLight / uAmbient
+  // uniforms. Feeding the recorded normal and uniforms
+  // through the shader's Lambert formula must reproduce
+  // expectedIntensity (the old CPU Lambert result).
   const gl = new MockGL();
   const r = W.create(makeCanvas(gl));
   gl.calls.length = 0;
   assert.strictEqual(W.renderScene(r, tris, IDENT, opts), 1);
   const bd = gl.find('bufferData');
-  assert.strictEqual(bd.length, 2);
+  assert.strictEqual(bd.length, 3);
   const cols = Array.from(bd[1].args[1]);
-  // Every vertex of the tri carries the same per-tri
-  // colour, matching the JS Lambert expectation
-  // within 1e-6 (float32 colour buffer).
-  for (let k = 0; k < 3; k++)
+  const nors = Array.from(bd[2].args[1]);
+  const expBase = base.map(c => c / 255.0);
+  for (let k = 0; k < 3; k++) {
     assert.ok(near3(cols.slice(k * 3, k * 3 + 3),
-      expected, 1e-6),
-      'vertex ' + k + ' colour='
+      expBase, 1e-6),
+      'vertex ' + k + ' unshaded colour='
       + cols.slice(k * 3, k * 3 + 3)
-      + ' expected=' + expected);
+      + ' expected=' + expBase);
+    assert.ok(near3(nors.slice(k * 3, k * 3 + 3),
+      expectedNormal, 1e-6),
+      'vertex ' + k + ' normal='
+      + nors.slice(k * 3, k * 3 + 3)
+      + ' expected=' + expectedNormal);
+  }
+  // uLight: the normalised light direction (default
+  // [-0.5,-1,-0.7], or opts.lightDir when given).
+  const u3 = gl.find('uniform3f');
+  assert.strictEqual(u3.length, 1);
+  assert.strictEqual(u3[0].args[0].uniform, 'uLight');
+  const ld = Array.from(u3[0].args.slice(1));
+  const expLd = norm((opts && opts.lightDir)
+    || [-0.5, -1.0, -0.7]);
+  assert.ok(near3(ld, expLd, 1e-6), 'uLight=' + ld);
+  // uAmbient: opts.ambient or the 0.25 default.
+  const u1 = gl.find('uniform1f');
+  assert.strictEqual(u1.length, 1);
+  assert.strictEqual(u1[0].args[0].uniform, 'uAmbient');
+  const ambient = u1[0].args[1];
+  assert.ok(near(ambient, (opts && opts.ambient != null)
+    ? opts.ambient : 0.25), 'uAmbient=' + ambient);
+  // The shader formula on the recorded inputs:
+  // intensity = ambient + (1 - ambient) * max(0, -dot(n, ld)).
+  // Front-facing n gives full diffuse (intensity ==
+  // expectedIntensity > ambient); back-facing n clamps
+  // diffuse to 0, giving exactly ambient.
+  const diffuse = Math.max(0,
+    -[0, 1, 2].reduce((s, i) => s + expectedNormal[i]
+      * ld[i], 0));
+  const inten = ambient + (1 - ambient) * diffuse;
+  assert.ok(near(inten, expectedIntensity, 1e-6),
+    'shader-input intensity=' + inten
+    + ' expected=' + expectedIntensity);
+  // And intensity * base colour is the old shaded colour.
+  const shaded = shadedColour(base, inten);
+  const expShaded = shadedColour(base, expectedIntensity);
+  assert.ok(near3(shaded, expShaded, 1e-6),
+    'reconstructed shaded colour=' + shaded
+    + ' expected=' + expShaded);
 }
 
 test('test_front_facing_tri_matches_python_lambert', () => {
@@ -407,7 +494,9 @@ test('test_front_facing_tri_matches_python_lambert', () => {
   assert.ok(inten > 0.25);
   assert.ok(inten < 1.0);
   const tris = [[[0, 0, 0], [1, 0, 0], [0, 1, 0], 0, base]];
-  colourCheck(tris, undefined, shadedColour(base, inten));
+  // Face normal (0,0,1): the shader inputs must reproduce
+  // the full-diffuse Lambert intensity.
+  colourCheck(tris, undefined, base, [0, 0, 1], inten);
 });
 
 test('test_back_facing_tri_gets_exactly_ambient_times_colour', () => {
@@ -416,10 +505,13 @@ test('test_back_facing_tri_gets_exactly_ambient_times_colour', () => {
   // Diffuse clamps to 0, so intensity is exactly ambient.
   assert.strictEqual(inten, 0.25);
   const tris = [[[0, 0, 0], [0, 1, 0], [1, 0, 0], 0, base]];
-  colourCheck(tris, undefined, shadedColour(base, 0.25));
+  // Face normal (0,0,-1): with the recorded uLight the
+  // diffuse term clamps to 0, so the shader intensity is
+  // exactly the uAmbient value (ambient-only shading).
+  colourCheck(tris, undefined, base, [0, 0, -1], 0.25);
   // A custom ambient is honoured the same way.
-  colourCheck(tris, {ambient: 0.5},
-    shadedColour(base, lambertIntensity(BACK, undefined, 0.5)));
+  colourCheck(tris, {ambient: 0.5}, base, [0, 0, -1],
+    lambertIntensity(BACK, undefined, 0.5));
 });
 
 test('test_flat_true_reproduces_raw_colour_over_255', () => {

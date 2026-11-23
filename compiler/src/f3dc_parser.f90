@@ -162,21 +162,22 @@ module f3dc_parser
     "steelblue", "seagreen", "forestgreen", "darkred", "darkblue", &
     "darkgreen", "lightblue", "lightgreen", "hotpink", "deeppink", &
     "aqua", "azure", "fuchsia", "limegreen", "royalblue"]
-  character(16), parameter :: OBJECT_PROP_WORDS(30) = [character(16) :: &
+  character(16), parameter :: OBJECT_PROP_WORDS(31) = [character(16) :: &
     "at", "pos", "position", "size", "radius", "height", "width", &
     "depth", "rotate", "rot", "scale", "material", "segments", &
     "detail", "capped", "open", "texture", "colour", "color", &
     "named", "name", "shader", "inner", "outer", "tube", &
-    "tube_segments", "extrude_depth", "path", "points", "shape"]
+    "tube_segments", "extrude_depth", "path", "points", "shape", &
+    "shading"]
   character(16), parameter :: ANIM_PROP_WORDS(10) = [character(16) :: &
     "axis", "speed", "duration", "fps", "ease", "loop", "amplitude", &
     "distance", "amount", "angle"]
   character(16), parameter :: AXES(3) = [character(16) :: "x", "y", "z"]
   character(16), parameter :: LOOP_WORDS(3) = [character(16) :: &
     "once", "forever", "pingpong"]
-  character(16), parameter :: SCENE_CLAUSES(9) = [character(16) :: &
+  character(16), parameter :: SCENE_CLAUSES(10) = [character(16) :: &
     "size", "bg", "background", "colour", "color", "fog", "tonemap", &
-    "tone", "shadow"]
+    "tone", "shadow", "shading"]
 
 contains
 
@@ -1496,6 +1497,22 @@ contains
       else
         call dset(props, "detail", dyn_null())
       end if
+    else if (w == "shading") then
+      call lp_next(lp)
+      call lp_dup(p, seen, "shading")
+      if (p%le_set) return
+      call lp_ident(lp, d, hasid)
+      if (hasid) then
+        if (.not. (str_lower(d) == "smooth" .or. &
+                   str_lower(d) == "flat")) then
+          call raise_line(p, "E103", "shading must be smooth or " &
+                          // "flat, got '" // d // "'")
+          return
+        end if
+        call dset(props, "shading", dyn_str(str_lower(d)))
+      else
+        call dset(props, "shading", dyn_null())
+      end if
     else if (w == "capped") then
       call lp_next(lp)
       call lp_dup(p, seen, "capped")
@@ -1698,6 +1715,8 @@ contains
     integer(int64) :: sw, sh
     integer :: nenv, i
     logical :: hasw, hasw2, has_name, has_size, has_bg, dupf
+    logical :: has_shading, hasid
+    character(:), allocatable :: shading_val, d
     has_stmt = .false.
     stmt = dyn_null()
     call lp_next(lp)  ! scene
@@ -1706,6 +1725,8 @@ contains
     bg = dyn_null()
     has_bg = .false.
     has_size = .false.
+    has_shading = .false.
+    shading_val = ""
     sw = 0_int64; sh = 0_int64
     nenv = 0
     seen%n = 0
@@ -1718,6 +1739,22 @@ contains
         call lp_size(p, lp, sw, sh)
         if (p%le_set) return
         has_size = .true.
+      else if (hasw .and. w == "shading") then
+        ! P1: scene-level default shading for all objects.
+        call lp_next(lp)
+        call lp_dup(p, seen, "shading")
+        if (p%le_set) return
+        call lp_ident(lp, d, hasid)
+        if (hasid) then
+          if (.not. (str_lower(d) == "smooth" .or. &
+                     str_lower(d) == "flat")) then
+            call raise_line(p, "E103", "shading must be smooth or " &
+                            // "flat, got '" // d // "'")
+            return
+          end if
+          shading_val = str_lower(d)
+          has_shading = .true.
+        end if
       else if (hasw .and. (w == "fog" .or. w == "tonemap" &
                .or. w == "tone" .or. w == "shadow")) then
         ! Wave A environment clause: tokens up to the next clause
@@ -1790,6 +1827,8 @@ contains
     else
       call dset(props, "background", dyn_null())
     end if
+    if (has_shading) &
+      call dset(props, "shading", dyn_str(shading_val))
     do i = 1, nenv
       call dset(props, trim(env_keys(i)), dyn_str(trim(env_vals(i))))
     end do
@@ -1838,6 +1877,8 @@ contains
         if (.not. dupf) call dset(node, trim(want(k)), dyn_null())
       end do
     end block
+    if (has_shading) &
+      call dset(node, "shading", dyn_str(shading_val))
     call dset(node, "props", props)
     call dset(node, "line", dyn_int(int(lp%no, int64)))
     stmt = node

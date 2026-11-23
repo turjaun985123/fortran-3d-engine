@@ -81,6 +81,10 @@ module scene_3d
         type(MaterialPBR) :: pbr
         type(TextureImage) :: tex
         character(len=512) :: texture_path = ''
+        ! P1: optional trailing 'shading smooth|flat' on the object
+        ! line. '' = builder default (curved builders are smooth,
+        ! flat builders are flat); see scene_build_object_mesh.
+        character(len=8) :: shading = ''
         ! Wave E (coordinator integration): C2 custom shader binding.
         ! has_shader routes this object through
         ! framebuffer_render_mesh_shader in main.
@@ -475,6 +479,7 @@ contains
         real(dp) :: sz, rad, hgt
         integer :: seg
         logical :: lok
+        integer :: ti, tk
 
         sz = obj%dim_size
         rad = obj%dim_radius
@@ -605,6 +610,35 @@ contains
             if (sz <= 0.0_dp) sz = 2.0_dp
             call create_cube(obj%mesh, sz)
         end select
+        ! P1 shading override (only when the object line carried an
+        ! explicit 'shading' token; '' keeps the builder default).
+        !   flat:   force every triangle flat -- smooth off and the
+        !           per-vertex normals reset to the face normal.
+        !   smooth: on curved prims only, mark every triangle smooth;
+        !           the vn are already the builders' analytic vertex
+        !           normals.  Flat prims have no smooth normals to
+        !           apply, so they are left exactly as built.
+        if (allocated(obj%mesh%triangles)) then
+            if (trim(obj%shading) == 'flat') then
+                do ti = 1, obj%mesh%num_triangles
+                    obj%mesh%triangles(ti)%smooth = .false.
+                    do tk = 1, 3
+                        obj%mesh%triangles(ti)%vn(tk) = &
+                            obj%mesh%triangles(ti)%normal
+                    end do
+                end do
+            else if (trim(obj%shading) == 'smooth') then
+                select case (trim(obj%prim))
+                case ('sphere', 'cylinder', 'cone', 'capsule', &
+                      'tube', 'lathe', 'torus', 'torusknot')
+                    do ti = 1, obj%mesh%num_triangles
+                        obj%mesh%triangles(ti)%smooth = .true.
+                    end do
+                case default
+                    continue  ! flat prim: leave as built
+                end select
+            end if
+        end if
         call set_object_material(obj)
     end subroutine scene_build_object_mesh
 
@@ -928,34 +962,75 @@ contains
                 obj%dim_radius = tok_real(tokens, 18)
                 obj%dim_height = tok_real(tokens, 19)
                 obj%segments = tok_int(tokens, 20)
-                ! Wave D: trailing point tokens (21+) for tube
-                ! (x,y,z triples) and lathe/extrude (x,y pairs).
-                if (ntok > 20) then
-                    block
-                        integer :: k, step
-                        if (trim(obj%prim) == 'tube') then
-                            step = 3
-                        else
-                            step = 2
+                ! P1: optional trailing 'shading smooth|flat' at the
+                ! END of the object line, after all numeric/point
+                ! tokens.  Scan the trailing tokens (21+) for the
+                ! literal word 'shading'; everything from that token
+                ! on is NOT part of any point list, so tube/lathe
+                ! point lists are parsed only up to it.
+                block
+                    integer :: k, sidx
+                    sidx = 0
+                    do k = 21, ntok
+                        if (trim(tokens(k)) == 'shading') then
+                            sidx = k
+                            exit
                         end if
-                        obj%n_pts = (ntok - 20) / step
-                        if (obj%n_pts > 0) then
-                            allocate(obj%pts(obj%n_pts))
-                            do k = 1, obj%n_pts
-                                obj%pts(k)%x = &
-                                    tok_real(tokens, 20 + (k-1)*step + 1)
-                                obj%pts(k)%y = &
-                                    tok_real(tokens, 20 + (k-1)*step + 2)
-                                if (step == 3) then
-                                    obj%pts(k)%z = &
-                                        tok_real(tokens, 20 + k*step)
-                                else
-                                    obj%pts(k)%z = 0.0_dp
-                                end if
-                            end do
+                    end do
+                    if (sidx > 0) then
+                        if (sidx < ntok) then
+                            if (trim(tokens(sidx + 1)) == 'smooth' &
+                                .or. trim(tokens(sidx + 1)) == &
+                                     'flat') then
+                                obj%shading = trim(tokens(sidx + 1))
+                            else
+                                print *, 'scene: warning: unknown ', &
+                                    'shading value "', &
+                                    trim(tokens(sidx + 1)), &
+                                    '" for object ', trim(obj%name), &
+                                    ': ignored'
+                            end if
+                        else
+                            print *, 'scene: warning: shading ', &
+                                'without a value for object ', &
+                                trim(obj%name), ': ignored'
+                        end if
+                    end if
+                    ! Wave D: trailing point tokens (21+) for tube
+                    ! (x,y,z triples) and lathe/extrude (x,y pairs),
+                    ! bounded by the shading token when present.
+                    block
+                        integer :: step, ntok_pts
+                        if (sidx > 0) then
+                            ntok_pts = sidx - 1
+                        else
+                            ntok_pts = ntok
+                        end if
+                        if (ntok_pts > 20) then
+                            if (trim(obj%prim) == 'tube') then
+                                step = 3
+                            else
+                                step = 2
+                            end if
+                            obj%n_pts = (ntok_pts - 20) / step
+                            if (obj%n_pts > 0) then
+                                allocate(obj%pts(obj%n_pts))
+                                do k = 1, obj%n_pts
+                                    obj%pts(k)%x = &
+                                        tok_real(tokens, 20 + (k-1)*step + 1)
+                                    obj%pts(k)%y = &
+                                        tok_real(tokens, 20 + (k-1)*step + 2)
+                                    if (step == 3) then
+                                        obj%pts(k)%z = &
+                                            tok_real(tokens, 20 + k*step)
+                                    else
+                                        obj%pts(k)%z = 0.0_dp
+                                    end if
+                                end do
+                            end if
                         end if
                     end block
-                end if
+                end block
                 call scene_build_object_mesh(obj)
                 call append_object(sc, obj)
                 call free_mesh(obj%mesh)

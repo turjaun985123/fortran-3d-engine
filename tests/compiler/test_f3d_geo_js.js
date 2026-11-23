@@ -61,10 +61,14 @@ function needG() {
 // JS helpers shared by the numeric snippets (the Python HELPERS):
 // structural format check plus a finiteness sweep over every
 // coordinate.
-function checkTris(tris) {
+const CURVED_ALL_NORMALS = ['capsule', 'lathe', 'torusknot'];
+const FLAT_NO_NORMALS = ['circle', 'ring', 'extrude', 'tetrahedron',
+  'octahedron', 'icosahedron', 'dodecahedron'];
+function checkTris(tris, name, args) {
   assert.ok(Array.isArray(tris), 'builder must return array');
-  tris.forEach(function (t) {
-    assert.strictEqual(t.length, 4, 'tri is [a,b,c,faceIdx]');
+  tris.forEach(function (t, ti) {
+    assert.ok(t.length === 4 || t.length === 6,
+      'tri is [a,b,c,faceIdx] or [a,b,c,faceIdx,,normals]');
     for (let i = 0; i < 3; i++) {
       assert.strictEqual(t[i].length, 3, 'vertex is [x,y,z]');
       t[i].forEach(function (x) {
@@ -72,11 +76,43 @@ function checkTris(tris) {
       });
     }
     assert.ok(Number.isInteger(t[3]), 'faceIdx is an integer');
+    if (t.length === 6) {
+      // Index 5: [na, nb, nc] per-vertex normals, each a
+      // unit-length [x,y,z].
+      assert.ok(Array.isArray(t[5]), 'normals element is an array');
+      assert.strictEqual(t[5].length, 3,
+        'normals element holds 3 vertex normals');
+      t[5].forEach(function (n) {
+        assert.strictEqual(n.length, 3, 'normal is [x,y,z]');
+        n.forEach(function (x) {
+          assert.ok(Number.isFinite(x), 'normal not finite');
+        });
+        assert.ok(Math.abs(Math.hypot(n[0], n[1], n[2]) - 1)
+          < 1e-6, 'normal is unit length: ' + n);
+      });
+    }
+    // Presence of normals by builder class: curved builders
+    // carry them, flat builders never do. Tube is the mixed
+    // case: its swept side tris carry normals, its two end-cap
+    // fans (the last 2*seg tris) do not.
+    if (name && CURVED_ALL_NORMALS.includes(name))
+      assert.strictEqual(t.length, 6,
+        name + ': curved tri must carry index-5 normals');
+    if (name && FLAT_NO_NORMALS.includes(name))
+      assert.strictEqual(t.length, 4,
+        name + ': flat tri must not carry normals');
+    if (name === 'tube') {
+      const seg = Math.max(3, (args && args[1] != null
+        ? args[1] : 8) | 0);
+      const isCap = ti >= tris.length - 2 * seg;
+      assert.strictEqual(t.length, isCap ? 4 : 6,
+        'tube: side tris carry normals, cap tris do not');
+    }
   });
 }
 function count(name, args) {
   const tris = G.builders[name].apply(null, args);
-  checkTris(tris);
+  checkTris(tris, name, args);
   assert.strictEqual(tris.length,
     G.triCount[name].apply(null, args),
     name + ': builder/triCount disagree');

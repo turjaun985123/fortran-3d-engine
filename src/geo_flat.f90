@@ -41,12 +41,14 @@ contains
             m%triangles(idx)%v = [cen, p2, p1]
             m%triangles(idx)%normal = compute_triangle_normal( &
                 m%triangles(idx)%v(1), m%triangles(idx)%v(2), m%triangles(idx)%v(3))
+            m%triangles(idx)%vn = [m%triangles(idx)%normal, m%triangles(idx)%normal, m%triangles(idx)%normal]
             m%triangles(idx)%color = [255, 255, 255]
             ! Back fan (-Y): reversed winding
             idx = idx + 1
             m%triangles(idx)%v = [cen, p1, p2]
             m%triangles(idx)%normal = compute_triangle_normal( &
                 m%triangles(idx)%v(1), m%triangles(idx)%v(2), m%triangles(idx)%v(3))
+            m%triangles(idx)%vn = [m%triangles(idx)%normal, m%triangles(idx)%normal, m%triangles(idx)%normal]
             m%triangles(idx)%color = [255, 255, 255]
         end do
         m%num_triangles = idx
@@ -91,22 +93,26 @@ contains
             m%triangles(idx)%v = [in1, out2, out1]
             m%triangles(idx)%normal = compute_triangle_normal( &
                 m%triangles(idx)%v(1), m%triangles(idx)%v(2), m%triangles(idx)%v(3))
+            m%triangles(idx)%vn = [m%triangles(idx)%normal, m%triangles(idx)%normal, m%triangles(idx)%normal]
             m%triangles(idx)%color = [255, 255, 255]
             idx = idx + 1
             m%triangles(idx)%v = [in1, in2, out2]
             m%triangles(idx)%normal = compute_triangle_normal( &
                 m%triangles(idx)%v(1), m%triangles(idx)%v(2), m%triangles(idx)%v(3))
+            m%triangles(idx)%vn = [m%triangles(idx)%normal, m%triangles(idx)%normal, m%triangles(idx)%normal]
             m%triangles(idx)%color = [255, 255, 255]
             ! Back quad (-Y): reversed winding
             idx = idx + 1
             m%triangles(idx)%v = [in1, out1, out2]
             m%triangles(idx)%normal = compute_triangle_normal( &
                 m%triangles(idx)%v(1), m%triangles(idx)%v(2), m%triangles(idx)%v(3))
+            m%triangles(idx)%vn = [m%triangles(idx)%normal, m%triangles(idx)%normal, m%triangles(idx)%normal]
             m%triangles(idx)%color = [255, 255, 255]
             idx = idx + 1
             m%triangles(idx)%v = [in1, out2, in2]
             m%triangles(idx)%normal = compute_triangle_normal( &
                 m%triangles(idx)%v(1), m%triangles(idx)%v(2), m%triangles(idx)%v(3))
+            m%triangles(idx)%vn = [m%triangles(idx)%normal, m%triangles(idx)%normal, m%triangles(idx)%normal]
             m%triangles(idx)%color = [255, 255, 255]
         end do
         m%num_triangles = idx

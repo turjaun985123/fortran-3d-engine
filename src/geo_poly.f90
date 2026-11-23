@@ -31,6 +31,7 @@ contains
             m%triangles(i)%v = [p(faces(1, i)), p(faces(2, i)), p(faces(3, i))]
             m%triangles(i)%normal = compute_triangle_normal( &
                 m%triangles(i)%v(1), m%triangles(i)%v(2), m%triangles(i)%v(3))
+            m%triangles(i)%vn = [m%triangles(i)%normal, m%triangles(i)%normal, m%triangles(i)%normal]
             m%triangles(i)%color = [255, 255, 255]
         end do
     end subroutine assemble_poly

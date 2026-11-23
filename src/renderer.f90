@@ -23,9 +23,12 @@ module renderer_3d
     ! one vertex per plane, so 3 + 6 = 9 vertices bound the result.
     ! CLIP_ATTR_COUNT generic per-vertex attributes are interpolated
     ! alongside the clip position: the env path uses them for
-    ! (world_x, world_y, world_z, u, v); other paths leave them zero.
+    ! (world_x, world_y, world_z, u, v, normal_x, normal_y,
+    ! normal_z) -- attrs 6-8 carry the world-space vertex normal for
+    ! smooth (Gouraud/Phong-interpolated) shading (P1); other paths
+    ! leave them zero.
     integer, parameter :: CLIP_MAX_VERTS = 9
-    integer, parameter :: CLIP_ATTR_COUNT = 5
+    integer, parameter :: CLIP_ATTR_COUNT = 8
 
     type :: ClipPoly
         integer :: n = 0
@@ -205,6 +208,10 @@ contains
         real(dp) :: ambient, intensity, diffuse, spec
         real(dp) :: base_color(3), rgb_real(3)
         integer :: rgb(3)
+        ! P1 smooth shading: per-vertex world normals + per-vertex
+        ! real RGB (channel, vertex), used only when tri%smooth.
+        type(vec3) :: vnormal_world(3), v_view_dir, v_refl_dir
+        real(dp) :: v_intensity, v_diffuse, v_spec, rgb_v(3, 3)
         integer :: i, k, sx(3), sy(3)
         real(dp) :: z(3)
         real(dp) :: clip_v(4, 3), attr_zero(CLIP_ATTR_COUNT, 3)
@@ -224,6 +231,7 @@ contains
 
         do i = 1, target_mesh%num_triangles
             tri = target_mesh%triangles(i)
+            rgb_v = 0.0_dp  ! P1: filled below only when tri%smooth
 
             ! Transform vertices to world coordinates for lighting
             world_v(1) = mat4_transform_vec3(model_matrix, tri%v(1), .true.)
@@ -265,6 +273,56 @@ contains
             end if
             rgb = min(255, max(0, int(rgb_real)))
 
+            ! P1: for smooth triangles, evaluate the SAME lighting
+            ! formula at each vertex, using the world-space vertex
+            ! normal (direction transform of tri%vn(k) by the model
+            ! matrix -- mat4_transform_vec3 with is_point=.false.
+            ! applies the rotation without translation -- then
+            ! renormalised).  For phong the view direction is taken
+            ! from the vertex world position itself (the flat path
+            ! uses the triangle centroid); every other term mirrors
+            ! the per-triangle code above exactly.  Flat triangles
+            ! never touch rgb_v and keep the path above byte-for-byte.
+            if (tri%smooth) then
+                do k = 1, 3
+                    vnormal_world(k) = vec3_normalize( &
+                        mat4_transform_vec3(model_matrix, tri%vn(k), &
+                                            .false.))
+                    v_diffuse = max(0.0_dp, vec3_dot(vnormal_world(k), &
+                        vec3_scale(norm_light, -1.0_dp)))
+                    select case (mat%mode)
+                    case (1) ! basic: unlit, colour as-is
+                        v_intensity = 1.0_dp
+                        v_spec = 0.0_dp
+                    case (2) ! phong: lambert plus white specular
+                        v_intensity = ambient + &
+                            (1.0_dp - ambient) * v_diffuse
+                        v_view_dir = vec3_normalize( &
+                            vec3_sub(cam%position, world_v(k)))
+                        v_refl_dir = vec3_reflect( &
+                            vec3_negate(norm_light), vnormal_world(k))
+                        v_spec = mat%specular * &
+                            max(0.0_dp, vec3_dot(v_refl_dir, &
+                                v_view_dir)) ** mat%shininess
+                    case default ! 0 = lambert
+                        v_intensity = ambient + &
+                            (1.0_dp - ambient) * v_diffuse
+                        v_spec = 0.0_dp
+                    end select
+                    if (mat%use_tri_color) then
+                        do q = 1, 3
+                            rgb_v(q, k) = real(tri%color(q), dp) * &
+                                v_intensity + v_spec * 255.0_dp
+                        end do
+                    else
+                        do q = 1, 3
+                            rgb_v(q, k) = base_color(q) * 255.0_dp * &
+                                v_intensity + v_spec * 255.0_dp
+                        end do
+                    end if
+                end do
+            end if
+
             ! Homogeneous clip positions (no divide yet).
             clip_v(:, 1) = mat4_clip(mvp, tri%v(1))
             clip_v(:, 2) = mat4_clip(mvp, tri%v(2))
@@ -294,10 +352,21 @@ contains
                 if ((sx(2) - sx(1)) * (sy(3) - sy(1)) - (sy(2) - sy(1)) * (sx(3) - sx(1)) <= 0) cycle
 
                 ! Rasterize triangle
-                call draw_triangle_rgb(fb, sx, sy, z, rgb)
+                if (tri%smooth) then
+                    call draw_triangle_gouraud(fb, sx, sy, z, rgb_v)
+                else
+                    call draw_triangle_rgb(fb, sx, sy, z, rgb)
+                end if
             else
                 ! Clipped path: clip in homogeneous space, divide only
                 ! the surviving vertices, fan-triangulate.
+                ! P1 note: smooth triangles on this clipped path fall
+                ! back to FLAT shading of the clipped pieces (the
+                ! per-triangle rgb computed above from the face
+                ! normal).  Clipped smooth triangles are an edge case
+                ! (only triangles straddling the frustum), and the
+                ! clip system is deliberately NOT restructured to
+                ! carry per-vertex colours for them.
                 attr_zero = 0.0_dp
                 call clip_triangle_frustum(clip_v, attr_zero, poly)
                 if (poly%n < 3) cycle
@@ -367,6 +436,53 @@ contains
         end do
     end subroutine draw_triangle_rgb
 
+    ! P1 Gouraud rasteriser: identical barycentric rasterisation and
+    ! z interpolation to draw_triangle_rgb (same bounding box, denom,
+    ! weight formulas and depth test, in the same order); the ONLY
+    ! difference is that the per-vertex real RGB rgb_v (channel,
+    ! vertex) is barycentrically interpolated per pixel and then
+    ! converted/clamped exactly as the flat path converts rgb_real
+    ! (min(255, max(0, int(...)))).
+    subroutine draw_triangle_gouraud(fb, x, y, z, rgb_v)
+        type(FrameBuffer), intent(inout) :: fb
+        integer, intent(in) :: x(3), y(3)
+        real(dp), intent(in) :: z(3)
+        real(dp), intent(in) :: rgb_v(3, 3)
+
+        integer :: min_x, max_x, min_y, max_y, px, py
+        real(dp) :: w0, w1, w2, denom, depth
+        real(dp) :: r_real, g_real, b_real
+
+        min_x = max(1, min(x(1), min(x(2), x(3))))
+        max_x = min(fb%width, max(x(1), max(x(2), x(3))))
+        min_y = max(1, min(y(1), min(y(2), y(3))))
+        max_y = min(fb%height, max(y(1), max(y(2), y(3))))
+
+        denom = real((y(2) - y(3)) * (x(1) - x(3)) + (x(3) - x(2)) * (y(1) - y(3)), dp)
+        if (abs(denom) < 1.0e-6_dp) return
+
+        do py = min_y, max_y
+            do px = min_x, max_x
+                w0 = real((y(2) - y(3)) * (px - x(3)) + (x(3) - x(2)) * (py - y(3)), dp) / denom
+                w1 = real((y(3) - y(1)) * (px - x(3)) + (x(1) - x(3)) * (py - y(3)), dp) / denom
+                w2 = 1.0_dp - w0 - w1
+
+                if (w0 >= 0.0_dp .and. w1 >= 0.0_dp .and. w2 >= 0.0_dp) then
+                    depth = w0 * z(1) + w1 * z(2) + w2 * z(3)
+                    if (depth >= -1.0_dp .and. depth <= 1.0_dp .and. depth < fb%z_buffer(px, py)) then
+                        r_real = w0 * rgb_v(1, 1) + w1 * rgb_v(1, 2) + w2 * rgb_v(1, 3)
+                        g_real = w0 * rgb_v(2, 1) + w1 * rgb_v(2, 2) + w2 * rgb_v(2, 3)
+                        b_real = w0 * rgb_v(3, 1) + w1 * rgb_v(3, 2) + w2 * rgb_v(3, 3)
+                        fb%z_buffer(px, py) = depth
+                        fb%pixels(1, px, py) = min(255, max(0, int(r_real)))
+                        fb%pixels(2, px, py) = min(255, max(0, int(g_real)))
+                        fb%pixels(3, px, py) = min(255, max(0, int(b_real)))
+                    end if
+                end if
+            end do
+        end do
+    end subroutine draw_triangle_gouraud
+
     ! Wave A environment rendering (coordinator integration, Wave A).
     ! Per-pixel shading through lighting_3d: multi-light (directional /
     ! point / spot), PBR materials, per-pixel texture sampling with
@@ -397,6 +513,11 @@ contains
         real(dp) :: clip_v(4, 3), attr_in(CLIP_ATTR_COUNT, 3)
         real(dp) :: ndc(3), uv_piece(2, 3)
         type(vec3) :: world_piece(3)
+        ! P1: world-space per-vertex normals (attrs 6-8 when clipped).
+        ! Smooth tris use the direction-transformed tri%vn(k),
+        ! renormalised; flat tris get normal_world at every vertex so
+        ! their shading is identical to the pre-P1 path.
+        type(vec3) :: vnormal_world(3), normal_piece(3)
         type(ClipPoly) :: poly
         integer :: piece, idx(3), q
 
@@ -411,6 +532,19 @@ contains
             world_v(3) = mat4_transform_vec3(model_matrix, tri%v(3), .true.)
             normal_world = compute_triangle_normal(world_v(1), world_v(2), &
                                                    world_v(3))
+
+            ! P1 per-vertex world normals (see declaration note).
+            if (tri%smooth) then
+                do q = 1, 3
+                    vnormal_world(q) = vec3_normalize( &
+                        mat4_transform_vec3(model_matrix, tri%vn(q), &
+                                            .false.))
+                end do
+            else
+                vnormal_world(1) = normal_world
+                vnormal_world(2) = normal_world
+                vnormal_world(3) = normal_world
+            end if
 
             clip_v(:, 1) = mat4_clip(mvp, tri%v(1))
             clip_v(:, 2) = mat4_clip(mvp, tri%v(2))
@@ -440,7 +574,8 @@ contains
                 uv(:, 3) = prim_uv(prim, tri%v(3), extents)
 
                 call draw_triangle_env(fb, sx, sy, z, world_v, uv, tri, &
-                                       normal_world, cam, lights, pbr, tex, &
+                                       normal_world, vnormal_world, &
+                                       cam, lights, pbr, tex, &
                                        smap, shadow_mode)
             else
                 uv(:, 1) = prim_uv(prim, tri%v(1), extents)
@@ -452,6 +587,9 @@ contains
                     attr_in(3, q) = world_v(q)%z
                     attr_in(4, q) = uv(1, q)
                     attr_in(5, q) = uv(2, q)
+                    attr_in(6, q) = vnormal_world(q)%x
+                    attr_in(7, q) = vnormal_world(q)%y
+                    attr_in(8, q) = vnormal_world(q)%z
                 end do
                 call clip_triangle_frustum(clip_v, attr_in, poly)
                 if (poly%n < 3) cycle
@@ -468,11 +606,16 @@ contains
                                                      poly%attr(3, idx(q)))
                         uv_piece(1, q) = poly%attr(4, idx(q))
                         uv_piece(2, q) = poly%attr(5, idx(q))
+                        normal_piece(q) = vec3_create( &
+                            poly%attr(6, idx(q)), &
+                            poly%attr(7, idx(q)), &
+                            poly%attr(8, idx(q)))
                     end do
                     if ((sx(2) - sx(1)) * (sy(3) - sy(1)) - &
                         (sy(2) - sy(1)) * (sx(3) - sx(1)) <= 0) cycle
                     call draw_triangle_env(fb, sx, sy, z, world_piece, &
                                            uv_piece, tri, normal_world, &
+                                           normal_piece, &
                                            cam, lights, pbr, tex, &
                                            smap, shadow_mode)
                 end do
@@ -481,12 +624,14 @@ contains
     end subroutine framebuffer_render_mesh_env
 
     subroutine draw_triangle_env(fb, x, y, z, world_v, uv, tri, &
-                                 normal_world, cam, lights, pbr, tex, &
+                                 normal_world, vnormal_world, &
+                                 cam, lights, pbr, tex, &
                                  smap, shadow_mode)
         type(FrameBuffer), intent(inout) :: fb
         integer, intent(in) :: x(3), y(3)
         real(dp), intent(in) :: z(3), uv(2, 3)
         type(vec3), intent(in) :: world_v(3), normal_world
+        type(vec3), intent(in) :: vnormal_world(3)
         type(Triangle), intent(in) :: tri
         type(Camera), intent(in) :: cam
         type(LightSet), intent(in) :: lights
@@ -498,7 +643,7 @@ contains
         integer :: min_x, max_x, min_y, max_y, px, py
         real(dp) :: w0, w1, w2, denom, depth, sfac
         real(dp) :: u_interp, v_interp
-        type(vec3) :: wp
+        type(vec3) :: wp, n_interp, shade_normal
         integer :: base_rgb(3), rgb(3)
 
         min_x = max(1, min(x(1), min(x(2), x(3))))
@@ -550,7 +695,27 @@ contains
                     sfac = shadow_factor_pcf(smap, wp, 0.002_dp)
                 end if
 
-                rgb = shade_rgb(base_rgb, normal_world, wp, &
+                ! P1: smooth triangles shade with the per-pixel
+                ! barycentric-interpolated, renormalised vertex
+                ! normal; flat triangles use normal_world exactly as
+                ! before (identical results).
+                if (tri%smooth) then
+                    n_interp = vec3_create( &
+                        w0 * vnormal_world(1)%x + &
+                        w1 * vnormal_world(2)%x + &
+                        w2 * vnormal_world(3)%x, &
+                        w0 * vnormal_world(1)%y + &
+                        w1 * vnormal_world(2)%y + &
+                        w2 * vnormal_world(3)%y, &
+                        w0 * vnormal_world(1)%z + &
+                        w1 * vnormal_world(2)%z + &
+                        w2 * vnormal_world(3)%z)
+                    shade_normal = vec3_normalize(n_interp)
+                else
+                    shade_normal = normal_world
+                end if
+
+                rgb = shade_rgb(base_rgb, shade_normal, wp, &
                                 cam%position, lights, pbr, sfac)
 
                 fb%z_buffer(px, py) = depth
@@ -667,6 +832,12 @@ contains
                     attr_in(3, q) = world_v(q)%z
                     attr_in(4, q) = 0.0_dp
                     attr_in(5, q) = 0.0_dp
+                    ! P1: attrs 6-8 (vertex normals) grew with
+                    ! CLIP_ATTR_COUNT; the shader path does not use
+                    ! them -- keep them explicitly zero.
+                    attr_in(6, q) = 0.0_dp
+                    attr_in(7, q) = 0.0_dp
+                    attr_in(8, q) = 0.0_dp
                 end do
                 call clip_triangle_frustum(clip_v, attr_in, poly)
                 if (poly%n < 3) cycle

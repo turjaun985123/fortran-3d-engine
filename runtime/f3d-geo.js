@@ -5,7 +5,10 @@
 // triangles [[a, b, c, faceIdx], ...] where a/b/c are plain
 // [x, y, z] vertex arrays and faceIdx is an integer part index
 // (0 unless a builder says otherwise), matching the convention
-// of the `tri(o, a, b, c, f)` helper in f3d.js.
+// of the `tri(o, a, b, c, f)` helper in f3d.js. Curved builders
+// (capsule, tube, lathe, torusknot) additionally set the optional index-5
+// element to [na, nb, nc] per-vertex normals in local space,
+// the smooth-shading contract of runtime/f3d.js (P1).
 // Plain script, zero deps, no modules. Loading it without
 // f3d.js is safe: the registry hook at the bottom is guarded.
 //
@@ -51,7 +54,9 @@
 'use strict';
 (function (g) {
 
-function tri(o, a, b, c, f) { o.push([a, b, c, f || 0]); }
+function tri(o, a, b, c, f, n) {
+  var t = [a, b, c, f || 0]; if (n) t[5] = n; o.push(t);
+}
 function sub(a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
 function cross(a, b) {
   return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2],
@@ -158,26 +163,52 @@ function capsule(radius, height, seg) {
             -hh - radius * Math.sin(ph),
             radius * Math.cos(ph) * Math.sin(th)];
   }
+  // Analytic normals: hemispheres = norm(v - hemi centre),
+  // barrel = radial.
+  function hn(jj, ii) { // top hemi, centre (0, hh, 0)
+    var ph = (Math.PI / 2) * jj / hr, th = 2 * Math.PI * ii / seg;
+    return [Math.sin(ph) * Math.cos(th), Math.cos(ph),
+            Math.sin(ph) * Math.sin(th)];
+  }
+  function bn(jj, ii) { // bottom hemi, centre (0, -hh, 0)
+    var ph = (Math.PI / 2) * jj / hr, th = 2 * Math.PI * ii / seg;
+    return [Math.cos(ph) * Math.cos(th), -Math.sin(ph),
+            Math.cos(ph) * Math.sin(th)];
+  }
+  function rn(ii) {
+    var th = 2 * Math.PI * ii / seg;
+    return [Math.cos(th), 0, Math.sin(th)];
+  }
   var top = [0, hh + radius, 0], bot = [0, -hh - radius, 0];
   for (i = 0; i < seg; i++) // top fan
-    tri(o, top, hemiPt(hh, 1, (i + 1) % seg), hemiPt(hh, 1, i), 0);
+    tri(o, top, hemiPt(hh, 1, (i + 1) % seg), hemiPt(hh, 1, i), 0,
+        [[0, 1, 0], hn(1, (i + 1) % seg), hn(1, i)]);
   for (j = 1; j < hr; j++) for (i = 0; i < seg; i++) { // top bands
     var a = hemiPt(hh, j, i), b = hemiPt(hh, j, (i + 1) % seg),
         c = hemiPt(hh, j + 1, (i + 1) % seg), d = hemiPt(hh, j + 1, i);
-    tri(o, a, b, c, 0); tri(o, a, c, d, 0);
+    tri(o, a, b, c, 0, [hn(j, i), hn(j, (i + 1) % seg),
+                       hn(j + 1, (i + 1) % seg)]);
+    tri(o, a, c, d, 0, [hn(j, i), hn(j + 1, (i + 1) % seg),
+                        hn(j + 1, i)]);
   }
   for (i = 0; i < seg; i++) { // cylinder band, f3d.js winding
     var b1 = botPt(0, i), b2 = botPt(0, (i + 1) % seg),
         t1 = hemiPt(hh, hr, i), t2 = hemiPt(hh, hr, (i + 1) % seg);
-    tri(o, b1, t2, b2, 1); tri(o, b1, t1, t2, 1);
+    tri(o, b1, t2, b2, 1, [rn(i), rn((i + 1) % seg),
+                          rn((i + 1) % seg)]);
+    tri(o, b1, t1, t2, 1, [rn(i), rn(i), rn((i + 1) % seg)]);
   }
   for (j = 0; j < hr - 1; j++) for (i = 0; i < seg; i++) { // bot bands
     var a2 = botPt(j, i), b3 = botPt(j, (i + 1) % seg),
         c2 = botPt(j + 1, (i + 1) % seg), d2 = botPt(j + 1, i);
-    tri(o, a2, b3, c2, 2); tri(o, a2, c2, d2, 2);
+    tri(o, a2, b3, c2, 2, [bn(j, i), bn(j, (i + 1) % seg),
+                          bn(j + 1, (i + 1) % seg)]);
+    tri(o, a2, c2, d2, 2, [bn(j, i), bn(j + 1, (i + 1) % seg),
+                           bn(j + 1, i)]);
   }
   for (i = 0; i < seg; i++) // bottom fan
-    tri(o, bot, botPt(hr - 1, i), botPt(hr - 1, (i + 1) % seg), 2);
+    tri(o, bot, botPt(hr - 1, i), botPt(hr - 1, (i + 1) % seg), 2,
+        [[0, -1, 0], bn(hr - 1, i), bn(hr - 1, (i + 1) % seg)]);
   return o;
 }
 
@@ -191,10 +222,20 @@ function tube(radius, seg, pathPts) {
     return ringPt(pathPts[kk], fr, kk, radius,
                   2 * Math.PI * ii / seg);
   }
+  function rpn(kk, ii) { // norm(v - path point): cos*N + sin*B
+    var th = 2 * Math.PI * ii / seg,
+        co = Math.cos(th), si = Math.sin(th);
+    return [fr.N[kk][0] * co + fr.B[kk][0] * si,
+            fr.N[kk][1] * co + fr.B[kk][1] * si,
+            fr.N[kk][2] * co + fr.B[kk][2] * si];
+  }
   for (k = 0; k < n - 1; k++) for (i = 0; i < seg; i++) {
     var b1 = rp(k, i), b2 = rp(k, (i + 1) % seg),
         t1 = rp(k + 1, i), t2 = rp(k + 1, (i + 1) % seg);
-    tri(o, b1, t2, b2, 0); tri(o, b1, t1, t2, 0);
+    tri(o, b1, t2, b2, 0, [rpn(k, i), rpn(k + 1, (i + 1) % seg),
+                           rpn(k, (i + 1) % seg)]);
+    tri(o, b1, t1, t2, 0, [rpn(k, i), rpn(k + 1, i),
+                           rpn(k + 1, (i + 1) % seg)]);
   }
   for (i = 0; i < seg; i++) { // start cap (-T) and end cap (+T)
     tri(o, pathPts[0].slice(), rp(0, i), rp(0, (i + 1) % seg), 1);
@@ -213,10 +254,24 @@ function lathe(seg, profilePts) {
     var th = 2 * Math.PI * ii / seg, p = profilePts[jj];
     return [p[0] * Math.cos(th), p[1], p[0] * Math.sin(th)];
   }
+  // Profile normal: segment direction (central difference) in
+  // the (radius, y) plane is (dr, dy); the outward 2D normal is
+  // (dy, -dr) for a bottom-to-top profile, rotated about Y.
+  function pn(jj, ii) {
+    var a = profilePts[Math.max(0, jj - 1)],
+        b = profilePts[Math.min(n - 1, jj + 1)],
+        dr = b[0] - a[0], dy = b[1] - a[1],
+        l = Math.hypot(dy, dr), th = 2 * Math.PI * ii / seg,
+        nr = l > 1e-12 ? dy / l : 0, ny = l > 1e-12 ? -dr / l : 0;
+    return [nr * Math.cos(th), ny, nr * Math.sin(th)];
+  }
   for (j = 0; j < n - 1; j++) for (i = 0; i < seg; i++) {
     var a = pt(j, i), b = pt(j, (i + 1) % seg),
         c = pt(j + 1, (i + 1) % seg), d = pt(j + 1, i);
-    tri(o, a, c, b, 0); tri(o, a, d, c, 0);
+    tri(o, a, c, b, 0, [pn(j, i), pn(j + 1, (i + 1) % seg),
+                        pn(j, (i + 1) % seg)]);
+    tri(o, a, d, c, 0, [pn(j, i), pn(j + 1, i),
+                        pn(j + 1, (i + 1) % seg)]);
   }
   return o;
 }
@@ -317,10 +372,18 @@ function torusknot(radius, tube, seg, tseg) {
     return ringPt(pts[ii % seg], fr, ii % seg, tube,
                   2 * Math.PI * jj / tseg);
   }
+  // Per-vertex normal: normalize(vertex - centre-curve point
+  // at the same parameter) -- the radial direction of the
+  // swept tube, exactly as tube()'s rpn computes it.
+  function pn(ii, jj) {
+    return norm(sub(pt(ii, jj), pts[ii % seg]));
+  }
   for (i = 0; i < seg; i++) for (j = 0; j < tseg; j++) {
     var a = pt(i, j), b = pt(i + 1, j), c = pt(i + 1, j + 1),
         d = pt(i, j + 1);
-    tri(o, a, c, d, 0); tri(o, a, b, c, 0); // tube-sweep winding
+    tri(o, a, c, d, 0, [pn(i, j), pn(i + 1, j + 1), pn(i, j + 1)]);
+    tri(o, a, b, c, 0, [pn(i, j), pn(i + 1, j), pn(i + 1, j + 1)]);
+    // tube-sweep winding
   }
   return o;
 }

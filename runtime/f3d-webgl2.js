@@ -6,14 +6,21 @@
 // depth buffer (DEPTH_TEST). Shading here is the same Lambert
 // as the core runtime (see shadeIntensity() below, mirroring
 // f3d.js): intensity = ambient + (1 - ambient) * diffuse with
-// ambient 0.25 by default, diffuse = max(0, -dot(faceNormal,
+// ambient 0.25 by default, diffuse = max(0, -dot(normal,
 // normalize(lightDir))) and lightDir [-0.5, -1, -0.7] by
-// default, the face normal being norm(cross(v1 - v0, v2 - v0))
-// over the triangle's positions. So the same scene gives the
-// same colours as f3d.js within float32 tolerance (the colour
-// buffer is a Float32Array). Pass opts.flat = true to
-// renderScene() / attach() to upload the raw base colours
-// instead, exactly as the original flat path did.
+// default. Since P1 the intensity is computed PER-VERTEX in
+// the vertex shader from the aNorm attribute and the uLight /
+// uAmbient uniforms, and interpolated (Gouraud): a triangle
+// carrying the index-5 per-vertex normals element shades
+// smoothly, while a triangle without one uploads its face
+// normal -- norm(cross(v1 - v0, v2 - v0)) over the triangle's
+// positions -- for all three vertices, reproducing the old
+// flat Lambert colours. Colours are uploaded UNshaded (base
+// colour / 255); the fragment shader outputs the interpolated
+// intensity times the colour. Pass opts.flat = true to
+// renderScene() / attach() to force intensity 1 (the raw base
+// colours), and opts.shading = 'flat' to force face normals
+// even for triangles that carry vertex normals.
 //
 // HONEST VERIFICATION STATEMENT: real GPU rasterization
 // requires a browser. This sidecar is verified headlessly via
@@ -61,10 +68,15 @@ var VERT_SRC = [
   '#version 300 es',
   'in vec3 aPos;',
   'in vec3 aColor;',
+  'in vec3 aNorm;',
   'uniform mat4 uMVP;',
+  'uniform vec3 uLight;',
+  'uniform float uAmbient;',
   'out vec3 vColor;',
+  'out float vI;',
   'void main() {',
   '  vColor = aColor;',
+  '  vI = uAmbient + (1.0 - uAmbient) * max(0.0, -dot(normalize(aNorm), uLight));',
   '  gl_Position = uMVP * vec4(aPos, 1.0);',
   '}'
 ].join('\n');
@@ -72,9 +84,10 @@ var FRAG_SRC = [
   '#version 300 es',
   'precision mediump float;',
   'in vec3 vColor;',
+  'in float vI;',
   'out vec4 outColor;',
   'void main() {',
-  '  outColor = vec4(vColor, 1.0);',
+  '  outColor = vec4(vColor * vI, 1.0);',
   '}'
 ].join('\n');
 var IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
@@ -121,15 +134,19 @@ function create(canvas) {
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return null;
     var posBuf = gl.createBuffer();
     var colBuf = gl.createBuffer();
-    if (!posBuf || !colBuf) return null;
+    var norBuf = gl.createBuffer();
+    if (!posBuf || !colBuf || !norBuf) return null;
     return {
       canvas: canvas,
       gl: gl,
       program: program,
-      buffers: { position: posBuf, color: colBuf },
+      buffers: { position: posBuf, color: colBuf, normal: norBuf },
       aPos: gl.getAttribLocation(program, 'aPos'),
       aColor: gl.getAttribLocation(program, 'aColor'),
+      aNorm: gl.getAttribLocation(program, 'aNorm'),
       uMVP: gl.getUniformLocation(program, 'uMVP'),
+      uLight: gl.getUniformLocation(program, 'uLight'),
+      uAmbient: gl.getUniformLocation(program, 'uAmbient'),
       // Scene background, [r, g, b] 0..255 (alpha optional 4th,
       // 0..1 or 0..255); callers may replace it before render.
       clearColor: DEFAULT_CLEAR.slice()
@@ -162,14 +179,22 @@ function vnorm(a) {
 }
 function vclean(v) { return [+v[0] || 0, +v[1] || 0, +v[2] || 0]; }
 // Resolve renderScene() opts into a shading descriptor:
-// { flat: boolean, ld: normalized lightDir, ambient: number }.
+// { flat: boolean, ld: normalized lightDir, ambient: number,
+//   flatNorm: boolean }. flatNorm (opts.shading === 'flat')
+// forces per-face normals even when a tri carries the index-5
+// per-vertex normals element (the P1 smooth-shading contract:
+// explicit object shading wins). The intensity itself is now
+// computed per-vertex in the vertex shader from aNorm and the
+// uLight / uAmbient uniforms; shadeIntensity() below is kept
+// as the CPU reference of the same formula.
 function resolveShade(opts) {
   var o = opts || {};
   var ambient = o.ambient != null ? +o.ambient : DEFAULT_AMBIENT;
   if (!(ambient >= 0)) ambient = DEFAULT_AMBIENT;
   var ld = DEFAULT_LIGHT_DIR;
   if (o.lightDir && o.lightDir.length === 3) ld = vclean(o.lightDir);
-  return { flat: !!o.flat, ld: vnorm(ld), ambient: ambient };
+  return { flat: !!o.flat, ld: vnorm(ld), ambient: ambient,
+           flatNorm: o.shading === 'flat' };
 }
 function shadeIntensity(verts, shade) {
   if (shade.flat) return 1;
@@ -181,22 +206,38 @@ function shadeIntensity(verts, shade) {
 }
 
 // Normalise the accepted triangle shapes (see header) into
-// {positions: Float32Array, colors: Float32Array, count} with
-// count triangles, positions length count*9 and per-vertex
-// colors length count*9 in 0..1.
+// {positions, colors, normals: Float32Array, count} with count
+// triangles, each array length count*9: positions, per-vertex
+// base colors in 0..1 (UNSHADED -- the vertex shader applies
+// the Lambert intensity), and per-vertex normals. A tri's
+// index-5 normals element ([na, nb, nc], local space) is used
+// verbatim unless shade.flatNorm forces face normals; tris
+// without normals get their face normal (computed exactly as
+// shadeIntensity does) uploaded for all three vertices, which
+// reproduces the old flat Lambert result through the shader.
 function normalizeTris(tris, shade) {
-  var pos = [], col = [], i, j;
+  var pos = [], col = [], nor = [], i, j;
   shade = shade || resolveShade(null);
   function pushVert(v) {
     pos.push(+v[0] || 0, +v[1] || 0, +v[2] || 0);
   }
-  function pushTri(verts, color) {
+  function faceNormal(verts) {
+    var w0 = vclean(verts[0]), w1 = vclean(verts[1]),
+      w2 = vclean(verts[2]);
+    return vnorm(vcross(vsub(w1, w0), vsub(w2, w0)));
+  }
+  function pushTri(verts, color, normals) {
     var c = color || [255, 255, 255];
-    var inten = shadeIntensity(verts, shade);
-    var r = Math.min(255, Math.max(0, +c[0] || 0)) / 255 * inten;
-    var gg = Math.min(255, Math.max(0, +c[1] || 0)) / 255 * inten;
-    var b = Math.min(255, Math.max(0, +c[2] || 0)) / 255 * inten;
-    for (j = 0; j < 3; j++) { pushVert(verts[j]); col.push(r, gg, b); }
+    var r = Math.min(255, Math.max(0, +c[0] || 0)) / 255;
+    var gg = Math.min(255, Math.max(0, +c[1] || 0)) / 255;
+    var b = Math.min(255, Math.max(0, +c[2] || 0)) / 255;
+    var useN = normals && normals.length === 3 && !shade.flatNorm;
+    var fn = useN ? null : faceNormal(verts);
+    for (j = 0; j < 3; j++) {
+      pushVert(verts[j]); col.push(r, gg, b);
+      var nv = useN ? vclean(normals[j]) : fn;
+      nor.push(nv[0], nv[1], nv[2]);
+    }
   }
   if (!tris) return null;
   if (typeof tris[0] === 'number') { // flat soup
@@ -215,16 +256,17 @@ function normalizeTris(tris, shade) {
         pushTri([[t[0], t[1], t[2]], [t[3], t[4], t[5]],
                  [t[6], t[7], t[8]]], color);
       } else if (Array.isArray(t[0])) { // f3d.js build() shape
-        pushTri([t[0], t[1], t[2]], t[4]);
+        pushTri([t[0], t[1], t[2]], t[4], t[5]);
       } else { // scene triangle object {v|verts|vertices, color}
         var vs = t.v || t.verts || t.vertices;
         if (vs && vs.length === 3)
-          pushTri(vs, t.color || t.colour);
+          pushTri(vs, t.color || t.colour, t.normals);
       }
     }
   }
   return { positions: new Float32Array(pos),
            colors: new Float32Array(col),
+           normals: new Float32Array(nor),
            count: pos.length / 9 };
 }
 
@@ -246,7 +288,8 @@ function clearRGBA(renderer) {
 function renderScene(renderer, tris, mvp, opts) {
   try {
     if (!renderer || !renderer.gl || !renderer.program) return 0;
-    var data = normalizeTris(tris, resolveShade(opts));
+    var shade = resolveShade(opts);
+    var data = normalizeTris(tris, shade);
     if (!data || data.count === 0) return 0;
     var gl = renderer.gl;
     gl.useProgram(renderer.program);
@@ -262,8 +305,20 @@ function renderScene(renderer, tris, mvp, opts) {
     gl.bufferData(gl.ARRAY_BUFFER, data.colors, gl.STATIC_DRAW);
     gl.vertexAttribPointer(renderer.aColor, 3, gl.FLOAT, false, 0, 0);
     gl.enableVertexAttribArray(renderer.aColor);
+    gl.bindBuffer(gl.ARRAY_BUFFER, renderer.buffers.normal);
+    gl.bufferData(gl.ARRAY_BUFFER, data.normals, gl.STATIC_DRAW);
+    gl.vertexAttribPointer(renderer.aNorm, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(renderer.aNorm);
     var m = (mvp && mvp.length === 16) ? mvp : IDENTITY;
     gl.uniformMatrix4fv(renderer.uMVP, false, new Float32Array(m));
+    // Light uniforms for the shader Lambert: flat opts out by
+    // pinning ambient to 1 (intensity is then exactly 1).
+    // Guarded so recording mock GLs without uniform3f /
+    // uniform1f still exercise the rest of the call sequence.
+    if (gl.uniform3f) gl.uniform3f(renderer.uLight,
+      shade.ld[0], shade.ld[1], shade.ld[2]);
+    if (gl.uniform1f) gl.uniform1f(renderer.uAmbient,
+      shade.flat ? 1 : shade.ambient);
     gl.drawArrays(gl.TRIANGLES, 0, data.count * 3);
     return data.count;
   } catch (e) {

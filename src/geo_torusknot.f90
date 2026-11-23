@@ -13,7 +13,7 @@
 ! Per-triangle normals via compute_triangle_normal; colour white.
 module geo_torusknot_3d
     use math_3d
-    use mesh_3d, only: Mesh, Triangle, compute_triangle_normal
+    use mesh_3d, only: Mesh, Triangle, compute_triangle_normal, tri_set_smooth
     implicit none
     private
     public :: create_torusknot
@@ -137,10 +137,21 @@ contains
                 idx = idx + 1
                 m%triangles(idx)%v = [a, d, c]
                 m%triangles(idx)%normal = compute_triangle_normal(a, d, c)
+                ! Vertex normal = direction from the centre-curve point
+                ! of the vertex's ring to the vertex (the frame radial
+                ! the ring vertex was built from), normalised.
+                call tri_set_smooth(m%triangles(idx), &
+                    vec3_normalize(vec3_sub(a, centre(i))), &
+                    vec3_normalize(vec3_sub(d, centre(i))), &
+                    vec3_normalize(vec3_sub(c, centre(i2))))
                 m%triangles(idx)%color = [255, 255, 255]
                 idx = idx + 1
                 m%triangles(idx)%v = [a, c, b]
                 m%triangles(idx)%normal = compute_triangle_normal(a, c, b)
+                call tri_set_smooth(m%triangles(idx), &
+                    vec3_normalize(vec3_sub(a, centre(i))), &
+                    vec3_normalize(vec3_sub(c, centre(i2))), &
+                    vec3_normalize(vec3_sub(b, centre(i2))))
                 m%triangles(idx)%color = [255, 255, 255]
             end do
         end do

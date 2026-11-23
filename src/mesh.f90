@@ -4,13 +4,22 @@ module mesh_3d
     private
     public :: Triangle, Mesh, create_cube, compute_triangle_normal, export_mesh_json, export_mesh_obj, &
               free_mesh, create_box, create_sphere, create_cylinder, create_cone, &
-              create_plane, create_pyramid, create_torus, mesh_append, mesh_add_transformed
+              create_plane, create_pyramid, create_torus, mesh_append, mesh_add_transformed, &
+              tri_set_smooth
 
     type :: Triangle
         type(vec3) :: v(3) = [vec3(0.0_dp, 0.0_dp, 0.0_dp), &
                               vec3(0.0_dp, 0.0_dp, 0.0_dp), &
                               vec3(0.0_dp, 0.0_dp, 0.0_dp)]
         type(vec3) :: normal = vec3(0.0_dp, 0.0_dp, 0.0_dp)
+        ! Per-vertex normals (P1): vn(i) corresponds to v(i).  Invariant:
+        ! vn is always meaningful -- for flat shading (smooth=.false.)
+        ! vn(i) == normal for all i; curved builders set analytic vn
+        ! via tri_set_smooth and set smooth=.true..
+        type(vec3) :: vn(3) = [vec3(0.0_dp, 0.0_dp, 0.0_dp), &
+                               vec3(0.0_dp, 0.0_dp, 0.0_dp), &
+                               vec3(0.0_dp, 0.0_dp, 0.0_dp)]
+        logical :: smooth = .false.
         integer :: color(3) = [255, 255, 255]
         integer :: material_id = 0
     end type Triangle
@@ -30,6 +39,21 @@ contains
         edge2 = vec3_sub(v3, v1)
         n = vec3_normalize(vec3_cross(edge1, edge2))
     end function compute_triangle_normal
+
+    ! Set per-vertex normals on a triangle and mark it smooth-shaded.
+    subroutine tri_set_smooth(tri, n1, n2, n3)
+        type(Triangle), intent(inout) :: tri
+        type(vec3), intent(in) :: n1, n2, n3
+        tri%vn = [n1, n2, n3]
+        tri%smooth = .true.
+    end subroutine tri_set_smooth
+
+    ! Keep vn consistent with the (flat) face normal.
+    subroutine tri_set_flat_vn(tri)
+        type(Triangle), intent(inout) :: tri
+        tri%vn = [tri%normal, tri%normal, tri%normal]
+        tri%smooth = .false.
+    end subroutine tri_set_flat_vn
 
     subroutine free_mesh(m)
         type(Mesh), intent(inout) :: m
@@ -84,6 +108,7 @@ contains
         do i = 1, 12
             m%triangles(i)%normal = compute_triangle_normal( &
                 m%triangles(i)%v(1), m%triangles(i)%v(2), m%triangles(i)%v(3))
+            call tri_set_flat_vn(m%triangles(i))
 
             ! Color faces uniquely for visual distinction
             select case (i)
@@ -145,6 +170,7 @@ contains
         do i = 1, 12
             m%triangles(i)%normal = compute_triangle_normal( &
                 m%triangles(i)%v(1), m%triangles(i)%v(2), m%triangles(i)%v(3))
+            call tri_set_flat_vn(m%triangles(i))
             select case (i)
             case (1, 2)
                 m%triangles(i)%color = [220, 60, 60]
@@ -196,6 +222,8 @@ contains
             m%triangles(idx)%v = [top, b, a]
             centroid = vec3_add(vec3_add(top, b), a)
             m%triangles(idx)%normal = vec3_normalize(centroid)
+            call tri_set_smooth(m%triangles(idx), vec3_normalize(top), &
+                                vec3_normalize(b), vec3_normalize(a))
             m%triangles(idx)%color = [255, 255, 255]
         end do
         ! Middle bands j=1 .. rings-2
@@ -211,11 +239,15 @@ contains
                 m%triangles(idx)%v = [a, b, c]
                 centroid = vec3_add(vec3_add(a, b), c)
                 m%triangles(idx)%normal = vec3_normalize(centroid)
+                call tri_set_smooth(m%triangles(idx), vec3_normalize(a), &
+                                    vec3_normalize(b), vec3_normalize(c))
                 m%triangles(idx)%color = [255, 255, 255]
                 idx = idx + 1
                 m%triangles(idx)%v = [a, c, d]
                 centroid = vec3_add(vec3_add(a, c), d)
                 m%triangles(idx)%normal = vec3_normalize(centroid)
+                call tri_set_smooth(m%triangles(idx), vec3_normalize(a), &
+                                    vec3_normalize(c), vec3_normalize(d))
                 m%triangles(idx)%color = [255, 255, 255]
             end do
         end do
@@ -228,6 +260,8 @@ contains
             m%triangles(idx)%v = [bot, a, b]
             centroid = vec3_add(vec3_add(bot, a), b)
             m%triangles(idx)%normal = vec3_normalize(centroid)
+            call tri_set_smooth(m%triangles(idx), vec3_normalize(bot), &
+                                vec3_normalize(a), vec3_normalize(b))
             m%triangles(idx)%color = [255, 255, 255]
         end do
         m%num_triangles = idx
@@ -255,6 +289,7 @@ contains
         integer :: seg, i, i2, idx, total
         real(dp) :: hh, theta, theta2
         type(vec3) :: b1, b2, t1, t2, cen, centroid
+        type(vec3) :: nb1, nb2
 
         if (allocated(m%triangles)) deallocate(m%triangles)
         seg = max(3, segments)
@@ -273,28 +308,36 @@ contains
             t1 = vec3_create(radius * cos(theta), hh, radius * sin(theta))
             t2 = vec3_create(radius * cos(theta2), hh, radius * sin(theta2))
             ! Side quad, radial analytic normal from the centroid.
+            ! Per-vertex side normals are the radial direction at each
+            ! vertex's azimuth: (cos theta, 0, sin theta).
+            nb1 = vec3_create(cos(theta), 0.0_dp, sin(theta))
+            nb2 = vec3_create(cos(theta2), 0.0_dp, sin(theta2))
             idx = idx + 1
             m%triangles(idx)%v = [b1, t2, b2]
             centroid = vec3_add(vec3_add(b1, t2), b2)
             m%triangles(idx)%normal = vec3_normalize( &
                 vec3_create(centroid%x, 0.0_dp, centroid%z))
+            call tri_set_smooth(m%triangles(idx), nb1, nb2, nb2)
             m%triangles(idx)%color = [255, 255, 255]
             idx = idx + 1
             m%triangles(idx)%v = [b1, t1, t2]
             centroid = vec3_add(vec3_add(b1, t1), t2)
             m%triangles(idx)%normal = vec3_normalize( &
                 vec3_create(centroid%x, 0.0_dp, centroid%z))
+            call tri_set_smooth(m%triangles(idx), nb1, nb1, nb2)
             m%triangles(idx)%color = [255, 255, 255]
             if (capped) then
                 cen = vec3_create(0.0_dp, hh, 0.0_dp)
                 idx = idx + 1
                 m%triangles(idx)%v = [cen, t2, t1]
                 m%triangles(idx)%normal = vec3_create(0.0_dp, 1.0_dp, 0.0_dp)
+                call tri_set_flat_vn(m%triangles(idx))
                 m%triangles(idx)%color = [255, 255, 255]
                 cen = vec3_create(0.0_dp, -hh, 0.0_dp)
                 idx = idx + 1
                 m%triangles(idx)%v = [cen, b1, b2]
                 m%triangles(idx)%normal = vec3_create(0.0_dp, -1.0_dp, 0.0_dp)
+                call tri_set_flat_vn(m%triangles(idx))
                 m%triangles(idx)%color = [255, 255, 255]
             end if
         end do
@@ -311,6 +354,7 @@ contains
         integer :: seg, i, i2, idx, total
         real(dp) :: hh, theta, theta2
         type(vec3) :: b1, b2, apex, cen
+        type(vec3) :: nb1, nb2, napex
 
         if (allocated(m%triangles)) deallocate(m%triangles)
         seg = max(3, segments)
@@ -327,15 +371,26 @@ contains
             theta2 = 2.0_dp * PI * real(i2 - 1, dp) / real(seg, dp)
             b1 = vec3_create(radius * cos(theta), -hh, radius * sin(theta))
             b2 = vec3_create(radius * cos(theta2), -hh, radius * sin(theta2))
+            ! Slant normal: for the cone surface the (unnormalised)
+            ! normal at azimuth th is (h*cos(th), r, h*sin(th)).
+            nb1 = vec3_normalize(vec3_create(height * cos(theta), radius, &
+                                             height * sin(theta)))
+            nb2 = vec3_normalize(vec3_create(height * cos(theta2), radius, &
+                                             height * sin(theta2)))
+            ! Apex vertex: average of the two adjacent azimuth slant
+            ! normals (the slant normal of this segment), renormalised.
+            napex = vec3_normalize(vec3_add(nb1, nb2))
             idx = idx + 1
             m%triangles(idx)%v = [b1, apex, b2]
             m%triangles(idx)%normal = compute_triangle_normal(b1, apex, b2)
+            call tri_set_smooth(m%triangles(idx), nb1, napex, nb2)
             m%triangles(idx)%color = [255, 255, 255]
             if (capped) then
                 cen = vec3_create(0.0_dp, -hh, 0.0_dp)
                 idx = idx + 1
                 m%triangles(idx)%v = [cen, b1, b2]
                 m%triangles(idx)%normal = vec3_create(0.0_dp, -1.0_dp, 0.0_dp)
+                call tri_set_flat_vn(m%triangles(idx))
                 m%triangles(idx)%color = [255, 255, 255]
             end if
         end do
@@ -370,6 +425,7 @@ contains
         do i = 1, 4
             m%triangles(i)%normal = compute_triangle_normal( &
                 m%triangles(i)%v(1), m%triangles(i)%v(2), m%triangles(i)%v(3))
+            call tri_set_flat_vn(m%triangles(i))
             m%triangles(i)%color = [255, 255, 255]
         end do
     end subroutine create_plane
@@ -402,6 +458,7 @@ contains
         do i = 1, 6
             m%triangles(i)%normal = compute_triangle_normal( &
                 m%triangles(i)%v(1), m%triangles(i)%v(2), m%triangles(i)%v(3))
+            call tri_set_flat_vn(m%triangles(i))
             m%triangles(i)%color = [255, 255, 255]
         end do
     end subroutine create_pyramid
@@ -435,11 +492,15 @@ contains
                 m%triangles(idx)%v = [a, d, c]
                 centroid = vec3_add(vec3_add(a, d), c)
                 m%triangles(idx)%normal = torus_normal(radius, vec3_scale(centroid, 1.0_dp / 3.0_dp))
+                call tri_set_smooth(m%triangles(idx), torus_normal(radius, a), &
+                                    torus_normal(radius, d), torus_normal(radius, c))
                 m%triangles(idx)%color = [255, 255, 255]
                 idx = idx + 1
                 m%triangles(idx)%v = [a, c, b]
                 centroid = vec3_add(vec3_add(a, c), b)
                 m%triangles(idx)%normal = torus_normal(radius, vec3_scale(centroid, 1.0_dp / 3.0_dp))
+                call tri_set_smooth(m%triangles(idx), torus_normal(radius, a), &
+                                    torus_normal(radius, c), torus_normal(radius, b))
                 m%triangles(idx)%color = [255, 255, 255]
             end do
         end do
@@ -517,6 +578,17 @@ contains
                 t%v(k) = mat4_transform_vec3(model, src%triangles(i)%v(k), .true.)
             end do
             t%normal = compute_triangle_normal(t%v(1), t%v(2), t%v(3))
+            if (t%smooth) then
+                ! Vertex normals transform as DIRECTIONS (is_point=.false.:
+                ! no translation, no w divide), then renormalise.
+                do k = 1, 3
+                    t%vn(k) = vec3_normalize(mat4_transform_vec3( &
+                        model, src%triangles(i)%vn(k), .false.))
+                end do
+            else
+                ! Flat: vn follows the transformed face normal.
+                call tri_set_flat_vn(t)
+            end if
             if (use_color) then
                 t%color = rgb
             else
