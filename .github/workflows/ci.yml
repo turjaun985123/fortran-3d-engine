@@ -1,6 +1,7 @@
 # Forge3D CI -- pragmatic single-job gate (see docs/plan/P19-ci-spec.md).
 # One job, no matrix, no secrets, no publishing: build, test, render-golden,
-# error-golden, determinism, JS size, and a stdlib-only guard for f3dc.
+# error-golden, determinism, JS size, and a no-Python guard for the compiler
+# path (f3dc is now a native Fortran+clang binary built from compiler/).
 name: CI
 
 on:
@@ -30,6 +31,15 @@ jobs:
           gfortran --version
           make --version | head -n 1
 
+      # Native compiler toolchain: f3dc is built from compiler/ with
+      # flang-new-18 (package flang-18) and clang-18.
+      - name: Install native compiler toolchain (flang-18, clang-18)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flang-18 clang-18
+          flang-new-18 --version
+          clang-18 --version
+
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
@@ -41,6 +51,13 @@ jobs:
           make clean
           make
           test -x bin/engine3d
+
+      # Native compiler: build f3dc from compiler/ (Fortran+clang) and
+      # install it to bin/f3dc via the root Makefile.
+      - name: Build native compiler (make f3dc)
+        run: |
+          make f3dc
+          test -x bin/f3dc
 
       # G2: compiler + Fortran test suites (missing layers SKIP inside the
       # runner; a real failure exits non-zero and fails this step).
@@ -56,7 +73,7 @@ jobs:
       # The rendered hash is reported in the step summary for humans to pin.
       - name: G3 - Golden render (portable - non-flat, bg, distinct colours)
         run: |
-          python3 tools/f3dc/f3dc.py build examples/hello-cube.f3d
+          bin/f3dc build examples/hello-cube.f3d
           test -f build/hello-cube.scene
           work="$(mktemp -d)"
           (cd "$work" && "$GITHUB_WORKSPACE/bin/engine3d")
@@ -78,8 +95,8 @@ jobs:
       # bytes -- a drifting compiler breaks goldens and user trust alike.
       - name: Determinism - hello-cube builds byte-identically twice
         run: |
-          python3 tools/f3dc/f3dc.py build examples/hello-cube.f3d -o "$RUNNER_TEMP/det-a"
-          python3 tools/f3dc/f3dc.py build examples/hello-cube.f3d -o "$RUNNER_TEMP/det-b"
+          bin/f3dc build examples/hello-cube.f3d -o "$RUNNER_TEMP/det-a"
+          bin/f3dc build examples/hello-cube.f3d -o "$RUNNER_TEMP/det-b"
           a="$(sha256sum "$RUNNER_TEMP/det-a/hello-cube.scene" | awk '{print $1}')"
           b="$(sha256sum "$RUNNER_TEMP/det-b/hello-cube.scene" | awk '{print $1}')"
           echo "build A: $a"
@@ -87,13 +104,14 @@ jobs:
           test "$a" = "$b"
 
       # G4: a bad colour is a friendly, coded error -- exit 1 and E202 in the
-      # output ('gold' is not a named colour; see tests/compiler/test_validate.py).
+      # output ('gold' is not a named colour; the E202 expectations are
+      # baked into tests/native/corpus.json).
       - name: G4 - Error golden (unknown colour -> exit 1, E202)
         run: |
           bad="$(mktemp -d)/bad.f3d"
           printf 'cube gold\n' > "$bad"
           set +e
-          out="$(python3 tools/f3dc/f3dc.py check "$bad" 2>&1)"
+          out="$(bin/f3dc check "$bad" 2>&1)"
           code=$?
           set -e
           printf '%s\n' "$out"
@@ -119,38 +137,19 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           test "$size" -le 15360
 
-      # f3dc must stay stdlib-only (plus its own sibling modules) so it runs
-      # anywhere Python 3 does, with zero pip installs.
-      - name: Stdlib-only guard - tools/f3dc imports
+      # The compiler is native Fortran+clang (compiler/ -> bin/f3dc): the old
+      # Python compiler tree must be gone, and no Python may creep back into
+      # the compiler path. (Python is still used for the test harness.)
+      - name: No Python in the compiler path
         run: |
-          python3 - <<'PY'
-          import ast
-          import sys
-          from pathlib import Path
-
-          root = Path("tools/f3dc")
-          local = {p.stem for p in root.glob("*.py")}
-          allowed = set(sys.stdlib_module_names) | local
-          bad = []
-          files = sorted(root.glob("*.py"))
-          for path in files:
-              tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-              for node in ast.walk(tree):
-                  names = []
-                  if isinstance(node, ast.Import):
-                      names = [a.name.split(".")[0] for a in node.names]
-                  elif isinstance(node, ast.ImportFrom):
-                      if node.level:  # relative import == sibling module
-                          continue
-                      if node.module:
-                          names = [node.module.split(".")[0]]
-                  for name in names:
-                      if name not in allowed:
-                          bad.append(f"{path}:{node.lineno}: imports {name!r}")
-          if bad:
-              print("non-stdlib imports in tools/f3dc:", file=sys.stderr)
-              for line in bad:
-                  print("  " + line, file=sys.stderr)
-              sys.exit(1)
-          print(f"stdlib-only guard: OK ({len(files)} files, stdlib + local only)")
-          PY
+          if [ -e tools/f3dc ]; then
+            echo "tools/f3dc still exists; the Python compiler must be deleted" >&2
+            exit 1
+          fi
+          py_files="$(find compiler -name '*.py' -print)"
+          if [ -n "$py_files" ]; then
+            echo "Python files found under compiler/:" >&2
+            printf '%s\n' "$py_files" >&2
+            exit 1
+          fi
+          echo "no-Python guard: OK (no tools/f3dc, no *.py under compiler/)"

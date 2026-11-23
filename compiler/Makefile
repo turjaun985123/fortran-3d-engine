@@ -8,11 +8,11 @@
 #
 # INSTALL NOTE (bin/f3dc): the repo root's bin/ is where built
 # binaries live (the top-level Makefile puts bin/engine3d there).
-# Once the port is complete, installing this binary means copying or
-# symlinking compiler/f3dc -> ../bin/f3dc so `f3dc` sits next to the
-# engine it drives.  There is deliberately NO install target yet and
-# this Makefile never writes outside compiler/; the top-level
-# Makefile is untouched by the port.
+# This Makefile never writes outside compiler/; installation is the
+# top-level Makefile's `make f3dc` target, which builds here and then
+# copies compiler/f3dc -> ../bin/f3dc so `f3dc` sits next to the
+# engine it drives.  (Done as part of the 2026-11-23 replacement of
+# the Python compiler; see REPLACEMENT.md.)
 
 FC       = flang-new-18
 CC       = clang-18

@@ -192,6 +192,14 @@ debug:
 	$(MAKE) clean
 	$(MAKE) all FFLAGS="$(DEBUG_FFLAGS)"
 
+# The f3dc compiler is native (Fortran + clang, sources in compiler/).
+# `make f3dc` builds it with flang-new-18/clang-18 and installs the
+# binary next to the engine as bin/f3dc.
+f3dc:
+	$(MAKE) -C compiler
+	@mkdir -p $(BIN_DIR)
+	cp compiler/f3dc $(BIN_DIR)/f3dc
+
 run: $(TARGET)
 	@./$(TARGET)
 	@which convert >/dev/null 2>&1 && convert output_render.ppm output_render.png && echo "[+] Converted to output_render.png" || true
@@ -213,4 +221,4 @@ minjs:
 clean:
 	rm -rf $(OBJ_DIR)/*.o $(MOD_DIR)/*.mod $(BIN_DIR)/* output_render.ppm output_render.png
 
-.PHONY: all debug run test minjs clean
+.PHONY: all debug f3dc run test minjs clean

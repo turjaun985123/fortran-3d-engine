@@ -5,9 +5,10 @@ Stdlib ``unittest`` only; standalone-runnable::
 
     python3 tests/e2e/test_waveb_e2e.py
 
-Mirrors ``tests/e2e/test_wavea_e2e.py``: every scene is driven
-in-process through ``cli.main(["run", ...])`` into a ``tempfile``
-tree and the PPM is read back with ``tests/golden/check_image.py``.
+Mirrors ``tests/e2e/test_wavea_e2e.py``: every scene drives the
+native ``bin/f3dc`` binary via subprocess (``["run", ...]``) into a
+``tempfile`` tree and the PPM is read back with
+``tests/golden/check_image.py``.
 Scenes are SMALL (160x120 or 320x240) and stills only, except the
 Row 17 keyframe scene, which renders a short 2 s / 2 fps animation.
 ``setUpClass`` follows the Wave A pattern: ``make`` runs once first
@@ -17,10 +18,9 @@ exists and none can be built.
 """
 
 import base64
-import contextlib
 import hashlib
-import io
 import json
+import os
 import shutil
 import struct
 import subprocess
@@ -30,11 +30,23 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT / "tools" / "f3dc"))
 sys.path.insert(0, str(REPO_ROOT / "tests" / "golden"))
 
-import cli  # noqa: E402
 from check_image import read_ppm  # noqa: E402
+
+
+def _resolve_f3dc():
+    """Locate the native compiler binary to test."""
+    env = os.environ.get("F3DC")
+    if env:
+        return env
+    candidate = REPO_ROOT / "bin" / "f3dc"
+    if candidate.exists():
+        return str(candidate)
+    return str(REPO_ROOT / "compiler" / "f3dc")
+
+
+F3DC = _resolve_f3dc()
 
 GOLDEN_SHA256 = ("28b6a81dd052a740f3a395ea41b3e0dd37e02eeff585a56"
                  "fa90e05ac7697cec1")
@@ -113,7 +125,7 @@ class TestWaveBE2E(unittest.TestCase):
         have_toolchain = (shutil.which("gfortran") is not None
                           and shutil.which("make") is not None)
         if have_toolchain:
-            # Freshen the binary once (driver.ensure_engine would
+            # Freshen the binary once (the native driver would
             # otherwise reuse a stale one as-is).
             build = subprocess.run(["make"], cwd=REPO_ROOT,
                                    capture_output=True, text=True)
@@ -143,10 +155,10 @@ class TestWaveBE2E(unittest.TestCase):
             (work / fname).write_text(content, encoding="ascii")
         scene = work / "scene.f3d"
         scene.write_text(source, encoding="utf-8")
-        out, err = io.StringIO(), io.StringIO()
-        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = cli.main(["run", str(scene), "-o", str(work / "build")])
-        self.assertEqual(code, 0, err.getvalue())
+        proc = subprocess.run(
+            [F3DC, "run", str(scene), "-o", str(work / "build")],
+            cwd=REPO_ROOT, capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
         build = work / "build"
         ppm = build / "output_render.ppm"
         self.assertTrue(ppm.is_file(), "no output_render.ppm for %s" % name)

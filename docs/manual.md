@@ -3,7 +3,11 @@
 Forge3D compiles a tiny declarative language (`.f3d`) into a 3D scene,
 renders it natively with a deterministic Fortran software renderer, and
 emits a dependency-free JavaScript/WebGL viewer for the same scene.
-Compiler: `f3dc` (Python 3, standard library only). Version: `f3dc 0.1.0`.
+Compiler: `f3dc` — native (Fortran modules plus a clang C helper,
+sources in `compiler/`), built with `make -C compiler` and installed as
+`bin/f3dc` by `make f3dc`. Building it requires flang-18 (binary
+`flang-new-18`) and clang-18; the compiler itself has no Python
+dependency. Version: `f3dc 0.1.0`.
 
 Comments start with `#` or `//`. One statement per line. Names are
 identifiers you choose (`cube spinner red …` names the cube `spinner`).
@@ -12,9 +16,10 @@ identifiers you choose (`cube spinner red …` names the cube `spinner`).
 ## 1. 60-second quickstart
 
 ```bash
-python3 tools/f3dc/f3dc.py new hello     # creates hello.f3d, never overwrites
-python3 tools/f3dc/f3dc.py run hello.f3d # build + compile engine + render
-python3 tools/f3dc/f3dc.py hello.f3d     # bare file = same as `run`
+make f3dc                                # build + install the native compiler to bin/f3dc
+bin/f3dc new hello                       # creates hello.f3d, never overwrites
+bin/f3dc run hello.f3d                   # build + compile engine + render
+bin/f3dc hello.f3d                       # bare file = same as `run`
 ```
 
 `f3dc new` writes exactly the 3-line contract:
@@ -299,7 +304,7 @@ Worked examples shipped in `examples/`: `hello-cube.f3d` (the contract),
 ## 3. CLI reference: `f3dc`
 
 ```
-python3 tools/f3dc/f3dc.py [--version] <command> …
+bin/f3dc [--version] <command> …
 f3dc <file.f3d>            # bare file = run; with no file, a single
                            # scene.f3d/main.f3d/*.f3d in cwd is discovered
 ```
@@ -315,7 +320,7 @@ formatting; `F3DC_DEBUG` enables tracebacks for internal errors.
 | `build` | `f3dc build [-o DIR] [--explain] <file>` | Compile to `build/` (default) — no native render. |
 | `run` | `f3dc run [-o DIR] <file>` | Build, compile the Fortran engine, render, report outputs and animation frames. |
 | `fmt` | `f3dc fmt <file>` | Print the canonical `.f3d` form to stdout. |
-| `preview` | `f3dc preview [--port N] [--no-browser] <file>` | Real-time preview: serve the viewer locally and watch the file — every save recompiles and open browser tabs reload themselves. A broken scene shows its diagnostics in the tab and recovers on the next good save. Default port 8765 (`0` = any free port). The preview page adds a toolbar with a LIVE/ERROR status pill and an FPS meter; orbit/zoom work as in the normal viewer. |
+| `preview` | `f3dc preview [--port N] [--no-browser] <file>` | Real-time preview: serve the viewer locally and watch the file — every save recompiles and open browser tabs reload themselves. A broken scene shows its diagnostics in the tab and recovers on the next good save. Default port 8765 (`0` = any free port). The preview page adds a toolbar with a LIVE/ERROR status pill and an FPS meter; orbit/zoom work as in the normal viewer. Tabs poll `/__version` to notice recompiles; `/__status` reports the current preview state as JSON. |
 | `doctor` | `f3dc doctor` | Print version and check python / gfortran / make / convert (optional) / repo + engine sources, with fixes. |
 
 `build/` outputs for input stem `<stem>` (build never overwrites the
@@ -336,7 +341,7 @@ Exit codes:
 |---|---|
 | 0 | success (warnings may still be printed) |
 | 1 | scene errors (any `E…` diagnostic) |
-| 2 | usage error (argparse) |
+| 2 | usage error |
 | 3 | I/O error (missing input, unwritable output) |
 | 4 | toolchain failure (gfortran/make/engine failed) |
 | 70 | unexpected internal error |
@@ -349,7 +354,7 @@ offending line with a caret underline, a `why:` line, and a paste-ready
 ## 4. Error code index
 
 Codes are stable and append-only (source of truth:
-`tools/f3dc/errors.py`). Families: E1xx syntax, E2xx names, E3xx ranges,
+`compiler/src/f3dc_errors.f90`). Families: E1xx syntax, E2xx names, E3xx ranges,
 E4xx structure, E5xx I/O, E8xx security/limits, Wxxx warnings.
 
 | Code | Meaning |

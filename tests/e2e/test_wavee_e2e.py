@@ -6,7 +6,8 @@ Stdlib ``unittest`` only; standalone-runnable::
     python3 tests/e2e/test_wavee_e2e.py
 
 Mirrors ``tests/e2e/test_wavec_e2e.py`` / ``test_waved_e2e.py``:
-scenes are driven in-process through ``cli.main(["run", ...])``
+scenes are driven via subprocess through the native ``bin/f3dc``
+binary (``f3dc run ...``)
 into a ``tempfile`` tree and the PPMs are read back with
 ``tests/golden/check_image.py``.  ``setUpClass`` follows the
 Wave A/B/C/D pattern: ``make`` runs once first (when gfortran+make
@@ -45,9 +46,8 @@ showcase (800x600, background (20,20,25)) covers 20031 non-bg
 pixels with 397 distinct colours.
 """
 
-import contextlib
 import hashlib
-import io
+import os
 import shutil
 import subprocess
 import sys
@@ -57,11 +57,23 @@ from collections import Counter
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT / "tools" / "f3dc"))
 sys.path.insert(0, str(REPO_ROOT / "tests" / "golden"))
 
-import cli  # noqa: E402
 from check_image import read_ppm  # noqa: E402
+
+
+def _resolve_f3dc():
+    """Native compiler binary: $F3DC, else bin/f3dc, else compiler/f3dc."""
+    env = os.environ.get("F3DC")
+    if env:
+        return Path(env)
+    bin_f3dc = REPO_ROOT / "bin" / "f3dc"
+    if bin_f3dc.is_file():
+        return bin_f3dc
+    return REPO_ROOT / "compiler" / "f3dc"
+
+
+F3DC = _resolve_f3dc()
 
 GOLDEN_SHA256 = ("28b6a81dd052a740f3a395ea41b3e0dd37e02eeff585a56"
                  "fa90e05ac7697cec1")
@@ -98,8 +110,8 @@ class TestWaveEE2E(unittest.TestCase):
         have_toolchain = (shutil.which("gfortran") is not None
                           and shutil.which("make") is not None)
         if have_toolchain:
-            # Freshen the binary once (driver.ensure_engine would
-            # otherwise reuse a stale one as-is).
+            # Freshen the binary once so it matches the current
+            # sources.
             build = subprocess.run(["make"], cwd=REPO_ROOT,
                                    capture_output=True, text=True)
             if build.returncode != 0:
@@ -110,6 +122,10 @@ class TestWaveEE2E(unittest.TestCase):
             raise unittest.SkipTest(
                 "bin/engine3d missing and gfortran/make unavailable "
                 "to build it: cannot run Wave E e2e")
+        if not F3DC.is_file():
+            raise unittest.SkipTest(
+                "native f3dc binary missing (looked for $F3DC, "
+                "bin/f3dc, compiler/f3dc): cannot run Wave E e2e")
         cls._tmp = tempfile.TemporaryDirectory(prefix="f3dc-wavee-e2e-")
         cls.tmp = Path(cls._tmp.name)
 
@@ -118,13 +134,13 @@ class TestWaveEE2E(unittest.TestCase):
         cls._tmp.cleanup()
 
     def run_cli(self, work, scene_path):
-        """Run one .f3d file via the CLI into ``work/build``."""
-        out, err = io.StringIO(), io.StringIO()
-        with contextlib.redirect_stdout(out), \
-                contextlib.redirect_stderr(err):
-            code = cli.main(["run", str(scene_path),
-                             "-o", str(work / "build")])
-        self.assertEqual(code, 0, err.getvalue())
+        """Run one .f3d file via the native f3dc binary into ``work/build``."""
+        proc = subprocess.run(
+            [str(F3DC), "run", str(scene_path),
+             "-o", str(work / "build")],
+            cwd=REPO_ROOT, capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0,
+                         proc.stdout + proc.stderr)
         return work / "build"
 
     def render(self, name, source):

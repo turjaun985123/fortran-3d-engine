@@ -1,0 +1,239 @@
+{
+ "about": "check + build expectations for examples/*.f3d, baked from the Python oracle with ABSOLUTE scene paths (the compiler/PARITY.md sweep discipline; under relative paths the known register-11 divergence appears: Python abspaths relative texture paths, the native compiler joins them to the scene dir as written). Artifact/stdout/stderr bytes are canonicalized before hashing so the expectations are machine-independent: the repo-root absolute path becomes <REPO> and embedded `sha256: <hex>` header lines become `sha256: <EMBEDDED>` (they hash content containing the machine's absolute path). The native test applies the identical canonicalization.",
+ "scenes": {
+  "animated.f3d": {
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "19289a4db52fed328849d8a3d6a7f9fdb5b21c8ac5ac850f5060b6c388ffbe5a",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 65,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: <REPO>/examples/animated.f3d (3 objects, 370 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "animated.html": "82736d863b9a7c22ccfa2168436d6c2d38e4f27473670a4ff8eb9ed12fec1173",
+     "animated.js": "19d9989ae8e5ce288de4cd74ed8301e37923fe28293e144001f239e93752c33a",
+     "animated.json": "20a87f466528cfacfa291ab06f034270ace8fc7feec852acd14f7e6d6cfe08df",
+     "animated.legacy.json": "4da18e236a476faaf17a275ed06a734526c6efcb61d02eb51a431d9324e553df",
+     "animated.scene": "ed61deecc788e6909b159c0165d754ac3c8e7af0c7bec0957e58a4e8e8d4444d",
+     "animated_scene.f90": "b15748b66fa0fcfa08534a4f2750e44c537ca83e0b2d21529bd5eb88d3100655"
+    }
+   }
+  },
+  "geometries.f3d": {
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f18377d05ac0e6c43cf74afe7eeda85a29dc1fc52b38fa67170dcc6a1c5456e2",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_len": 69,
+    "stderr_len": 0,
+    "codes": [],
+    "stdout_text": "OK: <REPO>/examples/geometries.f3d (11 objects, 1896 triangles est.)\n",
+    "stderr_text": ""
+   },
+   "build": {
+    "artifacts": {
+     "geometries.html": "1d02f37d8bcaee7aff4ef96281ddc68f005d543d59bc3ba001a8310ec992f414",
+     "geometries.js": "b73f753d90a51478db9a626c869aa85ef158a0d88e60995679a3445baa07edfa",
+     "geometries.json": "087e0d65343d5b027fb50c4b293279adc66fb272335cd21215bd666afcbd2962",
+     "geometries.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
+     "geometries.scene": "134402c0d06b6681a6a2ac9560d86fff5e845c71e37a97df5ae90afb147652f9",
+     "geometries_scene.f90": "b304324f1bda47c4fa64cbdddbd524cafb4fcd3be4df9e5851591531e12bda90"
+    }
+   }
+  },
+  "hello-cube.f3d": {
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "9eba9dfab8a97884c22b365744b196a9e8556b50a8ef1dd33437fcc3d2053a94",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 66,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: <REPO>/examples/hello-cube.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "hello-cube.html": "0fecfefe57d530221a7d347883882ed4382e8f42a74a4fa487dd17bab28dd9c9",
+     "hello-cube.js": "0679b595fd4e594acf7179072edd24e6004e34c6ffa9b9558d38dc2b66d5f55c",
+     "hello-cube.json": "d3980294aaf012c2b380df2c1f06744dc0ac8572963d22d0a473eedca27031d8",
+     "hello-cube.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
+     "hello-cube.scene": "b09bf4d211859f50a3b096231218e1b931aaa3380681bb7cc42418aa70243635",
+     "hello-cube_scene.f90": "7557d6e0c32a1d0fa92467045fe543814355ec05c42e7a53f86178ca20bfce4e"
+    }
+   }
+  },
+  "lighting-showcase.f3d": {
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "70f76d7d19cd1d68ccda97aaeb70a4541ef486fa367ab57e3d172ffa9f817767",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_len": 75,
+    "stderr_len": 0,
+    "codes": [],
+    "stdout_text": "OK: <REPO>/examples/lighting-showcase.f3d (4 objects, 1740 triangles est.)\n",
+    "stderr_text": ""
+   },
+   "build": {
+    "artifacts": {
+     "lighting-showcase.html": "a892ceca5a2ae4c007da7ae141d05fcd1e37ff2b857030e7274e8bb33f201eb4",
+     "lighting-showcase.js": "57fa09d1b3337ec134540cd5d312c4342a5e7fcd9213b92997d4ef78d0463678",
+     "lighting-showcase.json": "45bece3796968dbe889cfc86ba13197d067ed281538f38e9b3b2eaf8b444975c",
+     "lighting-showcase.legacy.json": "48736f03a9f60da89982f909ebf161f857d64fa044c8824888cb51985251736b",
+     "lighting-showcase.scene": "dd2d3c819c971730af130ff333b422abbbf385b13902c9440046685aa48afca3",
+     "lighting-showcase_scene.f90": "dbb396c0d444f8f862241af1508ef0d5fa82ad4702fb73c62725381ed470ec3c"
+    }
+   }
+  },
+  "materials.f3d": {
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "6a6da60b2393a0c7d7ada6b93018932550d72af5ceb11aeb5a6fe5c720847da3",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_len": 67,
+    "stderr_len": 0,
+    "codes": [],
+    "stdout_text": "OK: <REPO>/examples/materials.f3d (6 objects, 2540 triangles est.)\n",
+    "stderr_text": ""
+   },
+   "build": {
+    "artifacts": {
+     "materials.html": "f428ced619485e6e1d698177732feaa5cc241aed482dfe81ab16094e3d1fdb46",
+     "materials.js": "ab571134ff0d6f3247eadf207a025d3846ee96ed97188f69c9b0e13d37898753",
+     "materials.json": "420f65462be687af7cdd7704f146bee96b7a64084e447dcd036a73860f274102",
+     "materials.legacy.json": "930fa4a6ec934d11687c13b915845dbd00ffdcc77398af863cc3888caa12b566",
+     "materials.scene": "7ccb809240f7c3f5ea2977c75529ce01b5c31c9fa1a57f24e28d45b371791475",
+     "materials_scene.f90": "01fc49ad42f703b5d301bb712d3720d4a632d3cca1b4fdc6b4014a6b768c7f2f"
+    }
+   }
+  },
+  "multi-object.f3d": {
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "862da6b186d998573bc042d3be0d9f0978a07b9cb3c8fe113ecd977bf3ef9c0e",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 70,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: <REPO>/examples/multi-object.f3d (9 objects, 2898 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "multi-object.html": "d03760de8e704bdea86710006921c9c359ebc5b2d61c54ed7e799f90e377399d",
+     "multi-object.js": "eb2defefa859ab3aee6275f7f4df68a1db6d91a39ad2879bc39ddcf226f67529",
+     "multi-object.json": "5eec7baceb92a15b433241adef5d5cdb1fb2e491baea7ceb776e01e9a178d53d",
+     "multi-object.legacy.json": "bfedf48a8ce681ccbff1f6795d094db783eb1fcdfd7a34d22d041d28d2c7f235",
+     "multi-object.scene": "4cb4a08294c182adcc42b11be1e66cfb97ad8e7f881a1cf2bec7997cbc995690",
+     "multi-object_scene.f90": "01902d5c9ac79eac1b7633a6eff94725e0c6643d2b85df742a48ec34983c84ba"
+    }
+   }
+  },
+  "multi-scene.f3d": {
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "94cb4452691483a678ad26b16634cabd1542843755adef458e5ebdd48961062a",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_len": 265,
+    "stderr_len": 0,
+    "codes": [],
+    "stdout_text": "OK: <REPO>/examples/.multi-scene.multi0.f3d (3 objects, 1388 triangles est.)\nscene 1/2: multi-scene-one\nOK: <REPO>/examples/.multi-scene.multi1.f3d (4 objects, 1990 triangles est.)\nscene 2/2: multi-scene-two\nmulti-scene: 2 scenes in <REPO>/examples/multi-scene.f3d\n",
+    "stderr_text": ""
+   },
+   "build": {
+    "artifacts": {
+     "multi-scene-multi-scene-one.html": "804cc700fe08b22b843942f642d6393c06ed94a826e797f8c73870fcf2924f7a",
+     "multi-scene-multi-scene-one.js": "b01d10797a86b84383b7960424b4dca040c753a79c3d614134f2fae82a12cf4c",
+     "multi-scene-multi-scene-one.json": "036fbf1b8ae2b75d160357b9235e716151cdeb54e21e0b5c8d76550274cf9052",
+     "multi-scene-multi-scene-one.legacy.json": "08bbc759f0c3f34906ec51e2ec7e4dd0f59e5e71c4cd321ebfaba4a85c20505e",
+     "multi-scene-multi-scene-one.scene": "d0c5fa38859a3d02a684b27b9a3b02e417b7586500bd16fd0bfe058265385950",
+     "multi-scene-multi-scene-one_scene.f90": "b7fb641e368cc25ef8abedccaf4508022df966ebf90c8c36df3a585560a90559",
+     "multi-scene-multi-scene-two.html": "e0d380d94584c6c7ecaae9eabf7b842902f928e69a64c20f74f870597b845ac4",
+     "multi-scene-multi-scene-two.js": "dc513bca13d4f433b6b05d5cefe73d0a17d19307153bed9c8ce30b7d8450f1fc",
+     "multi-scene-multi-scene-two.json": "77fd28c3477e507626b5d5f61543a33ad64f8506ebb73d8e6230c046e1a6ba72",
+     "multi-scene-multi-scene-two.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
+     "multi-scene-multi-scene-two.scene": "06e8afe3df944a97ca4c3151e5fe787f042bba872a5139f1f326d15ccb20e6a4",
+     "multi-scene-multi-scene-two_scene.f90": "490b5506992e7f24b473813ad7f26b25226dd8c9a8f1e9eefc28b341703acd31"
+    }
+   }
+  },
+  "post-ortho.f3d": {
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "3dd1258df2712d5763394da5cc1a028404477c5e2a493b922d8f9b1d9aad0ba7",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_len": 68,
+    "stderr_len": 0,
+    "codes": [],
+    "stdout_text": "OK: <REPO>/examples/post-ortho.f3d (8 objects, 2526 triangles est.)\n",
+    "stderr_text": ""
+   },
+   "build": {
+    "artifacts": {
+     "post-ortho.html": "f9e8359ca393444bc4ae8e57cf2eaffded48eebcd1547c1d97f8b0c623330ba6",
+     "post-ortho.js": "594abd96d0821b26f9a737160b9617ebef8ae99b8462145c2b5b9fb87e0bde98",
+     "post-ortho.json": "cea834fc214186c46f4966d92a430f346965ac646d245a4e96e05ef3c6634ea8",
+     "post-ortho.legacy.json": "f670c35a88a6131a4834020637e5889bd2db8e15b1f1bf2b3cdb78ad1592d2e7",
+     "post-ortho.scene": "e9ca671bf50e35ab5dcd914cc314c35e85970dfea9a92f75a47ad20477be3ff6",
+     "post-ortho_scene.f90": "41317613666164a6d2d8648997c4944bb2971b2fb8c000a71177f0229a90ea15"
+    }
+   }
+  },
+  "waveb-showcase.f3d": {
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "175ebd3649c4b1b37d29e10b4438519b7ff73791ef73d10b1424f62a068bd904",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_len": 72,
+    "stderr_len": 0,
+    "codes": [],
+    "stdout_text": "OK: <REPO>/examples/waveb-showcase.f3d (4 objects, 1394 triangles est.)\n",
+    "stderr_text": ""
+   },
+   "build": {
+    "artifacts": {
+     "waveb-showcase.html": "f995187e79bfe80af83f13e1710416595343121bf2f1ccf0016b393fd68d8940",
+     "waveb-showcase.js": "3d7cda3fdd7c70006ddd4230cae2a9b837f51e3fe244e53b9601ee4be13a2e0b",
+     "waveb-showcase.json": "59bf5ece398a315beb2e11f5f963a0dd13860a0cba6027e6e5f7af279ae54ada",
+     "waveb-showcase.legacy.json": "c42356ade93a43347d233191a988b867be3b02e21d9de6e9771b67c759d325e2",
+     "waveb-showcase.scene": "f6afe5db4e8a53c419d1043086961e3b0de7f5fe22b154433dab525f11524097",
+     "waveb-showcase_scene.f90": "a64692b292f2c3fa5250ee6454021bf9bb54405d9cd26afe73dedf91c08bcdb7"
+    }
+   }
+  },
+  "wavee-showcase.f3d": {
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "cd93efb1acc3e497aa0f4c41081f50869696a15d142fd6e5f825a117abb6e9f8",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_len": 72,
+    "stderr_len": 0,
+    "codes": [],
+    "stdout_text": "OK: <REPO>/examples/wavee-showcase.f3d (4 objects, 1132 triangles est.)\n",
+    "stderr_text": ""
+   },
+   "build": {
+    "artifacts": {
+     "wavee-showcase.html": "56760c0313719d0016e70da7c0f5a5e3fe07bd499f5429803f438125ae85cfc7",
+     "wavee-showcase.js": "7a45a6248c90856144b0721858ea35301c45a251728840025cbdb20881c603e1",
+     "wavee-showcase.json": "3b29f4f3512d9b13658e8f6e77cd6714f59863e9f5b767b1f1d43b09859dd9cf",
+     "wavee-showcase.legacy.json": "8579fbaa10ba77196e16a72eae6a92c752318f441c7a26f5efc84040ca67fa68",
+     "wavee-showcase.scene": "d7e59d6f1f358b925706bf93fe27cee4993d544636592f3feeff65cbe8cb7dec",
+     "wavee-showcase_scene.f90": "6a9585ca3296bcdbbe410075eb1db157be8d12ec93d76982a64b0bfa94f81d7f"
+    }
+   }
+  }
+ }
+}

@@ -17,8 +17,14 @@ none of which you had to write.
 
 ```bash
 make
-python3 tools/f3dc/f3dc.py run examples/hello-cube.f3d
+make f3dc   # build the native compiler and install it as bin/f3dc
+bin/f3dc run examples/hello-cube.f3d
 ```
+
+Prerequisites: `gfortran` and `make` for the engine, plus `flang-18`
+(binary `flang-new-18`) and `clang-18` for the compiler. The compiler is
+native (Fortran + a clang C helper, sources in `compiler/`) and has no
+Python dependency.
 
 ## What you get
 
@@ -93,7 +99,8 @@ speed against GPU WebGL is not a comparison we claim to win.
 
 ## CLI at a glance
 
-Invoke it as `python3 tools/f3dc/f3dc.py <command> …`:
+Invoke it as `bin/f3dc <command> …` (build and install it first with
+`make f3dc`):
 
 | Command | What it does |
 |---|---|
@@ -102,7 +109,8 @@ Invoke it as `python3 tools/f3dc/f3dc.py <command> …`:
 | `build` | Compile a scene to `build/` (Fortran + JSON + JS + HTML) |
 | `run` | Build, compile the engine, and render |
 | `fmt` | Print the canonical `.f3d` form of a scene |
-| `doctor` | Check the Python / gfortran / make toolchain and print fixes |
+| `preview` | Serve the compiled viewer locally, watch the scene file, and recompile + reload the browser on every save |
+| `doctor` | Check the python / gfortran / make / convert toolchain and print fixes |
 
 ## Repository structure
 
@@ -110,7 +118,9 @@ Invoke it as `python3 tools/f3dc/f3dc.py <command> …`:
 .
 ├── src/            # Fortran engine: math, meshes, camera, materials,
 │                   # scene loading, animation, OBJ loading, renderer
-├── tools/f3dc/     # The f3dc compiler (Python 3, standard library only)
+├── compiler/       # The f3dc compiler, native: Fortran modules + a
+│                   # clang C helper; `make -C compiler` builds it,
+│                   # `make f3dc` installs it as bin/f3dc
 ├── runtime/        # Tiny JS runtime: f3d.js, f3d.min.js, f3d.d.ts
 ├── examples/       # .f3d scenes: hello-cube, multi-object, animated,
 │                   # materials

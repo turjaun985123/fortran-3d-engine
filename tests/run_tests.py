@@ -8,8 +8,14 @@ Run from the repository root:
 Layers (each is discovered at runtime; nothing is hardcoded beyond the
 conventional locations below):
 
-  a) Python unittest suites under ``tests/compiler/`` and ``tests/e2e/``
-     -- run with ``python -m unittest discover`` in a subprocess.
+  a) Native-compiler black-box suites under ``tests/native/`` -- drive
+     the ``bin/f3dc`` binary (built by ``make f3dc`` if missing) via
+     subprocess against expectations baked from the pre-replacement
+     Python compiler, plus the remaining Python unittest suites under
+     ``tests/compiler/`` (JS runtime sidecars + parity governance,
+     which never imported the compiler) and ``tests/e2e/`` (converted
+     to subprocess drives of ``bin/f3dc``) -- all run with
+     ``python -m unittest discover`` in a subprocess.
   b) Fortran tests under ``tests/fortran/*.f90`` -- test *programs*
      (files containing a ``program`` statement) are compiled together
      with the support sources in the same directory and the module
@@ -86,9 +92,9 @@ def _run(cmd, cwd, env=None, timeout=PY_TIMEOUT):
 
 
 def _python_env():
-    """Environment for Python subprocesses, with the compiler package importable."""
+    """Environment for Python test subprocesses (repo root + tests dir)."""
     env = dict(os.environ)
-    extra = [REPO_ROOT, REPO_ROOT / "tools", REPO_ROOT / "tools" / "f3dc", TESTS_DIR]
+    extra = [REPO_ROOT, TESTS_DIR]
     parts = [str(p) for p in extra if p.is_dir()]
     if env.get("PYTHONPATH"):
         parts.append(env["PYTHONPATH"])
@@ -130,6 +136,22 @@ def run_unittest_layer(name, directory):
             return FAIL, f"unittest discover ({pattern}) exited {code}"
         return PASS, f"unittest suites passed ({pattern})"
     return FAIL, "test files present but unittest discovery ran 0 tests"
+
+
+# --------------------------------------------------------------------------
+# (a2) Native compiler layer: tests/native/ (black-box, bin/f3dc)
+# --------------------------------------------------------------------------
+
+def run_native_layer():
+    """Ensure bin/f3dc exists (build it if not), then run tests/native/."""
+    f3dc = REPO_ROOT / "bin" / "f3dc"
+    if not f3dc.is_file():
+        print("    bin/f3dc missing -- building via `make f3dc`")
+        code, _ = _run(["make", "f3dc"], cwd=REPO_ROOT,
+                       timeout=FORTRAN_COMPILE_TIMEOUT * 2)
+        if code != 0 or not f3dc.is_file():
+            return FAIL, "bin/f3dc missing and `make f3dc` failed"
+    return run_unittest_layer("native", TESTS_DIR / "native")
 
 
 # --------------------------------------------------------------------------
@@ -250,9 +272,10 @@ def run_golden_layer():
 def main():
     print(f"Forge3D test run -- repo root: {REPO_ROOT}")
     layers = [
-        ("compiler (Python unittest, tests/compiler/)",
+        ("native compiler (black-box, tests/native/)", run_native_layer),
+        ("compiler-js + governance (Python unittest, tests/compiler/)",
          lambda: run_unittest_layer("compiler", TESTS_DIR / "compiler")),
-        ("e2e (Python unittest, tests/e2e/)",
+        ("e2e (native subprocess, tests/e2e/)",
          lambda: run_unittest_layer("e2e", TESTS_DIR / "e2e")),
         ("fortran (tests/fortran/*.f90)", run_fortran_layer),
         ("golden (tests/golden/check_image.py)", run_golden_layer),

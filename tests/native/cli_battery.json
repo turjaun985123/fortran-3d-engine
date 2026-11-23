@@ -1,0 +1,643 @@
+{
+ "about": "CLI surface expectations baked from the Python oracle (sweep-2 case list, relative-path invocations in per-case temp dirs). 'doctor' is kind=doctor: only its exit code is baked; the native test asserts exit 0 plus loose structure because doctor output names locally found tool versions.",
+ "cases": [
+  {
+   "name": "--version",
+   "argv": [
+    "--version"
+   ],
+   "setup": {},
+   "kind": "exact",
+   "build_artifacts": false,
+   "expect": {
+    "exit": 0,
+    "stdout_sha256": "e8d3263a7142aa0f58b229d96ad7e214fbc23fc59492c7beeba75a2a05fa873f",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_len": 11,
+    "stderr_len": 0,
+    "codes": [],
+    "stdout_text": "f3dc 0.1.0\n",
+    "stderr_text": ""
+   }
+  },
+  {
+   "name": "--help",
+   "argv": [
+    "--help"
+   ],
+   "setup": {},
+   "kind": "exact",
+   "build_artifacts": false,
+   "expect": {
+    "exit": 0,
+    "stdout_sha256": "833509f0ccb2408d0cdcfe535d6b1cb3d113eb32153bea3830515750efcec4d9",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_len": 874,
+    "stderr_len": 0,
+    "codes": [],
+    "stdout_text": "usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor} ...\n\nForge3D compiler -- compile and run .f3d scenes, the easy way\n\npositional arguments:\n  {run,build,check,new,preview,fmt,doctor}\n    run                 build, compile the engine and render\n    build               compile to build/ (Fortran + JSON + JS + HTML)\n    check               validate only -- no files written\n    new                 create <name>.f3d from the starter template\n    preview             real-time preview in the browser -- recompiles and\n                        reloads on save\n    fmt                 print the canonical .f3d form to stdout\n    doctor              check python / gfortran / make / convert and print\n                        fixes\n\noptions:\n  -h, --help            show this help message and exit\n  --version             show program's version number and exit\n",
+    "stderr_text": ""
+   }
+  },
+  {
+   "name": "-h",
+   "argv": [
+    "-h"
+   ],
+   "setup": {},
+   "kind": "exact",
+   "build_artifacts": false,
+   "expect": {
+    "exit": 0,
+    "stdout_sha256": "833509f0ccb2408d0cdcfe535d6b1cb3d113eb32153bea3830515750efcec4d9",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_len": 874,
+    "stderr_len": 0,
+    "codes": [],
+    "stdout_text": "usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor} ...\n\nForge3D compiler -- compile and run .f3d scenes, the easy way\n\npositional arguments:\n  {run,build,check,new,preview,fmt,doctor}\n    run                 build, compile the engine and render\n    build               compile to build/ (Fortran + JSON + JS + HTML)\n    check               validate only -- no files written\n    new                 create <name>.f3d from the starter template\n    preview             real-time preview in the browser -- recompiles and\n                        reloads on save\n    fmt                 print the canonical .f3d form to stdout\n    doctor              check python / gfortran / make / convert and print\n                        fixes\n\noptions:\n  -h, --help            show this help message and exit\n  --version             show program's version number and exit\n",
+    "stderr_text": ""
+   }
+  },
+  {
+   "name": "help run",
+   "argv": [
+    "run",
+    "--help"
+   ],
+   "setup": {},
+   "kind": "exact",
+   "build_artifacts": false,
+   "expect": {
+    "exit": 0,
+    "stdout_sha256": "cb3897acfee249cdd975c967d52817c0200f68cb060c287b04fb5775d371f713",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_len": 231,
+    "stderr_len": 0,
+    "codes": [],
+    "stdout_text": "usage: f3dc run [-h] [-o OUT] file\n\npositional arguments:\n  file               scene file (.f3d, .json or .obj)\n\noptions:\n  -h, --help         show this help message and exit\n  -o OUT, --out OUT  output directory (default: build/)\n",
+    "stderr_text": ""
+   }
+  },
+  {
+   "name": "help build",
+   "argv": [
+    "build",
+    "--help"
+   ],
+   "setup": {},
+   "kind": "exact",
+   "build_artifacts": false,
+   "expect": {
+    "exit": 0,
+    "stdout_sha256": "3e09964cc4a30d7fb509f01962728f1fd45a3c2585862dd77747ee7c144b8485",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_len": 307,
+    "stderr_len": 0,
+    "codes": [],
+    "stdout_text": "usage: f3dc build [-h] [-o OUT] [--explain] file\n\npositional arguments:\n  file               scene file (.f3d, .json or .obj)\n\noptions:\n  -h, --help         show this help message and exit\n  -o OUT, --out OUT  output directory (default: build/)\n  --explain          also print the desugared program summary\n",
+    "stderr_text": ""
+   }
+  },
+  {
+   "name": "help check",
+   "argv": [
+    "check",
+    "--help"
+   ],
+   "setup": {},
+   "kind": "exact",
+   "build_artifacts": false,
+   "expect": {
+    "exit": 0,
+    "stdout_sha256": "0ca5eefdfff74ebfd5921d51798b4d75abb65039eda874d58734b24ed84adfe9",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_len": 270,
+    "stderr_len": 0,
+    "codes": [],
+    "stdout_text": "usage: f3dc check [-h] [--explain] [--json] file\n\npositional arguments:\n  file        scene file (.f3d, .json or .obj)\n\noptions:\n  -h, --help  show this help message and exit\n  --explain   also print the desugared program summary\n  --json      print diagnostics as JSON\n",
+    "stderr_text": ""
+   }
+  },
+  {
+   "name": "help new",
+   "argv": [
+    "new",
+    "--help"
+   ],
+   "setup": {},
+   "kind": "exact",
+   "build_artifacts": false,
+   "expect": {
+    "exit": 0,
+    "stdout_sha256": "6003f3cda3d76a2a541b80bc9f0080d9778b06ac1321c3202ae526f321c7251f",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_len": 152,
+    "stderr_len": 0,
+    "codes": [],
+    "stdout_text": "usage: f3dc new [-h] name\n\npositional arguments:\n  name        scene name, with or without .f3d\n\noptions:\n  -h, --help  show this help message and exit\n",
+    "stderr_text": ""
+   }
+  },
+  {
+   "name": "help preview",
+   "argv": [
+    "preview",
+    "--help"
+   ],
+   "setup": {},
+   "kind": "exact",
+   "build_artifacts": false,
+   "expect": {
+    "exit": 0,
+    "stdout_sha256": "78e63da1bc87a625de0287b2761d5504d51093f451ea36e8d75969f0983557b0",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_len": 320,
+    "stderr_len": 0,
+    "codes": [],
+    "stdout_text": "usage: f3dc preview [-h] [--port PORT] [--no-browser] file\n\npositional arguments:\n  file          scene file (.f3d, .json or .obj)\n\noptions:\n  -h, --help    show this help message and exit\n  --port PORT   local port to serve on (default: 8765; 0 picks a free one)\n  --no-browser  do not open a browser tab automatically\n",
+    "stderr_text": ""
+   }
+  },
+  {
+   "name": "help fmt",
+   "argv": [
+    "fmt",
+    "--help"
+   ],
+   "setup": {},
+   "kind": "exact",
+   "build_artifacts": false,
+   "expect": {
+    "exit": 0,
+    "stdout_sha256": "13a3f7ba14b98733535fc6d41f5390735dfb3130e0a50845ea5756e770847e1e",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_len": 152,
+    "stderr_len": 0,
+    "codes": [],
+    "stdout_text": "usage: f3dc fmt [-h] file\n\npositional arguments:\n  file        scene file (.f3d, .json or .obj)\n\noptions:\n  -h, --help  show this help message and exit\n",
+    "stderr_text": ""
+   }
+  },
+  {
+   "name": "help doctor",
+   "argv": [
+    "doctor",
+    "--help"
+   ],
+   "setup": {},
+   "kind": "exact",
+   "build_artifacts": false,
+   "expect": {
+    "exit": 0,
+    "stdout_sha256": "4c82645c264e321f38ffeee6182a636ba99957d52920ee7c65a6f57606837422",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_len": 80,
+    "stderr_len": 0,
+    "codes": [],
+    "stdout_text": "usage: f3dc doctor [-h]\n\noptions:\n  -h, --help  show this help message and exit\n",
+    "stderr_text": ""
+   }
+  },
+  {
+   "name": "unknown command",
+   "argv": [
+    "nosuchcmd"
+   ],
+   "setup": {},
+   "kind": "exact",
+   "build_artifacts": false,
+   "expect": {
+    "exit": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "b83ed2aa876e578ff4a202c16261da70df385e54d7186db3367cbe4f6443b8bb",
+    "stdout_len": 0,
+    "stderr_len": 204,
+    "codes": [],
+    "stdout_text": "",
+    "stderr_text": "usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor} ...\nf3dc: error: unknown command 'nosuchcmd' (commands: run, build, check, new, fmt, doctor, preview; or pass a scene file to run it)\n"
+   }
+  },
+  {
+   "name": "no args (empty dir)",
+   "argv": [],
+   "setup": {},
+   "kind": "exact",
+   "build_artifacts": false,
+   "expect": {
+    "exit": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "b75b72a4b6bfa74c8ef30433ee290cc85feecd5ac790c20e48b48f5fd12a4453",
+    "stdout_len": 0,
+    "stderr_len": 930,
+    "codes": [],
+    "stdout_text": "",
+    "stderr_text": "usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor} ...\n\nForge3D compiler -- compile and run .f3d scenes, the easy way\n\npositional arguments:\n  {run,build,check,new,preview,fmt,doctor}\n    run                 build, compile the engine and render\n    build               compile to build/ (Fortran + JSON + JS + HTML)\n    check               validate only -- no files written\n    new                 create <name>.f3d from the starter template\n    preview             real-time preview in the browser -- recompiles and\n                        reloads on save\n    fmt                 print the canonical .f3d form to stdout\n    doctor              check python / gfortran / make / convert and print\n                        fixes\n\noptions:\n  -h, --help            show this help message and exit\n  --version             show program's version number and exit\nerror: no .f3d file here -- create one:  f3dc new hello\n"
+   }
+  },
+  {
+   "name": "check valid",
+   "argv": [
+    "check",
+    "valid.f3d"
+   ],
+   "setup": {
+    "valid.f3d": "cube red\nspin it\nrender\n",
+    "broken.f3d": "cubee red\nrender\n"
+   },
+   "kind": "exact",
+   "build_artifacts": false,
+   "expect": {
+    "exit": 0,
+    "stdout_sha256": "a9c633d427d9d9030e88df699c6991c179268b96776ffa5d1613784783e6b6e0",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 45,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: valid.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "name": "check valid --json",
+   "argv": [
+    "check",
+    "--json",
+    "valid.f3d"
+   ],
+   "setup": {
+    "valid.f3d": "cube red\nspin it\nrender\n",
+    "broken.f3d": "cubee red\nrender\n"
+   },
+   "kind": "exact",
+   "build_artifacts": false,
+   "expect": {
+    "exit": 0,
+    "stdout_sha256": "8d376f6848215e125d59382df9dc825d60ac93cc4d0246e2650f31d352eb73ba",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_len": 817,
+    "stderr_len": 0,
+    "codes": [],
+    "stdout_text": "[\n  {\n    \"code\": \"W101\",\n    \"severity\": \"warning\",\n    \"message\": \"no scene statement: injecting default scene 640x480 bg #191923\",\n    \"file\": null,\n    \"line\": null,\n    \"col\": null,\n    \"span\": null,\n    \"why\": \"\",\n    \"help\": \"\"\n  },\n  {\n    \"code\": \"W101\",\n    \"severity\": \"warning\",\n    \"message\": \"no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\",\n    \"file\": null,\n    \"line\": null,\n    \"col\": null,\n    \"span\": null,\n    \"why\": \"\",\n    \"help\": \"\"\n  },\n  {\n    \"code\": \"W101\",\n    \"severity\": \"warning\",\n    \"message\": \"no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\",\n    \"file\": null,\n    \"line\": null,\n    \"col\": null,\n    \"span\": null,\n    \"why\": \"\",\n    \"help\": \"\"\n  }\n]\nOK: valid.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": ""
+   }
+  },
+  {
+   "name": "check valid --explain",
+   "argv": [
+    "check",
+    "--explain",
+    "valid.f3d"
+   ],
+   "setup": {
+    "valid.f3d": "cube red\nspin it\nrender\n",
+    "broken.f3d": "cubee red\nrender\n"
+   },
+   "kind": "exact",
+   "build_artifacts": false,
+   "expect": {
+    "exit": 0,
+    "stdout_sha256": "a9c633d427d9d9030e88df699c6991c179268b96776ffa5d1613784783e6b6e0",
+    "stderr_sha256": "c0885bd8762bc5f0ee8da075e97741eb4832f9627dd474175fb063610d2d38cd",
+    "stdout_len": 45,
+    "stderr_len": 568,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: valid.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\ndesugared program:\n  scene size 640x480 bg #191923\n  camera at 3 2.5 4 look 0 0 0 up 0 1 0 fov 60 near 0.1 far 100\n  light directional -0.5 -1 -0.7 intensity 1\n  cube cube1 red at 0 0 0 rotate 20 35 0\n  spin cube1 axis y speed 90 duration 5 fps 30 ease linear loop forever\n  render\n"
+   }
+  },
+  {
+   "name": "check broken",
+   "argv": [
+    "check",
+    "broken.f3d"
+   ],
+   "setup": {
+    "valid.f3d": "cube red\nspin it\nrender\n",
+    "broken.f3d": "cubee red\nrender\n"
+   },
+   "kind": "exact",
+   "build_artifacts": false,
+   "expect": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "7b554c6d9af604c7f48132d034fccf477bdf8547d3cb71d815180a0f845138ec",
+    "stdout_len": 0,
+    "stderr_len": 158,
+    "codes": [
+     "E104"
+    ],
+    "stdout_text": "",
+    "stderr_text": "broken.f3d:1:1: error E104: unknown word 'cubee' -- did you mean 'cube'?\ncubee red\n^\n  why: the compiler does not know this word\n  help: did you mean 'cube'?\n"
+   }
+  },
+  {
+   "name": "check broken --json",
+   "argv": [
+    "check",
+    "--json",
+    "broken.f3d"
+   ],
+   "setup": {
+    "valid.f3d": "cube red\nspin it\nrender\n",
+    "broken.f3d": "cubee red\nrender\n"
+   },
+   "kind": "exact",
+   "build_artifacts": false,
+   "expect": {
+    "exit": 1,
+    "stdout_sha256": "fb4d034edae7381bd614a78acf48c2ac2c4d42e8b6eab05ec1af8b880d943bf1",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_len": 363,
+    "stderr_len": 0,
+    "codes": [],
+    "stdout_text": "[\n  {\n    \"code\": \"E104\",\n    \"severity\": \"error\",\n    \"message\": \"unknown word 'cubee' -- did you mean 'cube'?\",\n    \"file\": \"broken.f3d\",\n    \"line\": 1,\n    \"col\": 1,\n    \"span\": {\n      \"source\": \"broken.f3d\",\n      \"line\": 1,\n      \"col\": 1,\n      \"length\": 1\n    },\n    \"why\": \"the compiler does not know this word\",\n    \"help\": \"did you mean 'cube'?\"\n  }\n]\n",
+    "stderr_text": ""
+   }
+  },
+  {
+   "name": "check broken --explain",
+   "argv": [
+    "check",
+    "--explain",
+    "broken.f3d"
+   ],
+   "setup": {
+    "valid.f3d": "cube red\nspin it\nrender\n",
+    "broken.f3d": "cubee red\nrender\n"
+   },
+   "kind": "exact",
+   "build_artifacts": false,
+   "expect": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "7b554c6d9af604c7f48132d034fccf477bdf8547d3cb71d815180a0f845138ec",
+    "stdout_len": 0,
+    "stderr_len": 158,
+    "codes": [
+     "E104"
+    ],
+    "stdout_text": "",
+    "stderr_text": "broken.f3d:1:1: error E104: unknown word 'cubee' -- did you mean 'cube'?\ncubee red\n^\n  why: the compiler does not know this word\n  help: did you mean 'cube'?\n"
+   }
+  },
+  {
+   "name": "check missing",
+   "argv": [
+    "check",
+    "missing.f3d"
+   ],
+   "setup": {
+    "valid.f3d": "cube red\nspin it\nrender\n",
+    "broken.f3d": "cubee red\nrender\n"
+   },
+   "kind": "exact",
+   "build_artifacts": false,
+   "expect": {
+    "exit": 3,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "7262e091e8564c213660c7cf2de5cc7daea38a7cdce329c6d0d0450dd477fcf1",
+    "stdout_len": 0,
+    "stderr_len": 171,
+    "codes": [
+     "E501"
+    ],
+    "stdout_text": "",
+    "stderr_text": "missing.f3d:1:1: error E501: file not found: missing.f3d\n  why: f3dc can only compile a file that exists\n  help: check the path, or create a scene with:  f3dc new missing\n"
+   }
+  },
+  {
+   "name": "check missing --json",
+   "argv": [
+    "check",
+    "--json",
+    "missing.f3d"
+   ],
+   "setup": {
+    "valid.f3d": "cube red\nspin it\nrender\n",
+    "broken.f3d": "cubee red\nrender\n"
+   },
+   "kind": "exact",
+   "build_artifacts": false,
+   "expect": {
+    "exit": 3,
+    "stdout_sha256": "8fe1b46ce2d395b42e9874e023b28a9e848224a580bd0d7fdfd09f9e7707901c",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_len": 389,
+    "stderr_len": 0,
+    "codes": [],
+    "stdout_text": "[\n  {\n    \"code\": \"E501\",\n    \"severity\": \"error\",\n    \"message\": \"file not found: missing.f3d\",\n    \"file\": \"missing.f3d\",\n    \"line\": 1,\n    \"col\": 1,\n    \"span\": {\n      \"source\": \"missing.f3d\",\n      \"line\": 1,\n      \"col\": 1,\n      \"length\": 1\n    },\n    \"why\": \"f3dc can only compile a file that exists\",\n    \"help\": \"check the path, or create a scene with:  f3dc new missing\"\n  }\n]\n",
+    "stderr_text": ""
+   }
+  },
+  {
+   "name": "check missing --explain",
+   "argv": [
+    "check",
+    "--explain",
+    "missing.f3d"
+   ],
+   "setup": {
+    "valid.f3d": "cube red\nspin it\nrender\n",
+    "broken.f3d": "cubee red\nrender\n"
+   },
+   "kind": "exact",
+   "build_artifacts": false,
+   "expect": {
+    "exit": 3,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "7262e091e8564c213660c7cf2de5cc7daea38a7cdce329c6d0d0450dd477fcf1",
+    "stdout_len": 0,
+    "stderr_len": 171,
+    "codes": [
+     "E501"
+    ],
+    "stdout_text": "",
+    "stderr_text": "missing.f3d:1:1: error E501: file not found: missing.f3d\n  why: f3dc can only compile a file that exists\n  help: check the path, or create a scene with:  f3dc new missing\n"
+   }
+  },
+  {
+   "name": "fmt starter",
+   "argv": [
+    "fmt",
+    "fmt1.f3d"
+   ],
+   "setup": {
+    "fmt1.f3d": "cube red\nspin it\nrender\n"
+   },
+   "kind": "exact",
+   "build_artifacts": false,
+   "expect": {
+    "exit": 0,
+    "stdout_sha256": "5c171481071832b4a5fecf5accc2cdeb5f5c8fd818b7838b41c6f900ea0e9058",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_len": 24,
+    "stderr_len": 0,
+    "codes": [],
+    "stdout_text": "cube red\nspin it\nrender\n",
+    "stderr_text": ""
+   }
+  },
+  {
+   "name": "fmt geometries",
+   "argv": [
+    "fmt",
+    "fmt2.f3d"
+   ],
+   "setup": {
+    "fmt2.f3d": "# Wave D geometries showcase: every new primitive in one scene \u2014\n# circle, ring, capsule, tube, lathe and extrude, the four Platonic\n# solids (icosahedron, octahedron, tetrahedron, dodecahedron) and\n# torusknot, each in its own named colour and at its own position\n# (top row y=2, bottom row y=-2, spread along x from -8 to 8) so\n# nothing overlaps.\n# Run: python3 tools/f3dc/f3dc.py run examples/geometries.f3d\nscene \"geometries\" size 800 600 background black\ncamera at 0 0 18 look 0 0 0 fov 60\nlight directional dir -0.5 -1 -0.7 strength 1.2\ncircle radius 1 color red at -8 2 0\nring inner 0.5 outer 1 color orange at -5 2 -1\ncapsule radius 0.5 height 2 color yellow at -2 2 0\ntube radius 0.2 path 0,0,0 1,1,0 2,0,0 color green at 1 1.5 -1\nlathe points 0,0 0.6,0.2 0.6,1 0,1.2 color cyan at 5.5 1.5 0\nextrude shape 0,0 1,0 1,1 0,1 depth 0.5 color blue at 8 1.5 -1\nicosahedron radius 1 color purple at -8 -2 -1\noctahedron radius 1 color pink at -5 -2 0\ntetrahedron radius 1 color magenta at -2 -2 -1\ndodecahedron radius 1 color white at 1 -2 0\ntorusknot radius 1 color gray at 6 -2 -1\ncontrols orbit\nrender \"geometries.ppm\"\n"
+   },
+   "kind": "exact",
+   "build_artifacts": false,
+   "expect": {
+    "exit": 0,
+    "stdout_sha256": "c6619d47a49b70bafbdf3092e66f61ded38b6633f26962e56c99b6e4c5e8e72c",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_len": 674,
+    "stderr_len": 0,
+    "codes": [],
+    "stdout_text": "scene geometries size 800x600 bg black background black\ncamera look 0 0 0 fov 60\nlight directional -0.5 -1 -0.7 intensity 1.2\ncircle red at -8 2 0 radius 1\nring orange at -5 2 -1 inner 0.5 outer 1\ncapsule yellow at -2 2 0 radius 0.5 height 2\ntube green at 1 1.5 -1 radius 0.2 path (0, 0, 0) (1, 1, 0) (2, 0, 0)\nlathe cyan at 5.5 1.5 0 points (0, 0) (0.6, 0.2) (0.6, 1) (0, 1.2)\nextrude blue at 8 1.5 -1 shape (0, 0) (1, 0) (1, 1) (0, 1) depth 0.5\nicosahedron purple at -8 -2 -1 radius 1\noctahedron pink at -5 -2 0 radius 1\ntetrahedron magenta at -2 -2 -1 radius 1\ndodecahedron white at 1 -2 0 radius 1\ntorusknot gray at 6 -2 -1 radius 1\ncontrols orbit\nrender geometries.ppm\n",
+    "stderr_text": ""
+   }
+  },
+  {
+   "name": "fmt broken",
+   "argv": [
+    "fmt",
+    "broken.f3d"
+   ],
+   "setup": {
+    "broken.f3d": "cubee red\nrender\n"
+   },
+   "kind": "exact",
+   "build_artifacts": false,
+   "expect": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "7b554c6d9af604c7f48132d034fccf477bdf8547d3cb71d815180a0f845138ec",
+    "stdout_len": 0,
+    "stderr_len": 158,
+    "codes": [
+     "E104"
+    ],
+    "stdout_text": "",
+    "stderr_text": "broken.f3d:1:1: error E104: unknown word 'cubee' -- did you mean 'cube'?\ncubee red\n^\n  why: the compiler does not know this word\n  help: did you mean 'cube'?\n"
+   }
+  },
+  {
+   "name": "build hello-cube",
+   "argv": [
+    "build",
+    "-o",
+    "out",
+    "scene.f3d"
+   ],
+   "setup": {
+    "scene.f3d": "cube red\nspin it\nrender\n"
+   },
+   "kind": "exact",
+   "build_artifacts": true,
+   "expect": {
+    "exit": 0,
+    "stdout_sha256": "4b5ff9704c3f1737ee49f886dcf6291dc18164f151f92d53c1237ef71e52db7a",
+    "stderr_sha256": "94929ab375d9b397ccef2f53325ee7d084620106fdbfbcf8f6ad6ba816d68fe8",
+    "stdout_len": 101,
+    "stderr_len": 286,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "out/scene.scene\nout/scene.json\nout/scene.legacy.json\nout/scene.js\nout/scene.html\nout/scene_scene.f90\n",
+    "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n",
+    "artifacts": {
+     "scene.html": "044692a48a6141e818caaa2d8bab1e4b8fdeeb3f88b2ea7a7c9da0b5f18ff753",
+     "scene.js": "c5f409cba7f8fc95bde84a54037041f178fcf3de9edbdc02d9fa6514461101ef",
+     "scene.json": "d3980294aaf012c2b380df2c1f06744dc0ac8572963d22d0a473eedca27031d8",
+     "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
+     "scene.scene": "9f9df6c2edfe9c1ed3e34ffdc687bfc3d719693edf26d4911ba598170d18d66e",
+     "scene_scene.f90": "e4f100b203e7b23987621d7fdc28e07761755523642d097ebbc0f1795798b9e5"
+    }
+   }
+  },
+  {
+   "name": "build geometries",
+   "argv": [
+    "build",
+    "-o",
+    "out",
+    "scene.f3d"
+   ],
+   "setup": {
+    "scene.f3d": "# Wave D geometries showcase: every new primitive in one scene \u2014\n# circle, ring, capsule, tube, lathe and extrude, the four Platonic\n# solids (icosahedron, octahedron, tetrahedron, dodecahedron) and\n# torusknot, each in its own named colour and at its own position\n# (top row y=2, bottom row y=-2, spread along x from -8 to 8) so\n# nothing overlaps.\n# Run: python3 tools/f3dc/f3dc.py run examples/geometries.f3d\nscene \"geometries\" size 800 600 background black\ncamera at 0 0 18 look 0 0 0 fov 60\nlight directional dir -0.5 -1 -0.7 strength 1.2\ncircle radius 1 color red at -8 2 0\nring inner 0.5 outer 1 color orange at -5 2 -1\ncapsule radius 0.5 height 2 color yellow at -2 2 0\ntube radius 0.2 path 0,0,0 1,1,0 2,0,0 color green at 1 1.5 -1\nlathe points 0,0 0.6,0.2 0.6,1 0,1.2 color cyan at 5.5 1.5 0\nextrude shape 0,0 1,0 1,1 0,1 depth 0.5 color blue at 8 1.5 -1\nicosahedron radius 1 color purple at -8 -2 -1\noctahedron radius 1 color pink at -5 -2 0\ntetrahedron radius 1 color magenta at -2 -2 -1\ndodecahedron radius 1 color white at 1 -2 0\ntorusknot radius 1 color gray at 6 -2 -1\ncontrols orbit\nrender \"geometries.ppm\"\n"
+   },
+   "kind": "exact",
+   "build_artifacts": true,
+   "expect": {
+    "exit": 0,
+    "stdout_sha256": "4b5ff9704c3f1737ee49f886dcf6291dc18164f151f92d53c1237ef71e52db7a",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_len": 101,
+    "stderr_len": 0,
+    "codes": [],
+    "stdout_text": "out/scene.scene\nout/scene.json\nout/scene.legacy.json\nout/scene.js\nout/scene.html\nout/scene_scene.f90\n",
+    "stderr_text": "",
+    "artifacts": {
+     "scene.html": "7b3f36a9508cba898f9f1a2c759526e1f9ddea7b476908d5a7b08b534cc7005a",
+     "scene.js": "c23b188ffb359f99f7788b4408ea6aee5874a5d07d9b4ed941039709c4da2577",
+     "scene.json": "087e0d65343d5b027fb50c4b293279adc66fb272335cd21215bd666afcbd2962",
+     "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
+     "scene.scene": "badb9fd6b01e38c982ef42d4ed212bdd7e1e1f88a8d5a9281b8584d30de9a695",
+     "scene_scene.f90": "2cdb5d546fab15d3932969dae704c7e4243a7a43b0d1e29beb4b7c03b2ec01e4"
+    }
+   }
+  },
+  {
+   "name": "new myscene",
+   "argv": [
+    "new",
+    "myscene"
+   ],
+   "setup": {},
+   "kind": "new",
+   "build_artifacts": false,
+   "expect": {
+    "exit": 0,
+    "stdout_sha256": "c9283fe5d34386feb2ecd218bd54f767b0bb3f911bdc4ad23be78798eede4474",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_len": 50,
+    "stderr_len": 0,
+    "codes": [],
+    "stdout_text": "created myscene.f3d -- next: f3dc run myscene.f3d\n",
+    "stderr_text": "",
+    "created_sha256": "5c171481071832b4a5fecf5accc2cdeb5f5c8fd818b7838b41c6f900ea0e9058"
+   }
+  },
+  {
+   "name": "doctor",
+   "argv": [
+    "doctor"
+   ],
+   "setup": {},
+   "kind": "doctor",
+   "build_artifacts": false,
+   "expect": {
+    "exit": 0,
+    "stdout_sha256": "6c2f2eb730290bd24f3c76d6e1c61193b297c8a0c48cd413b5dc98b307152697",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stdout_len": 242,
+    "stderr_len": 0,
+    "codes": [],
+    "stdout_text": "f3dc 0.1.0\npython: 3.12.3 (/usr/bin/python3)\ngfortran: /usr/bin/gfortran\nmake: /usr/bin/make\nconvert: MISSING (optional)\nrepo root: /home/hatch/workspace/fortran-3d-engine\nengine sources: /home/hatch/workspace/fortran-3d-engine/src (present)\n",
+    "stderr_text": ""
+   }
+  }
+ ]
+}

@@ -1,33 +1,44 @@
 #!/usr/bin/env python3
-"""End-to-end tests for the Forge3D CLI (tools/f3dc/cli.py).
+"""End-to-end tests for the Forge3D CLI (the native ``bin/f3dc`` binary).
 
 Stdlib ``unittest`` only; standalone-runnable::
 
     python3 tests/e2e/test_cli.py
 
-Every command is driven in-process through ``cli.main(argv)`` with
-stdout/stderr redirected, and all scene/build files live in a single
-``tempfile`` tree created once in ``setUpClass`` -- nothing is written
-into the repository (the build test proves the repo-root ``scene.json``
-is untouched, by hash and mtime).  ``run`` uses a tiny still scene
-(``scene size 64 48`` + ``render still``: one frame, no 150-frame spin
-animation) against the real Fortran engine, which ``gfortran``/``make``
-build on this machine; the engine binary is built at most once and the
-shared build/run directories are reused across tests.
+Every command drives the native ``bin/f3dc`` binary via subprocess
+with stdout/stderr captured, and all scene/build files live in a
+single ``tempfile`` tree created once in ``setUpClass`` -- nothing is
+written into the repository (the build test proves the repo-root
+``scene.json`` is untouched, by hash and mtime).  ``run`` uses a tiny
+still scene (``scene size 64 48`` + ``render still``: one frame, no
+150-frame spin animation) against the real Fortran engine, which
+``gfortran``/``make`` build on this machine; the engine binary is
+built at most once and the shared build/run directories are reused
+across tests.
 """
 
-import contextlib
 import hashlib
-import io
-import sys
+import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT / "tools" / "f3dc"))
 
-import cli  # noqa: E402
+
+def _resolve_f3dc():
+    """Locate the native compiler binary to test."""
+    env = os.environ.get("F3DC")
+    if env:
+        return env
+    candidate = REPO_ROOT / "bin" / "f3dc"
+    if candidate.exists():
+        return str(candidate)
+    return str(REPO_ROOT / "compiler" / "f3dc")
+
+
+F3DC = _resolve_f3dc()
 
 # The 3-line starter contract written by `f3dc new`.
 STARTER = "cube red\nspin it\nrender\n"
@@ -40,11 +51,10 @@ ARTIFACT_SUFFIXES = (".scene", ".json", ".legacy.json", ".js", ".html",
 
 
 def call_cli(argv):
-    """Run cli.main(argv); return (exit_code, stdout, stderr)."""
-    out, err = io.StringIO(), io.StringIO()
-    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        code = cli.main([str(a) for a in argv])
-    return code, out.getvalue(), err.getvalue()
+    """Run the native f3dc binary; return (exit_code, stdout, stderr)."""
+    proc = subprocess.run([F3DC] + [str(a) for a in argv],
+                          cwd=REPO_ROOT, capture_output=True, text=True)
+    return proc.returncode, proc.stdout, proc.stderr
 
 
 class TestCliE2E(unittest.TestCase):
@@ -68,7 +78,7 @@ class TestCliE2E(unittest.TestCase):
     # -- new -----------------------------------------------------------
 
     def test_01_new_creates_file_with_three_line_content(self):
-        target = self.tmp / "hello"  # no suffix: cli appends .f3d
+        target = self.tmp / "hello"  # no suffix: f3dc appends .f3d
         code, _out, _err = call_cli(["new", target])
         self.assertEqual(code, 0)
         created = self.tmp / "hello.f3d"
@@ -137,10 +147,11 @@ class TestCliE2E(unittest.TestCase):
             self.assertEqual(fh.read(2), b"P3")
 
     def test_08_bare_invocation_behaves_as_run(self):
-        # main([path, ...]) with no subcommand == `run`: builds, renders
+        # f3dc [path, ...] with no subcommand == `run`: builds, renders
         # and produces the PPM.  (-o is passed because the bare form's
         # default relative build/ dir is handed to the engine relative
-        # to the wrong cwd -- a known cli quirk, not dispatch behaviour.)
+        # to the wrong cwd -- a known driver quirk, not dispatch
+        # behaviour.)
         bare_dir = self.tmp / "bare-out"
         code, _out, err = call_cli([self.still, "-o", bare_dir])
         self.assertEqual(code, 0, err)

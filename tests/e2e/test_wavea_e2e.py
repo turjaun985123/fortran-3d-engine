@@ -5,15 +5,16 @@ Stdlib ``unittest`` only; standalone-runnable::
 
     python3 tests/e2e/test_wavea_e2e.py
 
-Like ``tests/e2e/test_cli.py``, every scene is driven in-process
-through ``cli.main(["run", ...])`` into a ``tempfile`` tree and the
-PPM is read back with ``tests/golden/check_image.py``.  Scenes render
-at 160x120 (the golden regression is the exception: it is the
-640x480 default by definition).  ``setUpClass`` follows test_cli's
-pattern: the CLI's driver reuses an existing ``bin/engine3d`` as-is,
-so when ``gfortran``+``make`` are available ``make`` runs once first
-to keep the binary matched to the current sources; the suite skips
-loudly only when no engine binary exists and none can be built.
+Like ``tests/e2e/test_cli.py``, every scene drives the native
+``bin/f3dc`` binary via subprocess (``["run", ...]``) into a
+``tempfile`` tree and the PPM is read back with
+``tests/golden/check_image.py``.  Scenes render at 160x120 (the
+golden regression is the exception: it is the 640x480 default by
+definition).  ``setUpClass`` follows test_cli's pattern: the native
+driver reuses an existing ``bin/engine3d`` as-is, so when
+``gfortran``+``make`` are available ``make`` runs once first to keep
+the binary matched to the current sources; the suite skips loudly
+only when no engine binary exists and none can be built.
 
 Verified-render notes (160x120, this engine, 2026-11-23): the
 engine's screen-space culling keeps the far-side faces of a cube
@@ -22,9 +23,8 @@ point/spot tests place their lights on the far side of the cube,
 where the visible faces actually receive diffuse light.
 """
 
-import contextlib
 import hashlib
-import io
+import os
 import shutil
 import subprocess
 import sys
@@ -33,11 +33,23 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT / "tools" / "f3dc"))
 sys.path.insert(0, str(REPO_ROOT / "tests" / "golden"))
 
-import cli  # noqa: E402
 from check_image import read_ppm  # noqa: E402
+
+
+def _resolve_f3dc():
+    """Locate the native compiler binary to test."""
+    env = os.environ.get("F3DC")
+    if env:
+        return env
+    candidate = REPO_ROOT / "bin" / "f3dc"
+    if candidate.exists():
+        return str(candidate)
+    return str(REPO_ROOT / "compiler" / "f3dc")
+
+
+F3DC = _resolve_f3dc()
 
 GOLDEN_SHA256 = ("28b6a81dd052a740f3a395ea41b3e0dd37e02eeff585a56"
                  "fa90e05ac7697cec1")
@@ -68,7 +80,7 @@ class TestWaveAE2E(unittest.TestCase):
         have_toolchain = (shutil.which("gfortran") is not None
                           and shutil.which("make") is not None)
         if have_toolchain:
-            # Freshen the binary once (driver.ensure_engine would
+            # Freshen the binary once (the native driver would
             # otherwise reuse a stale one as-is).
             build = subprocess.run(["make"], cwd=REPO_ROOT,
                                    capture_output=True, text=True)
@@ -95,10 +107,10 @@ class TestWaveAE2E(unittest.TestCase):
             (work / fname).write_text(content, encoding="ascii")
         scene = work / "scene.f3d"
         scene.write_text(source, encoding="utf-8")
-        out, err = io.StringIO(), io.StringIO()
-        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = cli.main(["run", str(scene), "-o", str(work / "build")])
-        self.assertEqual(code, 0, err.getvalue())
+        proc = subprocess.run(
+            [F3DC, "run", str(scene), "-o", str(work / "build")],
+            cwd=REPO_ROOT, capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
         ppm = work / "build" / "output_render.ppm"
         self.assertTrue(ppm.is_file(), "no output_render.ppm for %s" % name)
         return read_ppm(ppm), ppm.read_bytes()
