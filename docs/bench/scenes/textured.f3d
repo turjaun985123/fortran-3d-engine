@@ -1,0 +1,7 @@
+# Bench scene: textured plane + checker cube (v3.0 Phase 0 baseline).
+scene "textured-plane" size 640 480 background black
+camera at 0 4 10 look 0 0 0 fov 60
+light directional dir -0.5 -1 -0.7 strength 1.2
+plane ground white at 0 -2 0 size 20 texture "assets/checker.ppm"
+cube block white at 0 0 0 size 2 texture "assets/checker.ppm"
+render

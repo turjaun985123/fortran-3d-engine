@@ -1,0 +1,10 @@
+# Bench scene: shadowed still, two lights (v3.0 Phase 0 baseline).
+scene "shadowed" size 640 480 background black shadow soft
+camera at 0 5 12 look 0 0 0 fov 60
+light directional dir 0.5 -1 0.4 strength 1.2
+light point orange at -6 3 6 intensity 40 distance 0 decay 2
+plane ground grey at 0 -2 0 size 24
+cube hero red at -2 0 0 size 2
+sphere orb blue at 2 0.5 0 radius 1.2
+cylinder tower green at 0 0 -4 radius 1 height 4
+render

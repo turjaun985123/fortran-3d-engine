@@ -28,7 +28,8 @@
 !     would render zero pixels.  Each output triangle is therefore
 !     stored with its second and third vertices swapped -- indices
 !     (i1, i2, i3) are stored as (i1, i3, i2) -- matching the
-!     compiler-side converter (ext_gltf.py) so both ingest paths
+!     compiler-side converter (compiler/src/f3dc_ext_gltf.f90) so
+!     both ingest paths
 !     produce identical, engine-visible meshes.  The computed flat
 !     normal consequently flips sign relative to the raw glTF winding,
 !     which is expected and consistent with the engine convention.

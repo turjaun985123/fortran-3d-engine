@@ -1,7 +1,7 @@
 ! scene.f90 -- Forge3D .scene reader (seat B23, module scene_3d).
 !
-! Parses exactly the text format emitted by
-! tools/f3dc/emit_fortran.py:emit_scene_text:
+! Parses exactly the text format emitted by the native compiler's
+! emit_scene_text (compiler/src/f3dc_emit_fortran.f90):
 !   forge3d-scene 1
 !   # <header stamp lines start with '#': skipped anywhere>
 !   size W H
@@ -19,7 +19,8 @@
 !   anim KIND TARGET AXIS SPEED DURATION FPS EASE LOOP
 ! Colour -1 -1 -1 is the per-face palette sentinel (use_tri material).
 ! Missing size/radius/height arrive as -1, missing segments as 0; the
-! per-primitive defaults below mirror emit_fortran.py:_build_call.
+! per-primitive defaults below mirror the emitter's _build_call
+! equivalent in compiler/src/f3dc_emit_fortran.f90.
 ! Unknown lines are skipped with a printed warning, never a crash.
 module scene_3d
     use math_3d

@@ -1,0 +1,6 @@
+{"tool": "f3dc bench", "version": "2.0.0", "runs": 3, "scenes": [
+    {"scene": "hello-cube", "frames": 150, "ms_per_frame": 165.603},
+    {"scene": "objects-100", "frames": 1, "ms_per_frame": 171.828},
+    {"scene": "textured-plane", "frames": 1, "ms_per_frame": 208.488},
+    {"scene": "shadowed", "frames": 1, "ms_per_frame": 226.894} 
+]}

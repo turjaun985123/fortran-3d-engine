@@ -89,7 +89,7 @@ program f3dc
   character(len=*), parameter :: VERSION = "2.0.0"
   ! _COMMANDS in cli.py, in cli.py's order (used in the error text).
   character(len=*), parameter :: COMMAND_LIST = &
-       "run, build, check, new, fmt, doctor, preview"
+       "run, build, check, new, fmt, doctor, preview, bench"
 
   ! _LAST in cli.py: state from the most recent compile_pipeline().
   type(dyn) :: last_program
@@ -160,12 +160,12 @@ contains
   ! ------------------------------------------------------------------
   subroutine print_help(unit)
     integer, intent(in) :: unit
-    write (unit, '(A)') "usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor} ..."
+    write (unit, '(A)') "usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor,bench} ..."
     write (unit, '(A)') ""
     write (unit, '(A)') "Forge3D compiler -- compile and run .f3d scenes, the easy way"
     write (unit, '(A)') ""
     write (unit, '(A)') "positional arguments:"
-    write (unit, '(A)') "  {run,build,check,new,preview,fmt,doctor}"
+    write (unit, '(A)') "  {run,build,check,new,preview,fmt,doctor,bench}"
     write (unit, '(A)') "    run                 build, compile the engine and render"
     write (unit, '(A)') "    build               compile to build/ (Fortran + JSON + JS + HTML)"
     write (unit, '(A)') "    check               validate only -- no files written"
@@ -173,8 +173,9 @@ contains
     write (unit, '(A)') "    preview             real-time preview in the browser -- recompiles and"
     write (unit, '(A)') "                        reloads on save"
     write (unit, '(A)') "    fmt                 print the canonical .f3d form to stdout"
-    write (unit, '(A)') "    doctor              check python / gfortran / make / convert and print"
-    write (unit, '(A)') "                        fixes"
+    write (unit, '(A)') "    doctor              check gfortran / make / cc and print fixes"
+    write (unit, '(A)') "    bench               run the engine frame-time benchmarks (repo"
+    write (unit, '(A)') "                        scenes under docs/bench/)"
     write (unit, '(A)') ""
     write (unit, '(A)') "options:"
     write (unit, '(A)') "  -h, --help            show this help message and exit"
@@ -244,6 +245,13 @@ contains
        call out_line("")
        call out_line("options:")
        call out_line("  -h, --help  show this help message and exit")
+    case ("bench")
+       call out_line("usage: f3dc bench [-h] [--runs N] [--json]")
+       call out_line("")
+       call out_line("options:")
+       call out_line("  -h, --help  show this help message and exit")
+       call out_line("  --runs N    timed runs per scene (default 3, median reported)")
+       call out_line("  --json      print results as JSON")
     end select
   end subroutine print_sub_help
 
@@ -258,7 +266,8 @@ contains
     case ("preview"); out = "usage: f3dc preview [-h] [--port PORT] [--no-browser] file"
     case ("fmt");    out = "usage: f3dc fmt [-h] file"
     case ("doctor"); out = "usage: f3dc doctor [-h]"
-    case default;    out = "usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor} ..."
+    case ("bench");  out = "usage: f3dc bench [-h] [--runs N] [--json]"
+    case default;    out = "usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor,bench} ..."
     end select
   end function sub_usage
 
@@ -267,7 +276,7 @@ contains
   ! parser): main usage + "f3dc: error: ..." on stderr, exit 2.
   subroutine usage_error_main(msg)
     character(len=*), intent(in) :: msg
-    call err_line("usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor} ...")
+    call err_line("usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor,bench} ...")
     call err_line("f3dc: error: "//msg)
     call finish(2)
   end subroutine usage_error_main
@@ -2010,20 +2019,10 @@ contains
     logical :: found, timed_out
     integer :: rc, missing_required
     character(len=*), parameter :: tools(3) = &
-         [character(len=9) :: "gfortran", "make", "convert"]
+         [character(len=9) :: "gfortran", "make", "cc"]
     integer :: k
     call driver_repo_root(root)
     call out_line("f3dc "//VERSION)
-    call driver_find_tool("python3", tool, found)
-    if (found) then
-       call driver_run_capture(driver_quote(tool)//" --version", "", &
-                               0, rc, out_t, err_t, timed_out)
-       ver = strip_ws(out_t)
-       if (starts_with(ver, "Python ")) ver = ver(8:)
-       call out_line("python: "//ver//" ("//tool//")")
-    else
-       call out_line("python: MISSING")
-    end if
     missing_required = 0
     do k = 1, 3
        call driver_find_tool(trim(tools(k)), tool, found)
@@ -2051,6 +2050,207 @@ contains
     end if
     code = 0
   end subroutine do_doctor
+
+  ! ------------------------------------------------------------------
+  ! bench (v3.0 Phase 0): frame-time baselines for the engine.
+  ! Compiles each benchmark scene in-process (do_build) into a temp
+  ! dir and times driver_run_engine over --runs runs, reporting the
+  ! median wall-clock ms per frame.  Scenes live in the repo tree
+  ! (examples/hello-cube.f3d + docs/bench/scenes/*.f3d); baselines
+  ! recorded on a given machine go in docs/bench/BASELINES.md.
+  ! ------------------------------------------------------------------
+  subroutine parse_bench_args(runs, as_json)
+    integer, intent(out) :: runs
+    logical, intent(out) :: as_json
+    integer :: nargs, i, ios
+    character(len=:), allocatable :: tok, val
+    runs = 3
+    as_json = .false.
+    nargs = command_argument_count()
+    i = 2
+    do while (i <= nargs)
+       tok = arg_at(i)
+       if (tok == "-h" .or. tok == "--help") then
+          call print_sub_help("bench")
+          call finish(0)
+       else if (tok == "--runs" .or. starts_with(tok, "--runs=")) then
+          if (tok == "--runs") then
+             if (i == nargs) call usage_error_sub("bench", &
+                  "argument --runs: expected one argument")
+             i = i + 1
+             val = arg_at(i)
+          else
+             val = tok(8:)
+          end if
+          read (val, *, iostat=ios) runs
+          if (ios /= 0 .or. runs < 1 .or. runs > 25) &
+             call usage_error_sub("bench", &
+                  "argument --runs: invalid value: '"//val//"'")
+       else if (tok == "--json") then
+          as_json = .true.
+       else
+          call usage_error_sub("bench", &
+               "unrecognized arguments: "//tok)
+       end if
+       i = i + 1
+    end do
+  end subroutine parse_bench_args
+
+  subroutine do_bench(runs, as_json, code)
+    integer, intent(in) :: runs
+    logical, intent(in) :: as_json
+    integer, intent(out) :: code
+    character(len=*), parameter :: names(4) = [character(len=16) :: &
+         "hello-cube", "objects-100", "textured-plane", "shadowed"]
+    character(len=*), parameter :: rels(4) = [character(len=48) :: &
+         "examples/hello-cube.f3d", &
+         "docs/bench/scenes/objects100.f3d", &
+         "docs/bench/scenes/textured.f3d", &
+         "docs/bench/scenes/shadowed.f3d"]
+    character(len=:), allocatable :: root, engine, msg
+    logical :: failed
+    integer :: s
+    code = 0
+    call driver_repo_root(root)
+    call driver_ensure_engine(engine, msg, failed, root)
+    if (failed) then
+       call err_line("bench: "//trim(msg))
+       code = 1
+       return
+    end if
+    if (.not. as_json) then
+       call out_line("f3dc bench -- engine frame times (median of "// &
+                     trim(int_str(runs))//" runs)")
+    else
+       call out_line('{"tool": "f3dc bench", "version": "'//VERSION// &
+                     '", "runs": '//trim(int_str(runs))//', "scenes": [')
+    end if
+    do s = 1, 4
+       call bench_one(root, trim(names(s)), trim(rels(s)), runs, &
+                      as_json, s == 4, code)
+       if (code /= 0) return
+    end do
+    if (as_json) call out_line("]}")
+  end subroutine do_bench
+
+  subroutine bench_one(root, name, rel, runs, as_json, last, code)
+    character(len=*), intent(in) :: root, name, rel
+    integer, intent(in) :: runs
+    logical, intent(in) :: as_json, last
+    integer, intent(inout) :: code
+    character(len=:), allocatable :: src, scratch, out_t, err_t, msg, &
+         f3dc_path, scene_path
+    integer :: r, rc, frames, p, ios
+    logical :: failed, timed_out, found
+    integer(int64) :: t0, t1, rate
+    real(real64) :: secs(25), med
+    character(len=32) :: num
+    src = root//"/"//rel
+    if (.not. driver_file_exists(src)) then
+       call err_line("bench: scene not found: "//src)
+       code = 1
+       return
+    end if
+    ! Scratch lives under the repo, NOT /tmp: an animated scene
+    ! writes one ASCII PPM per frame (~3.5 MB at 640x480), which
+    ! overflows a small tmpfs and silently eats the engine's
+    ! buffered stdout (and its last frames) on the failed flush.
+    scratch = root//"/docs/bench/.work-"//name
+    call execute_command_line("mkdir -p "//driver_quote(scratch))
+    ! Build via the installed bin/f3dc with output captured, so the
+    ! build's file listing cannot pollute bench's own output
+    ! (in particular --json).  This also benches the real user path.
+    call driver_find_tool(root//"/bin/f3dc", f3dc_path, found)
+    if (.not. found) then
+       call err_line("bench: bin/f3dc not found -- run 'make f3dc' first")
+       code = 1
+       return
+    end if
+    call driver_run_capture(driver_quote(f3dc_path)//" build -o "// &
+         driver_quote(scratch)//" "//driver_quote(src), "", 600, rc, &
+         out_t, err_t, timed_out)
+    if (rc /= 0) then
+       call err_line("bench: build failed for "//rel)
+       code = 1
+       return
+    end if
+    scene_path = scratch//"/"//stem_of(src)//".scene"
+    frames = 1
+    call system_clock(count_rate=rate)
+    do r = 1, runs
+       call system_clock(t0)
+       call driver_run_engine(scene_path, scratch, 600, rc, out_t, &
+                              err_t, msg, failed)
+       call system_clock(t1)
+       if (failed .or. rc /= 0) then
+          call err_line("bench: engine run failed for "//rel)
+          code = 1
+          return
+       end if
+       secs(r) = real(t1 - t0, real64)/real(rate, real64)
+       if (r == 1) then
+          p = index(out_t, "Frames:")
+          if (p > 0) then
+             read (out_t(p + 7:), *, iostat=ios) frames
+             if (ios /= 0 .or. frames < 1) frames = 1
+          end if
+       end if
+    end do
+    call sort_reals(secs, runs)
+    if (mod(runs, 2) == 1) then
+       med = secs(runs/2 + 1)
+    else
+       med = 0.5_real64*(secs(runs/2) + secs(runs/2 + 1))
+    end if
+    write (num, '(F0.3)') med*1000.0_real64/max(frames, 1)
+    if (as_json) then
+       call out_line('    {"scene": "'//name//'", "frames": '// &
+            trim(int_str(frames))//', "ms_per_frame": '//trim(num)// &
+            '}'//merge(',', ' ', .not. last))
+    else
+       call out_line("  "//name//": "//trim(int_str(frames))// &
+            " frame(s), "//trim(num)//" ms/frame")
+    end if
+    call execute_command_line("rm -rf "//driver_quote(scratch))
+  end subroutine bench_one
+
+  function stem_of(path) result(out)
+    character(len=*), intent(in) :: path
+    character(len=:), allocatable :: out
+    integer :: slash, dot
+    slash = index(path, "/", back=.true.)
+    dot = index(path, ".", back=.true.)
+    if (dot > slash) then
+       out = path(slash + 1:dot - 1)
+    else
+       out = path(slash + 1:)
+    end if
+  end function stem_of
+
+  subroutine sort_reals(a, n)
+    real(real64), intent(inout) :: a(:)
+    integer, intent(in) :: n
+    integer :: i, j
+    real(real64) :: tmp
+    do i = 2, n
+       tmp = a(i)
+       j = i - 1
+       do while (j >= 1)
+          if (a(j) <= tmp) exit
+          a(j + 1) = a(j)
+          j = j - 1
+       end do
+       a(j + 1) = tmp
+    end do
+  end subroutine sort_reals
+
+  function int_str(n) result(out)
+    integer, intent(in) :: n
+    character(len=:), allocatable :: out
+    character(len=16) :: buf
+    write (buf, '(I0)') n
+    out = trim(buf)
+  end function int_str
 
   ! ------------------------------------------------------------------
   ! Scene discovery (cli.py _discover_scene)
@@ -2330,7 +2530,8 @@ contains
     integer :: nargs
     character(len=:), allocatable :: a1, file, out_dir, name, scene
     logical :: has_out, explain, as_json, found, no_browser
-    integer :: port
+    integer :: port, bench_runs
+    logical :: bench_json
     code = 0
     nargs = command_argument_count()
     if (nargs == 0) then
@@ -2383,6 +2584,9 @@ contains
     case ("preview")
        call parse_preview_args(file, port, no_browser)
        call do_preview(file, port, no_browser, code)
+    case ("bench")
+       call parse_bench_args(bench_runs, bench_json)
+       call do_bench(bench_runs, bench_json, code)
     case default
        if (starts_with(a1, "-")) then
           call usage_error_main("unrecognized arguments: "// &

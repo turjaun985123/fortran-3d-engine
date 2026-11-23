@@ -30,12 +30,12 @@
    "build_artifacts": false,
    "expect": {
     "exit": 0,
-    "stdout_sha256": "833509f0ccb2408d0cdcfe535d6b1cb3d113eb32153bea3830515750efcec4d9",
+    "stdout_sha256": "c39255c961a8dec18922a59e59d210c852722b38734b4894920795639d29b014",
     "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "stdout_len": 874,
     "stderr_len": 0,
     "codes": [],
-    "stdout_text": "usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor} ...\n\nForge3D compiler -- compile and run .f3d scenes, the easy way\n\npositional arguments:\n  {run,build,check,new,preview,fmt,doctor}\n    run                 build, compile the engine and render\n    build               compile to build/ (Fortran + JSON + JS + HTML)\n    check               validate only -- no files written\n    new                 create <name>.f3d from the starter template\n    preview             real-time preview in the browser -- recompiles and\n                        reloads on save\n    fmt                 print the canonical .f3d form to stdout\n    doctor              check python / gfortran / make / convert and print\n                        fixes\n\noptions:\n  -h, --help            show this help message and exit\n  --version             show program's version number and exit\n",
+    "stdout_text": "usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor,bench} ...\n\nForge3D compiler -- compile and run .f3d scenes, the easy way\n\npositional arguments:\n  {run,build,check,new,preview,fmt,doctor,bench}\n    run                 build, compile the engine and render\n    build               compile to build/ (Fortran + JSON + JS + HTML)\n    check               validate only -- no files written\n    new                 create <name>.f3d from the starter template\n    preview             real-time preview in the browser -- recompiles and\n                        reloads on save\n    fmt                 print the canonical .f3d form to stdout\n    doctor              check gfortran / make / cc and print fixes\n    bench               run the engine frame-time benchmarks (repo\n                        scenes under docs/bench/)\n\noptions:\n  -h, --help            show this help message and exit\n  --version             show program's version number and exit\n",
     "stderr_text": ""
    }
   },
@@ -49,12 +49,12 @@
    "build_artifacts": false,
    "expect": {
     "exit": 0,
-    "stdout_sha256": "833509f0ccb2408d0cdcfe535d6b1cb3d113eb32153bea3830515750efcec4d9",
+    "stdout_sha256": "c39255c961a8dec18922a59e59d210c852722b38734b4894920795639d29b014",
     "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "stdout_len": 874,
     "stderr_len": 0,
     "codes": [],
-    "stdout_text": "usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor} ...\n\nForge3D compiler -- compile and run .f3d scenes, the easy way\n\npositional arguments:\n  {run,build,check,new,preview,fmt,doctor}\n    run                 build, compile the engine and render\n    build               compile to build/ (Fortran + JSON + JS + HTML)\n    check               validate only -- no files written\n    new                 create <name>.f3d from the starter template\n    preview             real-time preview in the browser -- recompiles and\n                        reloads on save\n    fmt                 print the canonical .f3d form to stdout\n    doctor              check python / gfortran / make / convert and print\n                        fixes\n\noptions:\n  -h, --help            show this help message and exit\n  --version             show program's version number and exit\n",
+    "stdout_text": "usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor,bench} ...\n\nForge3D compiler -- compile and run .f3d scenes, the easy way\n\npositional arguments:\n  {run,build,check,new,preview,fmt,doctor,bench}\n    run                 build, compile the engine and render\n    build               compile to build/ (Fortran + JSON + JS + HTML)\n    check               validate only -- no files written\n    new                 create <name>.f3d from the starter template\n    preview             real-time preview in the browser -- recompiles and\n                        reloads on save\n    fmt                 print the canonical .f3d form to stdout\n    doctor              check gfortran / make / cc and print fixes\n    bench               run the engine frame-time benchmarks (repo\n                        scenes under docs/bench/)\n\noptions:\n  -h, --help            show this help message and exit\n  --version             show program's version number and exit\n",
     "stderr_text": ""
    }
   },
@@ -209,12 +209,12 @@
    "expect": {
     "exit": 2,
     "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "stderr_sha256": "b83ed2aa876e578ff4a202c16261da70df385e54d7186db3367cbe4f6443b8bb",
+    "stderr_sha256": "9f26f777870d4cb91fa4dc47956c5e275a9ffe9c3a92f1b402a296f2dfd3b13e",
     "stdout_len": 0,
     "stderr_len": 204,
     "codes": [],
     "stdout_text": "",
-    "stderr_text": "usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor} ...\nf3dc: error: unknown command 'nosuchcmd' (commands: run, build, check, new, fmt, doctor, preview; or pass a scene file to run it)\n"
+    "stderr_text": "usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor,bench} ...\nf3dc: error: unknown command 'nosuchcmd' (commands: run, build, check, new, fmt, doctor, preview, bench; or pass a scene file to run it)\n"
    }
   },
   {
@@ -226,12 +226,12 @@
    "expect": {
     "exit": 2,
     "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "stderr_sha256": "b75b72a4b6bfa74c8ef30433ee290cc85feecd5ac790c20e48b48f5fd12a4453",
+    "stderr_sha256": "b8a7c2fd47fef99d5d5c82857cb35cd96dff0207cba6a7a6441886ad18780450",
     "stdout_len": 0,
     "stderr_len": 930,
     "codes": [],
     "stdout_text": "",
-    "stderr_text": "usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor} ...\n\nForge3D compiler -- compile and run .f3d scenes, the easy way\n\npositional arguments:\n  {run,build,check,new,preview,fmt,doctor}\n    run                 build, compile the engine and render\n    build               compile to build/ (Fortran + JSON + JS + HTML)\n    check               validate only -- no files written\n    new                 create <name>.f3d from the starter template\n    preview             real-time preview in the browser -- recompiles and\n                        reloads on save\n    fmt                 print the canonical .f3d form to stdout\n    doctor              check python / gfortran / make / convert and print\n                        fixes\n\noptions:\n  -h, --help            show this help message and exit\n  --version             show program's version number and exit\nerror: no .f3d file here -- create one:  f3dc new hello\n"
+    "stderr_text": "usage: f3dc [-h] [--version] {run,build,check,new,preview,fmt,doctor,bench} ...\n\nForge3D compiler -- compile and run .f3d scenes, the easy way\n\npositional arguments:\n  {run,build,check,new,preview,fmt,doctor,bench}\n    run                 build, compile the engine and render\n    build               compile to build/ (Fortran + JSON + JS + HTML)\n    check               validate only -- no files written\n    new                 create <name>.f3d from the starter template\n    preview             real-time preview in the browser -- recompiles and\n                        reloads on save\n    fmt                 print the canonical .f3d form to stdout\n    doctor              check gfortran / make / cc and print fixes\n    bench               run the engine frame-time benchmarks (repo\n                        scenes under docs/bench/)\n\noptions:\n  -h, --help            show this help message and exit\n  --version             show program's version number and exit\nerror: no .f3d file here -- create one:  f3dc new hello\n"
    }
   },
   {
@@ -635,7 +635,7 @@
     "stdout_len": 176,
     "stderr_len": 0,
     "codes": [],
-    "stdout_text": "f3dc 2.0.0\npython: 3.12.3 (/usr/bin/python3)\ngfortran: /usr/bin/gfortran\nmake: /usr/bin/make\nconvert: MISSING (optional)\nrepo root: /home/hatch/workspace/fortran-3d-engine\nengine sources: /home/hatch/workspace/fortran-3d-engine/src (present)\n",
+    "stdout_text": "f3dc 2.0.0\ngfortran: /usr/bin/gfortran\nmake: /usr/bin/make\ncc: /usr/bin/cc\nrepo root: /home/hatch/workspace/fortran-3d-engine\nengine sources: /home/hatch/workspace/fortran-3d-engine/src (present)\n",
     "stderr_text": ""
    }
   }

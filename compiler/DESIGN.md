@@ -1,5 +1,12 @@
 # Forge3D native compiler (f3dc) — port contract
 
+> **Status (v3.0, 2026-11-23): the port is complete and the Python
+> compiler is deleted.** This document is the historical contract the
+> port was built against; the "Python oracle" it refers to no longer
+> exists in the tree. The native compiler is now the only f3dc, it
+> builds with gfortran ≥ 13 + the system C compiler (ADR-2), and its
+> behaviour is pinned by the black-box suites in tests/native/.
+
 Goal: byte-identical re-implementation of tools/f3dc/*.py in Fortran
 (flang-new-18) + clang C helpers. Python is the oracle; NEVER diverge
 silently — report any behaviour you cannot replicate.
