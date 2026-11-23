@@ -35,24 +35,61 @@ Two independent criteria, mirroring ADR-1's split:
 
 ## Registry
 
-Measured 2026-11-23 on the Phase 2 tree (v3 renderer default,
-`FORGE3D_THREADS=1`; every hash verified identical at
+Measured 2026-11-23 on the Phase 3 tree (v3 renderer default,
+`FORGE3D_THREADS=1`; hello-cube verified identical at
 `FORGE3D_THREADS=8`).  PSNR is v3 vs the `--renderer legacy`
 render of the same `.scene`, frame 1, via `tools/psnr.f90`.
+Textured renders are measured with `assets/checker.ppm`
+resolvable from the render working directory.
 
 | scene | renderer | sha256 | PSNR vs legacy | threads | date |
 |---|---|---|---|---|---|
-| hello-cube (`examples/hello-cube.f3d`) | v3 | `2907f60a0ea5e5c02512cb270e416778c0c11a4c082d156f32d1f4c070e16239` | 47.78 dB | 1 (= 8) | 2026-11-23 |
-| objects100 (`docs/bench/scenes/objects100.f3d`) | v3 | `26ecc60bd9ed86fd529d4982e31c3f6bff81482a2b347d07e7e7964d307f2a14` | 31.55 dB | 1 (= 8) | 2026-11-23 |
-| shadowed (`docs/bench/scenes/shadowed.f3d`) | v3 | `3d3ce21742a0e9fda885b1db0522073efdd81c3e5372abc8eba3e984318aded5` | 26.97 dB | 1 (= 8) | 2026-11-23 |
-| textured (`docs/bench/scenes/textured.f3d`) | v3 | `5a920c72736b1a66d155bf262611b00f8f2030b70b539bff91476a60246e783e` | 19.22 dB | 1 (= 8) | 2026-11-23 |
+| hello-cube (`examples/hello-cube.f3d`) | v3 | `45a5af9d20e53496252a52622527dbcf2f6b6c46770878583d56d78766670f77` | 25.43 dB | 1 (= 8) | 2026-11-23 |
+| objects100 (`docs/bench/scenes/objects100.f3d`) | v3 | `07457fa85ee3b15e37b6f674cede15aaff8a7a49bde1fb2fdb20fa9dee046c8e` | 19.72 dB | 1 (= 8) | 2026-11-23 |
+| shadowed (`docs/bench/scenes/shadowed.f3d`) | v3 | `ec447b1c1549a407ffd763727f5a5fdcf282b066d2c0ee20ed9fc80b5685e6fa` | 22.87 dB | 1 (= 8) | 2026-11-23 |
+| textured (`docs/bench/scenes/textured.f3d`) | v3 | `f8632c1de1243437a0151acaa68fe1bf31201aaea03ed97b10a68bf1b90a0ee6` | 20.27 dB | 1 (= 8) | 2026-11-23 |
 
 Legacy reference hashes for the same renders (for reproduction):
 hello-cube `090fa22a7faa670ef98dc16858006d6f0babb243a26e0f77dce471564942d19d`
 (the G3b pin), objects100
 `75a308e5994da3f2973b16d8bb2595709b2d4249ab82e12bca25ad6502da5a9a`,
 shadowed `2d44a9a29fb3fee6172a29dff1a958d48f4ceb06595aa481436d781cf5a9cd68`,
-textured `bfc6256b75006074b0d32cb6a07a4ca1c33a9e5a7b128c28df03f9850940cbed`.
+textured `efff6a6ce8c04d83faf7e13f0db4ba5ddf9dc509c017e5c5ba7deb13e849a7e3`
+(see the Phase 3 note below).
+
+## Re-pin history
+
+**Phase 3 (2026-11-23).** Cause: the Phase 3 colour/lighting
+pipeline — per-light shadow maps (shadow_v3), energy-conserving
+Lambert + GGX with no 8-bit quantization round-trip and HDR
+output (fragment_v3), and the ADR-4 output transform (float
+bloom, exposure + tonemapping, sRGB encode at quantize only;
+post_v3).  The PSNR drops on hello-cube (47.78 → 25.43 dB) and
+objects100 (31.55 → 19.72 dB) are the *intended* transfer-curve
+change, not a quality regression: Phase 2 wrote linear values
+straight to bytes, so legacy and Phase 2 v3 shared the same
+(wrong) gamma; Phase 3 v3 now decodes to sRGB, brightening every
+mid-tone (linear 0.25 → byte 137 instead of 64), and the v3
+light sum no longer applies legacy's `(1 − ambient)` weighting
+(fully-lit up-facing surfaces gain a factor 1 + ambient).  The
+shadowed scene's v3 render now contains real per-light shadows
+(engine-level check: the same `.scene` with `shadow off` renders
+differently, PSNR 69.70 dB between the two v3 renders); its PSNR
+vs legacy is dominated by the same global curve shift.
+Textured PSNR rose slightly (19.22 → 20.27 dB).  Note on the
+textured legacy reference: the Phase 2 record listed
+`bfc6256b…`, which does not reproduce on the Phase 3 tree (the
+`.scene` bakes an absolute texture path, so the render is
+working-directory independent and was reproduced three ways);
+the other three legacy hashes reproduce exactly and the legacy
+renderer sources are untouched since Phase 2, so the legacy
+path has not moved — the Phase 2 textured legacy figure was a
+measurement artifact.
+
+**Phase 2 (2026-11-23).** First v3 goldens, measured on the
+Phase 2 tree: hello-cube `2907f60a…` (47.78 dB), objects100
+`26ecc60b…` (31.55 dB), shadowed `3d3ce217…` (26.97 dB, no
+shadow maps yet), textured `5a920c72…` (19.22 dB).
 
 ## Re-pinning procedure
 

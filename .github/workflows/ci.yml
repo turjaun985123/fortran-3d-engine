@@ -84,8 +84,8 @@ jobs:
       # default) must be DETERMINISTIC: the same .scene rendered
       # under FORGE3D_THREADS=1 and FORGE3D_THREADS=8 must produce
       # byte-identical output, AND the output is pinned to the
-      # Phase 2 golden recorded in docs/V3-GOLDENS.md (verified
-      # from the integrated tree at Phase 2 close).
+      # golden recorded in docs/V3-GOLDENS.md (re-pinned at the
+      # Phase 3 close; verified from the integrated tree).
       - name: G3c - v3 render determinism + pin (threads 1 vs 8)
         run: |
           bin/f3dc build examples/hello-cube.f3d
@@ -109,7 +109,7 @@ jobs:
             echo "- FORGE3D_THREADS=8: $hash8"
           } >> "$GITHUB_STEP_SUMMARY"
           test "$hash1" = "$hash8"
-          test "$hash1" = "2907f60a0ea5e5c02512cb270e416778c0c11a4c082d156f32d1f4c070e16239"
+          test "$hash1" = "45a5af9d20e53496252a52622527dbcf2f6b6c46770878583d56d78766670f77"
 
       # Determinism: the same .f3d compiled twice must emit identical
       # .scene bytes -- a drifting compiler breaks goldens and user

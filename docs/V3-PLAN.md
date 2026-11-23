@@ -353,3 +353,56 @@ primitives.
   near-plane-crossing triangles dropped (no frustum clipping),
   custom shaders get t = 0 (no time in the fragment API),
   sprites/text/particles via the legacy fallback.
+- 2026-11-23: Phase 3 complete. L1/L2 closed: shadow_v3_3d —
+  per-light shadow maps (orthographic fitted directional,
+  perspective spot with near-plane clipping, 6-face cube for
+  point lights), texel-derived slope + normal-offset bias, PCF
+  radius from the new `shadow_pcf` scene setting (mode 1 hard =
+  single tap, mode 2 soft = (2r+1)^2 taps), persistent maps
+  reused while the shape is unchanged; the fragment stage now
+  queries shadow_v3_factor PER LIGHT and multiplies only that
+  light's contribution (two-light independence proven at unit
+  level — test_shadow_v3 48/48, test_fragment_v3 case (l) — and
+  at engine level: the shadowed bench scene renders differently
+  with `shadow off`, 69.70 dB between the two v3 renders).
+  L3/L4 closed: post_v3_3d — true float bloom (bright-pass,
+  separable Gaussian, threshold 1.0 linear), exposure + tone
+  mapping (Reinhard; ACES via the Stephen Hill fit) on the
+  linear buffer, sRGB encode ONLY at quantization (ADR-4);
+  fragment_v3 lit stages rewritten: energy-conserving Lambert
+  (exposure-matched to legacy per light), GGX (Trowbridge-Reitz
+  + Smith + Schlick, F0 = mix(0.04, albedo, metalness)) for
+  MAT_STANDARD, hemisphere ambient (sky = scene ambient colour,
+  ground = 0.3x sky), the `(1 - ambient)` weighting retired and
+  the shade_rgb 8-bit round-trip removed — fragment output is
+  HDR and unclamped (intensity-3 light -> 3.25 out).  Documented
+  exposure delta: a fully-lit up-facing surface renders at
+  legacy x (1 + ambient).  Integration: renderer_v3 builds the
+  shadow maps per frame in render_core; main's legacy post chain
+  no longer double-applies bloom on the v3 path (other chain
+  entries still run).  The optional prefiltered-env item was not
+  taken up (plan marks it optional).  Goldens re-pinned (see
+  docs/V3-GOLDENS.md): hello-cube v3 45a5af9d… (PSNR vs legacy
+  25.43 dB — the drop from Phase 2's 47.78 is the intended
+  sRGB/lighting change, explained in the registry), objects-100
+  07457fa8… (19.72 dB), shadowed ec447b1c… (22.87 dB), textured
+  f8632c1d… (20.27 dB); both legacy pins reproduce exactly
+  (28b6a81d…, 090fa22a…); v3 thread determinism holds (threads
+  1 == 8 == default).  PERF (written reason, per the >10% rule):
+  bench medians, same session, 640x480, build VM — v3 vs legacy:
+  hello-cube 192.7 vs 144.7 ms/frame, objects-100 226.8 vs
+  162.4, textured 204.1 vs 180.5, shadowed 259.4 vs 204.2.
+  Against the Phase 0 legacy baselines v3 is +16% (hello-cube),
+  +32% (objects-100), ~parity (textured), +14% (shadowed).
+  Causes: the Phase 2 vis-buffer architecture (recorded there)
+  plus Phase 3's per-frame shadow-map builds, per-light PCF taps
+  and per-fragment GGX; the 1.5-vCPU VM gives tile threading
+  nothing to exploit.  Correctness and features were bought, not
+  speed; a perf pass remains future work.  Suite: full
+  run_tests.sh PASS (Fortran layer now 39 programs;
+  test_fragment_v3 83/83, test_shadow_v3 48/48,
+  test_renderer_v3 79/79).  Known v3 gaps entering Phase 4:
+  opaque-only vis buffer (transparent pass is Phase 4),
+  nearest-only texture sampling with legacy texture path (G3 —
+  Phase 4), near-plane-crossing triangles dropped, custom
+  shaders get t = 0, sprites/text/particles via legacy fallback.
