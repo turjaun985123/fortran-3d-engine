@@ -21,7 +21,9 @@
  *   - Conformance/adversarial cases (SS3.7 kit): 24000/1001 fps,
  *     ir_version 99 rejection naming the version, missing format
  *     rejection, unknown track kind skipped with a diagnostic,
- *     unknown keys tolerated, -0 / whole-float raw-byte hygiene,
+ *     unknown keys tolerated, a hand-authored unresolved action
+ *     (resolved:false, no keys) validating and landing in the
+ *     host-sim unmapped list, -0 / whole-float raw-byte hygiene,
  *     byte determinism (same source built twice -> same sha256).
  *   - Validator negative tests: each cross-field rule in
  *     timeline_schema.json is shown to actually fire.
@@ -123,7 +125,16 @@ test('host_sim saturday-market: duration, wave span, dialogue d1 byte-equal', ()
     Buffer.from('Good morning, Mira!', 'utf8')), 'd1 text not byte-equal');
   assert.strictEqual(d1.speaker, 'lloyd');
   assert.strictEqual(data.tracks.filter((t) => t.kind === 'camera').length, 1);
-  assert.ok(unmapped.length > 0, 'unresolved sentence actions must be reported unmapped');
+  /* Wave 3 resolver: every sentence action now resolves to keys. */
+  const actions = data.tracks.filter((t) => t.kind === 'action');
+  assert.strictEqual(actions.length, 5);
+  assert.ok(actions.every((t) => t.resolved && Array.isArray(t.keys) && t.keys.length > 0),
+    'all 5 action tracks must be resolved with keys');
+  assert.deepStrictEqual(unmapped, []);
+  const wave = data.tracks.find((t) => t.kind === 'action' &&
+    t.character === 'mira' && t.action === 'wave');
+  assert.ok(wave.keys.some((k) => k.channel === 'arm.r.upper'),
+    'wave track keys must contain channel arm.r.upper');
 });
 
 test('host_sim the-lost-key: two-scene partition, cast union, together spans', () => {
@@ -150,8 +161,21 @@ test('host_sim the-bus-is-late: custom action expands, verb + dialogue spans', (
   assert.deepStrictEqual([verb.start_frame, verb.end_frame], [120, 216]);
   assert.strictEqual(data.dialogue[0].text, 'Finally!');
   assert.deepStrictEqual([data.dialogue[0].start_frame, data.dialogue[0].end_frame], [216, 264]);
-  assert.ok(unmapped.some((u) => u.action === 'jump' && u.character === 'rafi'),
-    'custom-action sub-actions are resolved:false and must be unmapped');
+  /* Wave 3 resolver: jump/wave sub-actions resolve; spin has no
+   * stickman resolver yet and stays the single unmapped track. */
+  const jump = data.tracks.find((t) => t.kind === 'action' && t.action === 'jump');
+  const wave = data.tracks.find((t) => t.kind === 'action' && t.action === 'wave');
+  assert.ok(jump.resolved && jump.keys.length > 0,
+    'jump sub-action must be resolved with keys');
+  assert.ok(wave.resolved && wave.keys.length > 0,
+    'wave sub-action must be resolved with keys');
+  assert.ok(wave.keys.some((k) => k.channel === 'arm.r.upper'),
+    'wave track keys must contain channel arm.r.upper');
+  assert.strictEqual(unmapped.length, 1, 'exactly one track stays unmapped');
+  assert.strictEqual(unmapped[0].action, 'spin');
+  assert.strictEqual(unmapped[0].character, 'rafi');
+  assert.ok(unmapped[0].reason.includes('resolved: false'),
+    'unmapped reason must name resolved:false, got: ' + unmapped[0].reason);
 });
 
 test('host_sim gate-scene: em-dash dialogue byte-equal, camera zoom keys', () => {
@@ -240,11 +264,22 @@ test('host_sim duet-together: parallel tracks share one span', () => {
   assert.deepStrictEqual(actionSpan(data, 'mira', 'dance'), [0, 48]);
 });
 
-test('host_sim custom-action: every sub-action unresolved and reported', () => {
+test('host_sim custom-action: jump+wave resolved with keys, spin unmapped', () => {
   const { data, unmapped } = extractFixture('custom-action');
   assert.deepStrictEqual(data.tracks.map((t) => t.action), ['jump', 'wave', 'spin']);
-  assert.ok(data.tracks.every((t) => t.resolved === false));
-  assert.strictEqual(unmapped.length, 3);
+  const jump = data.tracks.find((t) => t.action === 'jump');
+  const wave = data.tracks.find((t) => t.action === 'wave');
+  const spin = data.tracks.find((t) => t.action === 'spin');
+  assert.ok(jump.resolved && jump.keys.length > 0,
+    'jump sub-action must be resolved with keys');
+  assert.ok(wave.resolved && wave.keys.length > 0,
+    'wave sub-action must be resolved with keys');
+  assert.ok(wave.keys.some((k) => k.channel === 'arm.r.upper'),
+    'wave track keys must contain channel arm.r.upper');
+  assert.strictEqual(spin.resolved, false, 'spin has no resolver yet');
+  assert.strictEqual(unmapped.length, 1);
+  assert.strictEqual(unmapped[0].action, 'spin');
+  assert.strictEqual(unmapped[0].character, 'rafi');
 });
 
 test('host_sim whole-floats: whole values arrive as JSON integers', () => {
@@ -300,6 +335,21 @@ test('adversarial (c): unknown track kind skipped WITH diagnostic, rest extracte
   assert.ok(diagnostics.some((d) => d.includes('hologram')),
     'a diagnostic naming the skipped kind is required, got: ' + diagnostics.join(' | '));
   assert.strictEqual(data.dialogue[0].text, 'Still extracted.');
+});
+
+test('adversarial: hand-authored unresolved action validates, host_sim reports it unmapped', () => {
+  const raw = fs.readFileSync(path.join(ADV, 'unresolved-action.timeline.json'), 'utf8');
+  assert.deepStrictEqual(validateText(raw), [],
+    'a resolved:false action track without keys is valid IR');
+  const { data, unmapped } = extractTimeline(raw);
+  assert.strictEqual(data.tracks.length, 1);
+  assert.strictEqual(data.tracks[0].action, 'spin');
+  assert.strictEqual(data.tracks[0].resolved, false);
+  assert.strictEqual(unmapped.length, 1);
+  assert.strictEqual(unmapped[0].action, 'spin');
+  assert.strictEqual(unmapped[0].character, 'ada');
+  assert.ok(unmapped[0].reason.includes('resolved: false'),
+    'unmapped reason must name resolved:false, got: ' + unmapped[0].reason);
 });
 
 test('adversarial: unknown keys tolerated by validator and host_sim', () => {

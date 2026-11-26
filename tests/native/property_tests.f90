@@ -637,9 +637,18 @@ contains
   ! timeline's generator.source_sha256, which correctly hashes
   ! the fmt-rewritten source.  AN_XFAIL_MAX 6 -> 7.
   !   anim:     156 parsing sources, 149 full pass, 7 xfail
+  ! Adjusted 2026-11-26 (Wave 3): examples/anim-golden.f3d (the
+  ! G3d/G3e golden film) raises the examples sweep 16 -> 17
+  ! files; it is a two-scene film, so it lands in the same
+  ! class-3 structural xfail class as the multi-scene anim cases
+  ! (fmt-rewritten source hash inside the timeline artifact).
+  ! Verified by hand: f3dc build + fmt idempotent, both scene
+  ! chunks and the timeline emit cleanly, and the film renders
+  ! deterministically (G3d/G3e pins, threads 1 = 8).
+  ! EX_XFAIL_MAX 4 -> 5; the ex_n expectation 16 -> 17 below.
   ! -------------------------------------------------------------
   subroutine section_sweep()
-    integer, parameter :: EX_PASS_MIN = 12, EX_XFAIL_MAX = 4
+    integer, parameter :: EX_PASS_MIN = 12, EX_XFAIL_MAX = 5
     integer, parameter :: CO_PASS_MIN = 91, CO_XFAIL_MAX = 0
     integer, parameter :: AN_PASS_MIN = 144, AN_XFAIL_MAX = 7
     integer :: fails, rc, i, cc, cls
@@ -777,7 +786,7 @@ contains
     write(*, '(A,I0,A,I0,A,I0,A,I0,A,I0,A,I0,A)') &
       '  sweep anim: ', an_n, ' parsing sources, pass ', an_pass, &
       ', xfail class1/2/3 = ', an_x(1), '/', an_x(2), '/', an_x(3)
-    if (ex_n /= 16) fails = fails + 1
+    if (ex_n /= 17) fails = fails + 1
     if (ex_pass < EX_PASS_MIN) fails = fails + 1
     if (sum(ex_x) > EX_XFAIL_MAX) fails = fails + 1
     if (co_n < 90) fails = fails + 1
