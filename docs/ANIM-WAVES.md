@@ -122,6 +122,77 @@ Recorded at Wave 1 close (audit of the landed front-end):
 
 ## Per-wave log
 
+### Wave 2 — Timeline IR v1 + ADR-5 + plugin registry + contract FREEZE (2026-11-26) ✅
+
+- Scope delivered: **Timeline IR emission** (`f3dc_emit_timeline.f90`):
+  `f3dc build` writes `build/<name>.timeline.json` for any source
+  with animation authoring (absence = still; `check` writes
+  nothing); canonical integer frames, gcd-reduced rational fps,
+  alphabetical keys, spec float hygiene (whole → integer, −0.0 →
+  0); characters (with `plugin` id + registry-owned `rig`),
+  SceneSpans with bindings + authored `transition` objects,
+  dialogue cues (byte-verbatim), camera/pose_keys tracks with real
+  keys, verb tracks, action tracks symbolic with
+  `"resolved": false` (key resolution is Wave 3 plugin work, per
+  ANIM-PLAN §3.4); conditional 7th manifest output so cache hits
+  keep the file correct. **ADR-5 written** + `docs/TIMELINE-FORMAT.md`
+  (the frozen spec; freeze amendments recorded in-doc: zero-length
+  SceneSpan exception, action-track `channel` documented, captions
+  have no v1 IR record by design, generator.version note).
+  **Plugin registry foundation** (`f3dc_plugins.f90`, leaf module):
+  plugins declare channels, verb→channel maps, character prop
+  schemas, action verb sets, capabilities, rig records; `stickman`
+  registered as pure data. **All six must-fix flags resolved**
+  (registry channel resolution in desugar; schema-driven character
+  props — core keeps name/colour/`at`; `ANIM_KINDS_EXT` core table
+  deleted for registry queries; placeholders carry plugin id;
+  E209/E211 via capabilities; one canonical easing spelling —
+  cubic-in family — in resolved output). **Both carried items
+  closed:** enumerated-prop validation gap (`head triangle` →
+  E205, schema-driven, no new code) and the E213 double-print
+  (root cause: duration stored in two slots, both recursed by
+  `subst_walk`; now reported once). **Engine reader**
+  (`src/timeline_ir.f90`): typed, exact-version (ADR-5) reader +
+  `engine3d` load-and-report dispatch; 100-assertion test.
+  **Contract layer** (`tests/ir/`): purpose schema + validator,
+  host-simulation consumer written from the spec alone, 14
+  reviewed golden fixtures, 5 adversarial cases, corpus sweep
+  (35/35 emitted IR valid); wired into `run_tests.sh` as the `ir`
+  layer. **`docs/ALLROUNDER-MATRIX.md`**: 14 coverage areas vs
+  Blender (Shipped 1 · Partial 10 · Absent 3), 8 superiority axes
+  (PROVEN 4 · PARTIAL 2 · NOT YET MEASURED 2 — no fabricated
+  numbers).
+- **CONTRACT FREEZE DECLARED at this wave's close.** From here,
+  Timeline IR changes are additive-only under ADR-5; any breaking
+  change bumps `ir_version` with migration notes.
+- Commits: `c7462c2` (compiler: registry + flags + emission +
+  pins), `9545eff` (engine reader), `476bc20` (tests/ir), plus
+  the docs commit carrying this entry.
+- Gates: full suite PASS (native incl. anim 169/169 + curated
+  72/323, compiler-js 190, e2e 65, fortran 42, ir 63; golden
+  layer SKIP by design); legacy golden `28b6a81d…` verified
+  unchanged by hand (G3a method, `--renderer legacy` render);
+  zero Python; CI verdict recorded in the wave close report.
+- Pin discipline: 37 artifact-set rebakes proven to be ONLY the
+  added `*.timeline.json` (extractor aborted on any other diff);
+  curated 11 rebakes same cause; 3 corpus pins + 2 IR fixtures
+  changed by the SceneSpan transition addition only (strip-proof:
+  removing `transition` reproduces the old hash byte-for-byte);
+  sweep ratchet `AN_XFAIL_MAX` 6→7 with hand-verified cause
+  (case 164, a Wave-2 two-scene film — the documented structural
+  class; its artifact trees are byte-identical except the
+  timeline's `generator.source_sha256`, which correctly hashes
+  the fmt-rewritten source).
+- Carried forward: (i) action tracks ship `resolved: false` —
+  Wave 3 makes the stickman plugin resolve its actions to keys;
+  (ii) transition *variant* (`fade black`, `slide left`) is not
+  carried in v1 — the spec's transition object has no field for
+  it (additive candidate); (iii) `hold`/`bezier(...)` are in the
+  IR ease registry but not yet authorable in the keys grammar
+  (pre-existing E201/E101 limits) — language-growth waves;
+  (iv) captions/titles have no v1 IR record (spec decision, see
+  TIMELINE-FORMAT).
+
 ### Wave 1 — Language + compiler front-end (2026-11-26) ✅
 
 - Scope delivered: film mode end-to-end through the front-end —
