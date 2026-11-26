@@ -127,7 +127,28 @@ COMPILER_BASE="$CSRC/f3dc_str.f90 $CSRC/f3dc_dyn.f90 $CSRC/f3dc_errors.f90"
 
 SOURCES_fuzz_lexer="$COMPILER_BASE $CSRC/f3dc_lexer.f90"
 
-SOURCES_fuzz_parser="$COMPILER_BASE $CSRC/f3dc_lexer.f90 $CSRC/f3dc_ast.f90 $CSRC/f3dc_ir.f90 $CSRC/f3dc_parser.f90 $CSRC/f3dc_desugar.f90"
+# Compiler front-end set (parser + desugar and everything they
+# pull in since the plugin registry landed: f3dc_parser and
+# f3dc_desugar use f3dc_plugins, which uses f3dc_ir and
+# f3dc_driver, which uses f3dc_emit_common).
+COMPILER_FRONT="$COMPILER_BASE $CSRC/f3dc_lexer.f90 $CSRC/f3dc_ast.f90 $CSRC/f3dc_ir.f90 $CSRC/f3dc_emit_common.f90 $CSRC/f3dc_driver.f90 $CSRC/f3dc_plugins.f90 $CSRC/f3dc_parser.f90 $CSRC/f3dc_desugar.f90"
+
+SOURCES_fuzz_parser=$COMPILER_FRONT
+
+# fuzz_timeline: same front end as fuzz_parser (parse + desugar
+# own timeline resolution; see its header).
+SOURCES_fuzz_timeline=$COMPILER_FRONT
+
+# fuzz_desugar: a standalone DRIVER harness -- it links no
+# production modules and instead drives the real bin/f3dc as a
+# subprocess (see its header).  It must run with the repository
+# root as working directory (or F3DC set to an absolute path).
+SOURCES_fuzz_desugar=""
+
+# fuzz_ir: the engine Timeline IR reader only -- the exact
+# load path of bin/engine3d's .timeline.json --report mode
+# (timeline_ir_3d uses json_reader_3d, which is standalone).
+SOURCES_fuzz_ir="$ESRC/json_reader.f90 $ESRC/timeline_ir.f90"
 
 # Engine module set: src/*.f90 minus src/main.f90.
 ENGINE_SOURCES="\
@@ -177,7 +198,7 @@ SOURCES_fuzz_png=$ENGINE_SOURCES
 SOURCES_fuzz_scene=$ENGINE_SOURCES
 
 # The harness list, in run order.  Keep in step with tests/fuzz/*.f90.
-HARNESSES="fuzz_lexer fuzz_parser fuzz_loaders fuzz_png fuzz_scene"
+HARNESSES="fuzz_lexer fuzz_parser fuzz_loaders fuzz_png fuzz_scene fuzz_timeline fuzz_desugar fuzz_ir"
 
 # ---------------------------------------------------------------------------
 # Build / run helpers
@@ -238,7 +259,7 @@ run_harness() {
     # Compiler harnesses also need the preview_http.o C helper
     # (f3dc_isatty_stderr, referenced by f3dc_errors).
     case $_name in
-        fuzz_lexer|fuzz_parser)
+        fuzz_lexer|fuzz_parser|fuzz_timeline)
             [ -n "$PREVIEW_HTTP_OBJ" ] && _objects="$_objects $PREVIEW_HTTP_OBJ"
             ;;
     esac

@@ -58,6 +58,10 @@
 !     compiler/src/f3dc_errors.f90 \
 !     compiler/src/f3dc_lexer.f90  \
 !     compiler/src/f3dc_ast.f90    \
+!     compiler/src/f3dc_ir.f90     \
+!     compiler/src/f3dc_emit_common.f90 \
+!     compiler/src/f3dc_driver.f90 \
+!     compiler/src/f3dc_plugins.f90 \
 !     compiler/src/f3dc_parser.f90 \
 !     compiler/src/f3dc_desugar.f90 \
 !     tests/fuzz/fuzz_parser.f90 preview_http.o \
@@ -80,9 +84,13 @@
 !                  DYN_K_DICT), f3dc_errors (error_bag_t,
 !                  error_bag_len)
 !   f3dc_parser  : f3dc_dyn, f3dc_errors, f3dc_str, f3dc_lexer,
-!                  f3dc_ast
+!                  f3dc_ast, f3dc_plugins
 !   f3dc_desugar : f3dc_dyn, f3dc_str, f3dc_errors, f3dc_parser,
-!                  f3dc_ast
+!                  f3dc_ast, f3dc_plugins
+!   f3dc_plugins : f3dc_str, f3dc_dyn, f3dc_ir, f3dc_driver
+!   f3dc_driver  : f3dc_str, f3dc_emit_common
+!   f3dc_emit_common : f3dc_str, f3dc_dyn
+!   f3dc_ir      : f3dc_dyn, f3dc_str, f3dc_errors
 !   f3dc_ast     : f3dc_dyn, f3dc_str
 !   f3dc_lexer   : f3dc_errors
 !   f3dc_errors  : f3dc_str, plus the C helper f3dc_isatty_stderr
@@ -91,7 +99,12 @@
 !   f3dc_dyn     : (standalone)
 !   f3dc_str     : (standalone)
 ! So the object set is: f3dc_str, f3dc_dyn, f3dc_errors,
-! f3dc_lexer, f3dc_ast, f3dc_parser, f3dc_desugar, preview_http.o.
+! f3dc_lexer, f3dc_ast, f3dc_ir, f3dc_emit_common, f3dc_driver,
+! f3dc_plugins, f3dc_parser, f3dc_desugar, preview_http.o.
+! (Link set updated in Wave 6 when the fuzz audit found it had
+! drifted: the parser/desugar grew a f3dc_plugins dependency
+! after this harness was written, and run_fuzz.sh's list is
+! updated in the same change.)
 !
 ! Fortran traps honoured throughout (compiler house rules)
 ! ---------------------------------------------------------
