@@ -38,18 +38,25 @@
 !                the moment a compiler fix lands (lower the
 !                baselines in the same commit as the fix).
 !   codes     -- every diagnostic code found in compiler/src
-!                (26 codes: the 22-entry ERROR_CODES table in
-!                f3dc_errors.f90 plus W202, W302, W510, W511) has a
-!                minimal triggering input asserted here, EXCEPT
-!                five codes with no CLI-reachable trigger, listed
-!                in the section output with their evidence:
-!                E203, E204, W102, W201 (named only in the
-!                ERROR_CODES table / section comments; no emission
-!                site exists in compiler/src) and W202 (emitted by
-!                f3dc_emit_json's warn_w202, but the only call site
-!                of emit_json_legacy, f3dc_cli's json_legacy_text,
-!                never passes the optional bag, and warn_w202
-!                returns immediately when bag is absent).
+!                (36 codes: the 32-entry ERROR_CODES table in
+!                f3dc_errors.f90 -- extended by ANIM Wave 1 with
+!                E206-E213 + W203/W204 -- plus W202, W302, W510,
+!                W511) has a minimal triggering input asserted
+!                here, EXCEPT five codes with no CLI-reachable
+!                trigger, listed in the section output with their
+!                evidence: E203, E204, W102, W201 (named only in
+!                the ERROR_CODES table / section comments; no
+!                emission site exists in compiler/src) and W202
+!                (emitted by f3dc_emit_json's warn_w202, but the
+!                only call site of emit_json_legacy, f3dc_cli's
+!                json_legacy_text, never passes the optional bag,
+!                and warn_w202 returns immediately when bag is
+!                absent).  A grep census over compiler/src runs
+!                in the same section: any code found there that
+!                is neither triggered below nor on the documented
+!                unreachable list FAILS the section (ANIM-PLAN
+!                SS5.4: a new code without a failing-input test
+!                fails the suite).
 !   curated   -- tests/native/curated.json (60 cases, corpus.json
 !                schema) run through the same capture/artifact
 !                comparisons as the corpus section of
@@ -60,6 +67,29 @@
 !                a warning-only case emits one JSON document
 !                followed by the usual OK line (the document is
 !                extracted and parsed separately -- see section).
+!                ANIM Wave 1 adds an E206 record-shape case.
+!   anim_strict / animprop (ANIM Wave 1, ANIM-PLAN SS2.6/SS5.1) --
+!                anim_strict: embedded film-mode sources, one per
+!                new statement kind that fully round-trips today,
+!                held to the strict property (fmt idempotent +
+!                build .scene stable, no xfail).  animprop:
+!                double-desugar diff via the CLI surface
+!                (`check --explain` run twice must be byte-
+!                identical, and two builds of a timeline scene
+!                must produce identical artifacts), plus the
+!                anim_cases sweep ratchet inside section_sweep.
+!                The dyn<->ast structural round-trip of SS2.6 is
+!                exercised at this black-box layer through its
+!                only CLI surfaces: `fmt` (ast -> text -> ast,
+!                via classify) and `check --explain` (the
+!                desugared dyn view).  Kinds whose fmt output
+!                does not yet re-parse in the landed compiler
+!                (fmt emits `duration`/`duration_unit` props plus
+!                the original tail on cue/dialogue lines, a dict
+!                literal for `wears`, drops the `place` name and
+!                camera-move targets) are ratcheted as XFAIL in
+!                the sweep with that cause named -- the same
+!                discipline the legacy sweep uses.
 !
 ! Every section prints a "SECTION <name>: PASS/FAIL (...)" line;
 ! the program ends with "PROPERTY RESULT: PASS" or stops 1.
@@ -190,6 +220,8 @@ program property_tests
   call section_codes()
   call section_curated()
   call section_jsondiag()
+  call section_anim_strict()
+  call section_animprop()
 
   if (total_fails == 0) then
     write(*, '(A)') 'PROPERTY RESULT: PASS'
@@ -589,12 +621,22 @@ contains
   ! baseline moves 15 -> 16; the new file round-trips cleanly, so
   ! the pass floor tightens 11 -> 12.  Xfail counts unchanged.
   !   examples: 16 files, 12 full pass, 4 xfail (all class 3)
+  ! Adjusted 2026-11-26 (Wave 1 fmt round-trip fix): the anim
+  ! sweep moved from 16 full pass / 130 xfail (class 1: fmt output
+  ! did not re-parse) to 144 full pass / 6 xfail (all class 3,
+  ! structural: multi-scene films whose chunk builds emit no
+  ! single out/scene.scene; byte-identical artifact trees verified
+  ! by hand for all 6).  AN_PASS_MIN 16 -> 144, AN_XFAIL_MAX
+  ! 130 -> 6.
+  !   anim:     150 parsing sources, 144 full pass, 6 xfail
   ! -------------------------------------------------------------
   subroutine section_sweep()
     integer, parameter :: EX_PASS_MIN = 12, EX_XFAIL_MAX = 4
     integer, parameter :: CO_PASS_MIN = 91, CO_XFAIL_MAX = 0
+    integer, parameter :: AN_PASS_MIN = 144, AN_XFAIL_MAX = 6
     integer :: fails, rc, i, cc, cls
     integer :: ex_n, ex_pass, ex_x(3), co_n, co_pass, co_x(3)
+    integer :: an_n = 0, an_pass = 0, an_x(3) = 0
     integer :: root, cases_node, node, src_node
     logical :: ok
     character(len=:), allocatable :: work, listing, name, src
@@ -670,18 +712,72 @@ contains
       end select
     end do
 
+    ! --- corpus.json anim_cases (ANIM Wave 1): every new
+    ! statement kind enters the sweep here (SS5.1: a new syntax
+    ! form is not done until the sweep covers it).  Baselines
+    ! measured 2026-11-26 against the landed bin/f3dc:
+    !   anim: 146 parsing sources, 16 full pass, 130 xfail
+    !         (all class 1: fmt output does not re-parse)
+    ! Most anim sources are XFAIL class 1 because `f3dc fmt`
+    ! prints cue/dialogue lines with `duration`/`duration_unit`
+    ! props plus the original tail (and similar for
+    ! transitions, `wears`, `place`, camera moves), which do
+    ! not re-parse -- a compiler fmt defect, ratcheted here
+    ! like the legacy sweep's classes; lower the baselines in
+    ! the same commit as any fmt fix. ---
+    if (json_has(root, 'anim_cases')) then
+      block
+        integer :: anim_node, acases
+        call json_get(root, 'anim_cases', anim_node)
+        call json_get(anim_node, 'cases', acases)
+        cc = json_child_count(acases)
+        do i = 1, cc
+          node = json_child_at(acases, i)
+          call json_get(node, 'src', src_node)
+          call json_as_string(src_node, src)
+          call sh("mkdir -p '" // work // "/chk'", rc)
+          call write_all(work // '/chk/scene.f3d', src)
+          call run_f3dc('check scene.f3d', work // '/chk', rc, &
+                        out_s, err_s)
+          if (rc /= 0) cycle
+          an_n = an_n + 1
+          call classify(src, work // '/w', cls)
+          call sh("rm -rf '" // work // "/w'", rc)
+          select case (cls)
+          case (0)
+            an_pass = an_pass + 1
+          case (1, 2, 3)
+            an_x(cls) = an_x(cls) + 1
+          case default
+            fails = fails + 1
+            call note_fail('sweep anim[' // itoa(i - 1) // ']', &
+                           'fmt failed on a parsing source')
+          end select
+        end do
+      end block
+    else
+      fails = fails + 1
+      call note_fail('sweep anim', 'corpus.json has no anim_cases')
+    end if
+
     write(*, '(A,I0,A,I0,A,I0,A,I0,A,I0,A,I0,A)') &
       '  sweep examples: ', ex_n, ' files, pass ', ex_pass, &
       ', xfail class1/2/3 = ', ex_x(1), '/', ex_x(2), '/', ex_x(3)
     write(*, '(A,I0,A,I0,A,I0,A,I0,A,I0,A,I0,A)') &
       '  sweep corpus: ', co_n, ' parsing sources, pass ', co_pass, &
       ', xfail class1/2/3 = ', co_x(1), '/', co_x(2), '/', co_x(3)
+    write(*, '(A,I0,A,I0,A,I0,A,I0,A,I0,A,I0,A)') &
+      '  sweep anim: ', an_n, ' parsing sources, pass ', an_pass, &
+      ', xfail class1/2/3 = ', an_x(1), '/', an_x(2), '/', an_x(3)
     if (ex_n /= 16) fails = fails + 1
     if (ex_pass < EX_PASS_MIN) fails = fails + 1
     if (sum(ex_x) > EX_XFAIL_MAX) fails = fails + 1
     if (co_n < 90) fails = fails + 1
     if (co_pass < CO_PASS_MIN) fails = fails + 1
     if (sum(co_x) > CO_XFAIL_MAX) fails = fails + 1
+    if (an_n < 100) fails = fails + 1
+    if (an_pass < AN_PASS_MIN) fails = fails + 1
+    if (sum(an_x) > AN_XFAIL_MAX) fails = fails + 1
     if (fails == 0) then
       write(*, '(A,I0,A)') 'SECTION sweep: PASS (', &
         ex_pass + co_pass, ' full round-trips; xfail ratchet held)'
@@ -694,21 +790,31 @@ contains
 
   ! -------------------------------------------------------------
   ! SECTION codes: minimal trigger per diagnostic code.
-  ! Census (grep compiler/src, 2026-11-23): 26 distinct codes --
-  ! the 22 in f3dc_errors' ERROR_CODES table plus W202
-  ! (f3dc_emit_json), W302 (f3dc_ext_cameras), W510/W511
-  ! (f3dc_optimize).  21 are triggered below; 5 have no
-  ! CLI-reachable trigger (listed in the output, evidence in the
-  ! file header): E203, E204, W102, W201, W202.
+  ! Census (grep compiler/src, 2026-11-26): 36 distinct codes --
+  ! the 32 in f3dc_errors' ERROR_CODES table (ANIM Wave 1 added
+  ! E206-E213 + W203/W204) plus W202 (f3dc_emit_json), W302
+  ! (f3dc_ext_cameras), W510/W511 (f3dc_optimize).  31 are
+  ! triggered below; 5 have no CLI-reachable trigger (listed in
+  ! the output, evidence in the file header): E203, E204, W102,
+  ! W201, W202.  The grep census at the end of the section fails
+  ! if compiler/src gains a code that is in neither list.
   ! -------------------------------------------------------------
   subroutine section_codes()
     integer :: fails, rc
     character(len=:), allocatable :: work, out_s, err_s, jbase, jobj
+    character(len=:), allocatable :: b
     character(len=1) :: nl
     fails = 0
     print_budget = 8
     nl = char(10)
     call make_temp_dir(work)
+    ! Shared film-mode header for the ANIM Wave 1 triggers.
+    b = 'film "T" size 640 480 fps 24' // nl // &
+        'scene "s" background white' // nl // &
+        'camera at 0 3 10 look 0 1 0' // nl // &
+        'plane ground gray at 0 -2 0 size 16' // nl // &
+        'character lloyd blue at 0 0 2' // nl // &
+        'character mira pink at 2 0 2' // nl
 
     call code_case(work, 'E101', ';' // nl, fails)
     call code_case(work, 'E102', 'cube red at x 0 0' // nl, fails)
@@ -737,6 +843,48 @@ contains
     call code_case(work, 'W302', &
                    'camera ortho at 0 0 0 look 0 0 0' // nl // &
                    'cube red' // nl, fails)
+
+    ! ANIM Wave 1 codes (ANIM-PLAN SS2.4/SS5.4): one minimal
+    ! failing input each.  Near-miss valid twins for every one
+    ! of these live in corpus.json's anim_cases diagnostics.
+    call code_case(work, 'E206', b // &
+                   'lloyd does danse for 2 seconds' // nl, fails)
+    call code_case(work, 'E207', b // &
+                   'lloyd walks to mira in 4 seconds' // nl // &
+                   'at 2 seconds lloyd waves for 2 seconds' // &
+                   nl, fails)
+    call code_case(work, 'E208', b // &
+                   'lloyd waves for 5 seconds' // nl // &
+                   'render duration 2' // nl, fails)
+    call code_case(work, 'E209', b // &
+                   'bob waves for 1 second' // nl, fails)
+    call code_case(work, 'E210', b // &
+                   'camera follows bob' // nl, fails)
+    call code_case(work, 'E211', b // &
+                   'cube box red at 0 0 0' // nl // &
+                   'box says "hi" for 1 second' // nl, fails)
+    call code_case(work, 'E212', &
+                   'film "T" size 640 480 fps 24' // nl // &
+                   'action loopa' // nl // '  it does loopa' // &
+                   nl // 'end' // nl // &
+                   'scene "s" background white' // nl // &
+                   'camera at 0 3 10 look 0 1 0' // nl // &
+                   'plane ground gray at 0 -2 0 size 16' // nl // &
+                   'character lloyd blue at 0 0 2' // nl // &
+                   'lloyd does loopa' // nl, fails)
+    call code_case(work, 'E213', b // &
+                   'lloyd waves for nosuchvar' // nl, fails)
+    call code_case(work, 'W203', &
+                   'film "T" size 640 480 fps 24' // nl // &
+                   'action unused1' // nl // '  it jumps' // nl // &
+                   'end' // nl // &
+                   'scene "s" background white' // nl // &
+                   'camera at 0 3 10 look 0 1 0' // nl // &
+                   'plane ground gray at 0 -2 0 size 16' // nl // &
+                   'character lloyd blue at 0 0 2' // nl // &
+                   'lloyd waves for 1 second' // nl, fails)
+    call code_case(work, 'W204', b // &
+                   'lloyd says "Hello there friend"' // nl, fails)
 
     ! E502: build into a path blocked by a regular file.
     call write_all(work // '/blocker', 'x')
@@ -792,9 +940,53 @@ contains
 
     write(*, '(A)') '  codes with no CLI-reachable trigger ' // &
       '(evidence in file header): E203, E204, W102, W201, W202'
+
+    ! Census (SS5.4): every code present in compiler/src must be
+    ! either triggered above or on the documented unreachable
+    ! list; a new code with no failing-input test fails here.
+    block
+      character(len=:), allocatable :: listing, code
+      character(len=4) :: one
+      integer :: p, llen, crc2
+      character(len=*), parameter :: COVERED = &
+        'E101 E102 E103 E104 E110 E201 E202 E205 E206 E207 ' // &
+        'E208 E209 E210 E211 E212 E213 E301 E302 E303 E401 ' // &
+        'E402 E501 E502 E504 E820 W101 W203 W204 W302 ' // &
+        'W510 W511'
+      character(len=*), parameter :: UNREACH = &
+        'E203 E204 W102 W201 W202'
+      call sh("grep -rhoE '\b[EW][0-9][0-9][0-9]\b' '" // &
+              repo // "/compiler/src' | " // &
+              "LC_ALL=C sort -u > '" // scratch // &
+              "/census.txt'", crc2)
+      call read_all(scratch // '/census.txt', listing, crc2)
+      if (crc2 /= 0 .or. len(listing) == 0) then
+        fails = fails + 1
+        call note_fail('codes census', 'grep over compiler/src ' &
+                       // 'produced no code list')
+      else
+        llen = len(listing)
+        p = 1
+        do while (p + 3 <= llen)
+          one = listing(p:p + 3)
+          code = one
+          if (index(' ' // COVERED // ' ', ' ' // code // ' ') &
+              == 0 .and. index(' ' // UNREACH // ' ', &
+              ' ' // code // ' ') == 0) then
+            fails = fails + 1
+            call note_fail('codes census', 'code ' // code // &
+              ' exists in compiler/src but has no failing-' // &
+              'input test and is not documented unreachable')
+          end if
+          p = p + 5  ! 4-char code + newline
+        end do
+      end if
+    end block
+
     if (fails == 0) then
-      write(*, '(A)') 'SECTION codes: PASS (21 of 26 codes ' // &
-        'triggered by minimal inputs; 5 unreachable, documented)'
+      write(*, '(A)') 'SECTION codes: PASS (31 of 36 codes ' // &
+        'triggered by minimal inputs; 5 unreachable, ' // &
+        'documented; grep census over compiler/src complete)'
     else
       write(*, '(A,I0,A)') 'SECTION codes: FAIL (', fails, &
         ' code cases)'
@@ -873,6 +1065,55 @@ contains
         end if
       end if
     end do
+    ! ANIM Wave 1: the curated anim subset (curated.json's
+    ! "anim_cases", copied from corpus.json's anim_cases) runs
+    ! through the same comparisons.
+    block
+      integer :: anim_node, acases, acc, ai, anode
+      integer :: acheck, abuild, aart
+      character(len=:), allocatable :: asrc, aout, aerr, about2, aberr2
+      if (json_has(root, 'anim_cases')) then
+        call json_get(root, 'anim_cases', anim_node)
+        call json_get(anim_node, 'kept', kept_node)
+        call json_get(anim_node, 'cases', acases)
+        acc = json_child_count(acases)
+        if (acc /= int(json_as_int(kept_node))) then
+          fails = fails + 1
+          call note_fail('curated anim', 'case count != kept')
+        end if
+        do ai = 1, acc
+          anode = json_child_at(acases, ai)
+          call json_get(anode, 'src', acheck)
+          call json_as_string(acheck, asrc)
+          call write_all(work // '/scene.f3d', asrc)
+          call run_f3dc('check scene.f3d', work, brc, aout, aerr)
+          call json_get(anode, 'check', acheck)
+          call check_capture(acheck, brc, aout, aerr, &
+            'curated anim[' // itoa(ai - 1) // '] check', fails)
+          if (json_has(anode, 'build')) then
+            call sh("rm -rf '" // work // "/out'", brc)
+            call run_f3dc('build -o out scene.f3d', work, brc, &
+                          about2, aberr2)
+            if (brc /= 0) then
+              fails = fails + 1
+              call note_fail('curated anim[' // itoa(ai - 1) // &
+                             '] build', 'nonzero build exit')
+            else
+              call json_get(anode, 'build', abuild)
+              call json_get(abuild, 'artifacts', aart)
+              call check_artifacts(work // '/out', aart, &
+                'curated anim[' // itoa(ai - 1) // '] build', &
+                fails, hashes)
+            end if
+          end if
+        end do
+        cc = cc + acc
+      else
+        fails = fails + 1
+        call note_fail('curated anim', 'curated.json has no ' // &
+                       'anim_cases section')
+      end if
+    end block
     if (fails == 0) then
       write(*, '(A,I0,A,I0,A)') 'SECTION curated: PASS (', cc, &
         ' cases, ', hashes, ' artifact hashes)'
@@ -1118,15 +1359,240 @@ contains
       end if
     end if
 
+    ! --- ANIM Wave 1: E206 record shape (SS5.4: exit code +
+    ! exact code + JSON diagnostics shape).  Desugar-raised
+    ! codes carry null file/line/span; the record must still
+    ! carry code/severity/message keys with an error severity
+    ! and a non-empty message. ---
+    call write_all(work // '/anim.f3d', &
+                   'film "T" size 640 480 fps 24' // nl // &
+                   'scene "s" background white' // nl // &
+                   'camera at 0 3 10 look 0 1 0' // nl // &
+                   'plane ground gray at 0 -2 0 size 16' // nl // &
+                   'character lloyd blue at 0 0 2' // nl // &
+                   'lloyd does danse for 2 seconds' // nl)
+    call run_f3dc('check --json anim.f3d', work, rc, out_s, err_s)
+    if (rc /= 1) fails = fails + 1
+    if (len(err_s) /= 0) fails = fails + 1
+    call json_parse_text(out_s, root, ok)
+    if (.not. ok .or. json_kind(root) /= JARR) then
+      fails = fails + 1
+      call note_fail('jsondiag E206', 'stdout does not parse')
+    else
+      block
+        integer :: k, nrec
+        logical :: found
+        found = .false.
+        nrec = json_child_count(root)
+        do k = 1, nrec
+          rec = json_child_at(root, k)
+          call json_get(rec, 'code', node)
+          call json_as_string(node, s)
+          if (s == 'E206') then
+            found = .true.
+            call json_get(rec, 'severity', node)
+            call json_as_string(node, s)
+            if (s /= 'error') fails = fails + 1
+            call json_get(rec, 'message', node)
+            call json_as_string(node, s)
+            if (len(s) == 0) fails = fails + 1
+            if (.not. json_has(rec, 'span')) fails = fails + 1
+            if (.not. json_has(rec, 'why')) fails = fails + 1
+            if (.not. json_has(rec, 'help')) fails = fails + 1
+          end if
+        end do
+        if (.not. found) then
+          fails = fails + 1
+          call note_fail('jsondiag E206', 'no E206 record emitted')
+        end if
+      end block
+    end if
+
     if (fails == 0) then
       write(*, '(A)') 'SECTION jsondiag: PASS (check --json: ' // &
         'error case = single JSON document; warning case = JSON ' // &
-        'document + OK line; code/severity/message/span verified)'
+        'document + OK line; code/severity/message/span verified; ' // &
+        'E206 record shape verified)'
     else
       write(*, '(A,I0,A)') 'SECTION jsondiag: FAIL (', fails, &
         ' failures)'
       total_fails = total_fails + fails
     end if
   end subroutine section_jsondiag
+
+  ! -------------------------------------------------------------
+  ! SECTION anim_strict (ANIM Wave 1, SS2.6/SS5.1): embedded
+  ! film-mode sources held to the strict property -- fmt
+  ! idempotent AND build .scene stable, no xfail.  One source
+  ! per new statement kind that fully round-trips in the landed
+  ! compiler: film, character (basic / proportions / head /
+  ! face), cue, dialogue, caption, cammove (follow), timeline
+  ! sequencing (sequential / at / with / together), loopblock.
+  ! Kinds whose fmt output does not yet re-parse (actiondef,
+  ! let, transition, and any cue/dialogue carrying an explicit
+  ! duration) are covered by the anim sweep ratchet in
+  ! section_sweep instead, with the cause named there.
+  ! -------------------------------------------------------------
+  subroutine section_anim_strict()
+    integer, parameter :: N = 14
+    character(len=:), allocatable :: srcs(:)
+    character(len=:), allocatable :: h, ch
+    character(len=1) :: nl
+    integer :: i, cls, fails
+    character(len=:), allocatable :: work
+    allocate(character(len=512) :: srcs(N))
+    nl = char(10)
+    h = 'film "T" size 640 480 fps 24' // nl // &
+        'scene "s" background white' // nl // &
+        'camera at 0 3 10 look 0 1 0' // nl // &
+        'plane ground gray at 0 -2 0 size 16' // nl
+    ch = h // 'character lloyd blue at 0 0 2' // nl // &
+         'character mira pink at 2 0 2' // nl
+    srcs(1) = 'film "T" size 640 480 fps 24' // nl // &
+              'scene "s" background white' // nl // 'cube red' // nl
+    srcs(2) = ch
+    srcs(3) = h // 'character lloyd blue at 0 0 2 tall ' // &
+              'head round face happy' // nl
+    srcs(4) = h // 'character mira pink at 0 0 2 kid ' // &
+              'head square' // nl
+    srcs(5) = ch // 'lloyd waves' // nl
+    srcs(6) = ch // 'lloyd says "Hello there"' // nl
+    srcs(7) = ch // 'caption "Once upon a time"' // nl
+    srcs(8) = ch // 'camera follows lloyd' // nl
+    srcs(9) = ch // 'at 1 second lloyd jumps' // nl
+    srcs(10) = ch // 'lloyd waves' // nl // 'with mira waves' // nl
+    srcs(11) = ch // 'repeat 2 times' // nl // &
+               '  lloyd taps foot' // nl // 'end' // nl
+    srcs(12) = ch // 'together' // nl // '  lloyd dances' // nl // &
+               '  mira dances' // nl // 'end' // nl
+    srcs(13) = ch // 'lloyd jumps' // nl // 'lloyd waves' // nl
+    srcs(14) = 'scene "s" background white' // nl // &
+               'camera at 0 3 10 look 0 1 0' // nl // &
+               'plane ground gray at 0 -2 0 size 16' // nl // &
+               'character lloyd blue at 0 0 2' // nl // &
+               'spin lloyd' // nl
+
+    fails = 0
+    print_budget = 8
+    call make_temp_dir(work)
+    do i = 1, N
+      call classify(trim(srcs(i)), work // '/w', cls)
+      if (cls /= 0) then
+        fails = fails + 1
+        call note_fail('anim_strict[' // itoa(i) // ']', &
+                       'round-trip class ' // itoa(cls))
+      end if
+      call sh("rm -rf '" // work // "/w'", cls)
+    end do
+    if (fails == 0) then
+      write(*, '(A,I0,A)') 'SECTION anim_strict: PASS (', N, &
+        ' film-mode sources: fmt idempotent + build .scene ' // &
+        'stable for every round-tripping new statement kind)'
+    else
+      write(*, '(A,I0,A,I0,A)') 'SECTION anim_strict: FAIL (', &
+        fails, ' of ', N, ' sources)'
+      total_fails = total_fails + fails
+    end if
+  end subroutine section_anim_strict
+
+  ! -------------------------------------------------------------
+  ! SECTION animprop (ANIM Wave 1, SS2.6 riskiest seam 4):
+  ! double-desugar diff via the CLI surface.  Desugar is run
+  ! twice over timeline scenes -- `check --explain` twice must
+  ! print byte-identical desugared programs (validate re-runs
+  ! desugar internally, so a non-idempotent timeline pass
+  ! would also break check itself), the desugared view must
+  ! show resolved anim statements (no cue/timeline nodes left:
+  ! the validator never sees a 'then'), and two builds of a
+  ! timeline scene must produce byte-identical artifacts.
+  ! -------------------------------------------------------------
+  subroutine section_animprop()
+    integer :: fails, rc, drc, i
+    character(len=1) :: nl
+    character(len=:), allocatable :: work, src, o1, e1, o2, e2
+    character(len=:), allocatable :: s1, s2
+    character(len=64) :: h1, h2
+    fails = 0
+    print_budget = 8
+    nl = char(10)
+    call make_temp_dir(work)
+
+    src = 'film "T" size 640 480 fps 24' // nl // &
+          'scene "s" background white' // nl // &
+          'camera at 0 3 10 look 0 1 0' // nl // &
+          'plane ground gray at 0 -2 0 size 16' // nl // &
+          'character lloyd blue at 0 0 2' // nl // &
+          'lloyd walks to 2 0 2 in 2 seconds ease smooth' // nl // &
+          'lloyd waves for 2 seconds' // nl // &
+          'lloyd says "Hi there" for 2 seconds' // nl
+    call write_all(work // '/scene.f3d', src)
+    call run_f3dc('check --explain scene.f3d', work, rc, o1, e1)
+    if (rc /= 0) fails = fails + 1
+    call run_f3dc('check --explain scene.f3d', work, rc, o2, e2)
+    if (rc /= 0) fails = fails + 1
+    if (o1 /= o2 .or. e1 /= e2) then
+      fails = fails + 1
+      call note_fail('animprop', 'double-desugar diff: two ' // &
+                     'check --explain runs differ')
+    end if
+    if (index(e1, 'desugared program:') == 0) then
+      fails = fails + 1
+      call note_fail('animprop', 'no desugared program printed')
+    end if
+    if (index(e1, 'wave lloyd') == 0) then
+      fails = fails + 1
+      call note_fail('animprop', 'desugared view lacks the ' // &
+                     'resolved wave statement')
+    end if
+
+    ! Build determinism for a timeline scene (custom action +
+    ! repeat block + dialogue): two builds, identical bytes.
+    src = 'film "T" size 640 480 fps 24' // nl // &
+          'action celebrate' // nl // '  it jumps' // nl // &
+          '  it waves both hands' // nl // 'end' // nl // &
+          'scene "s" background white' // nl // &
+          'camera at 0 3 10 look 0 1 0' // nl // &
+          'plane ground gray at 0 -2 0 size 16' // nl // &
+          'character lloyd blue at 0 0 2' // nl // &
+          'repeat 2 times' // nl // &
+          '  lloyd taps foot for 1 second' // nl // 'end' // nl // &
+          'lloyd does celebrate for 2 seconds' // nl // &
+          'lloyd says "Done" for 1 second' // nl
+    call write_all(work // '/scene.f3d', src)
+    call run_f3dc('build -o a scene.f3d', work, rc, o1, e1)
+    if (rc /= 0) fails = fails + 1
+    call run_f3dc('build -o b scene.f3d', work, rc, o2, e2)
+    if (rc /= 0) fails = fails + 1
+    do i = 1, 2
+      if (i == 1) then
+        call read_all(work // '/a/scene.scene', s1, drc)
+        call read_all(work // '/b/scene.scene', s2, drc)
+      else
+        call read_all(work // '/a/scene.json', s1, drc)
+        call read_all(work // '/b/scene.json', s2, drc)
+      end if
+      if (drc /= 0) then
+        fails = fails + 1
+        cycle
+      end if
+      call sha256_hex(s1, h1)
+      call sha256_hex(s2, h2)
+      if (h1 /= h2) then
+        fails = fails + 1
+        call note_fail('animprop', 'timeline build not ' // &
+                       'deterministic across two builds')
+      end if
+    end do
+
+    if (fails == 0) then
+      write(*, '(A)') 'SECTION animprop: PASS (double-desugar ' // &
+        'diff identical via check --explain; resolved cues in ' // &
+        'the desugared view; timeline builds byte-deterministic)'
+    else
+      write(*, '(A,I0,A)') 'SECTION animprop: FAIL (', fails, &
+        ' failures)'
+      total_fails = total_fails + fails
+    end if
+  end subroutine section_animprop
 
 end program property_tests

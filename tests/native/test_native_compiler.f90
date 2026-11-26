@@ -145,12 +145,14 @@ program test_native_compiler
   character(len=:), allocatable :: repo, f3dc, scratch
   integer :: total_fails = 0
   integer :: corpus_artifacts = 0, examples_artifacts = 0
+  integer :: anim_artifacts = 0
   integer :: cli_artifacts = 0
   integer :: print_budget = 8
 
   call setup_paths()
   call selftest_sha()
   call section_corpus()
+  call section_anim()
   call section_examples()
   call section_cli()
   call section_determinism()
@@ -633,6 +635,79 @@ contains
       total_fails = total_fails + fails
     end if
   end subroutine section_corpus
+
+  ! -------------------------------------------------------------
+  ! SECTION: anim corpus (ANIM Wave 1, ANIM-PLAN SS5.1) -- the
+  ! "anim_cases" section of corpus.json, run through exactly the
+  ! same capture/artifact comparisons as the 896-case corpus
+  ! section above.  The pre-existing "cases" array is untouched
+  ! by this section (zero-drift exit criterion).
+  ! -------------------------------------------------------------
+  subroutine section_anim()
+    integer :: root, cases_node, kept_node, fails, i, cc, node, brc
+    logical :: ok
+    character(len=:), allocatable :: work, src, out_s, err_s
+    character(len=:), allocatable :: bout, berr
+    integer :: check_node, build_node, art_node
+    fails = 0
+    print_budget = 8
+    call read_json_file(repo // '/tests/native/corpus.json', root, ok)
+    if (.not. ok) then
+      write(*, '(A)') 'SECTION anim: FAIL (corpus.json parse error)'
+      total_fails = total_fails + 1
+      return
+    end if
+    if (.not. json_has(root, 'anim_cases')) then
+      write(*, '(A)') 'SECTION anim: FAIL (no anim_cases section)'
+      total_fails = total_fails + 1
+      return
+    end if
+    block
+      integer :: anim_node
+      call json_get(root, 'anim_cases', anim_node)
+      call json_get(anim_node, 'kept', kept_node)
+      call json_get(anim_node, 'cases', cases_node)
+    end block
+    cc = json_child_count(cases_node)
+    if (cc /= int(json_as_int(kept_node))) then
+      fails = fails + 1
+      call note_fail('anim', 'case count != kept')
+    end if
+    call make_temp_dir(work)
+    do i = 1, cc
+      node = json_child_at(cases_node, i)
+      call json_get(node, 'src', check_node)
+      call json_as_string(check_node, src)
+      call write_all(work // '/scene.f3d', src)
+      call run_f3dc('check scene.f3d', work, brc, out_s, err_s)
+      call json_get(node, 'check', check_node)
+      call check_capture(check_node, brc, out_s, err_s, &
+                         'anim[' // itoa(i - 1) // '] check', fails)
+      if (json_has(node, 'build')) then
+        call sh("rm -rf '" // work // "/out'", brc)
+        call run_f3dc('build -o out scene.f3d', work, brc, bout, berr)
+        if (brc /= 0) then
+          fails = fails + 1
+          call note_fail('anim[' // itoa(i - 1) // '] build', &
+                         'nonzero build exit')
+        else
+          call json_get(node, 'build', build_node)
+          call json_get(build_node, 'artifacts', art_node)
+          call check_artifacts(work // '/out', art_node, .false., &
+            'anim[' // itoa(i - 1) // '] build', fails, anim_artifacts)
+        end if
+      end if
+    end do
+    if (fails == 0) then
+      write(*, '(A,I0,A,I0,A)') 'SECTION anim: PASS (', cc, &
+        ' cases, ', anim_artifacts, ' artifact hashes)'
+    else
+      write(*, '(A,I0,A,I0,A,I0,A)') 'SECTION anim: FAIL (', fails, &
+        ' failures in ', cc, ' cases, ', anim_artifacts, &
+        ' artifact hashes)'
+      total_fails = total_fails + fails
+    end if
+  end subroutine section_anim
 
   ! -------------------------------------------------------------
   ! SECTION: examples

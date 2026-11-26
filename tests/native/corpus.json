@@ -28161,5 +28161,2779 @@
     "stderr_text": null
    }
   }
+ ],
+ "anim_cases": {
+ "about": "ANIM Wave 1 (ANIM-PLAN SS5.1) animation-compiler corpus: film mode, characters, built-in/custom actions, plain-word timelines (incl. plain-word<->numeric equivalence pairs with identical baked expectations), camera moves, dialogue/subtitles (incl. Bangla), multi-scene + transitions, loops & variables, fps/timebase edges, one minimal failing case per new diagnostic E206-E213/W203/W204 each with a near-miss valid twin, and the three SS1.10 example scripts. Expectations baked 2026-11-26 from the landed native bin/f3dc with the same extractor semantics as the corpus section of test_native_compiler.f90 (check capture sha256 + codes; build artifact sha256 sets, manifest excluded). Two cases bake landed-compiler defects against the plan (walks-in-from -> E201, gently -> E201) and one a limitation (let in repeat count), each named in the wave report.",
+ "kept": 162,
+ "cases": [
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "31afdd0d9fc50200b3de7f8bf5c48b6c3ac6a390b510d7354372ffa2460d7989",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (2 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "9d71c11650330d879b65f7dbd1eaaea7b730955a491bcf56ce97a733b111ddeb",
+     "scene.js": "5dfb79e7aa37a1affda67159b8e152c26292c4fb76eecf4ecd7a99c9866d0177",
+     "scene.json": "f315ebcb81928160c0aa0328790d25c08416c7af4efc87d72d1422fd94f29984",
+     "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
+     "scene.scene": "c98e546696f54fb3c764e46989021317536a3fcf1c747216c24d066b7c4e1572",
+     "scene_scene.f90": "2e67ac19dd4a85d2ea90f66f8e19b0f35a52f4f94a80b3ddb4dd2a2fb1fc8063"
+    }
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2 tall\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "31afdd0d9fc50200b3de7f8bf5c48b6c3ac6a390b510d7354372ffa2460d7989",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (2 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2 short\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "31afdd0d9fc50200b3de7f8bf5c48b6c3ac6a390b510d7354372ffa2460d7989",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (2 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter mira pink at 0 0 2 kid\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "31afdd0d9fc50200b3de7f8bf5c48b6c3ac6a390b510d7354372ffa2460d7989",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (2 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "14ef281a1bf642a8ff79e12b4063c16a15c06ad4a1b1d0995f3466437eabd9d0",
+     "scene.js": "b80673c659dc40e4aaeb8d593413950c5c2c28f2b450288f7a3a1461a3380cf9",
+     "scene.json": "803d48e8421191d91ec2a0dc24b3a49718089e52bbd46d4e16a501155e50b317",
+     "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
+     "scene.scene": "69f797b3486fe91002b61b970d7e7bd3301b7c56dea157d70068cad258c05fa5",
+     "scene_scene.f90": "7fd222d97005c3707833b6ff6b65a760a18f1ec23e065c46c71b5879420e78c8"
+    }
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2 height 1.2\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "31afdd0d9fc50200b3de7f8bf5c48b6c3ac6a390b510d7354372ffa2460d7989",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (2 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2 head square\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "31afdd0d9fc50200b3de7f8bf5c48b6c3ac6a390b510d7354372ffa2460d7989",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (2 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2 head oval\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "31afdd0d9fc50200b3de7f8bf5c48b6c3ac6a390b510d7354372ffa2460d7989",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (2 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter mira pink at 0 0 2 hair bun\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "31afdd0d9fc50200b3de7f8bf5c48b6c3ac6a390b510d7354372ffa2460d7989",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (2 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter mira pink at 0 0 2 hair red\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "31afdd0d9fc50200b3de7f8bf5c48b6c3ac6a390b510d7354372ffa2460d7989",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (2 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2 face happy\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "31afdd0d9fc50200b3de7f8bf5c48b6c3ac6a390b510d7354372ffa2460d7989",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (2 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2 face determined\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "31afdd0d9fc50200b3de7f8bf5c48b6c3ac6a390b510d7354372ffa2460d7989",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (2 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2 wears hat black\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "31afdd0d9fc50200b3de7f8bf5c48b6c3ac6a390b510d7354372ffa2460d7989",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (2 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter mira pink at 0 0 2 wears dress yellow\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "31afdd0d9fc50200b3de7f8bf5c48b6c3ac6a390b510d7354372ffa2460d7989",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (2 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "14ef281a1bf642a8ff79e12b4063c16a15c06ad4a1b1d0995f3466437eabd9d0",
+     "scene.js": "b80673c659dc40e4aaeb8d593413950c5c2c28f2b450288f7a3a1461a3380cf9",
+     "scene.json": "803d48e8421191d91ec2a0dc24b3a49718089e52bbd46d4e16a501155e50b317",
+     "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
+     "scene.scene": "69f797b3486fe91002b61b970d7e7bd3301b7c56dea157d70068cad258c05fa5",
+     "scene_scene.f90": "7fd222d97005c3707833b6ff6b65a760a18f1ec23e065c46c71b5879420e78c8"
+    }
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2 wears glasses\ncube stick brown at 1 0 0 size 0.5\ncharacter rafi green at 2 0 2 holds stick\n",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "d09b4c168b01589a60d0d97785b6e53edc915ee008f8ec81100ea15289b20a44",
+    "stdout_len": 0,
+    "stderr_len": 189,
+    "codes": [
+     "W101",
+     "E202"
+    ],
+    "stdout_text": "",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\nerror E202: unknown color 'brown'\n  help: use a named color, #rrggbb, or rgb(r,g,b)\n"
+   }
+  },
+  {
+   "src": "scene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\nspin lloyd\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "31afdd0d9fc50200b3de7f8bf5c48b6c3ac6a390b510d7354372ffa2460d7989",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (2 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter lloyd red at 1 0 2\n",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "efddf147bdf68cd2b761a1eccf6619d336548893f378f931198ff0c6cefdcc90",
+    "stdout_len": 0,
+    "stderr_len": 185,
+    "codes": [
+     "W101",
+     "E201"
+    ],
+    "stdout_text": "",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\nerror E201: there are two objects called 'lloyd'; give each object its own name\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd walks to bench-front in 2 seconds ease smooth\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "7ea4585b6bb4a8d9addba81d629d38336885e1d9b6df0a3a83021634ee738603",
+     "scene.js": "c1fc5a8a0cb15a512e66025668a64867385a25f4686bf80912b0c608856d9c01",
+     "scene.json": "c06091fc195bfb674ac86ec45d9d08e4879b78ff168c9248e7ab5d62bbdfe47f",
+     "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
+     "scene.scene": "b24375d650f58936a86fc1452adb64334568b860cb85948c6138574bb75e4b0f",
+     "scene_scene.f90": "78c97267367ac340b78c46a3dcb58abe341fb19dd90ce6f38f8d2982e9e0b3cf"
+    }
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd runs to mira in 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd exits left in 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd exits right in 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd waves for 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd waves left hand for 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd waves both hands for 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "25b62de015e920f9645a86b3f5056c13c095db34aa530ed371ed01ca43a1480d",
+     "scene.js": "8d67e9d8b9c21c826c74e4bb9d8d902ea1ac387a012e7cf2c101e9e0be9a6231",
+     "scene.json": "e9ddc9f591f6ffeae9de97feff23dbc78452cc5e4aae7547ead7ca359b46ec90",
+     "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
+     "scene.scene": "94a9f33f49d7f423a2069946aa28943030eebb2762abcf414f6d74f14f7b6800",
+     "scene_scene.f90": "55b320d16b50a70a9b44757acad4b9c1687013276b1f7237eab3437ea6fd84a6"
+    }
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd sits on bench for 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd stands for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd jumps\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd falls for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd looks at mira for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd faces mira for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "2daa9bd1889748068eb00aea02a44f1234012cf33e683db7695384373a4ecff8",
+     "scene.js": "8d96f9944e662a0154f37e7a73df2aa98846223f10a39cbd2709e85df3d1a2ad",
+     "scene.json": "69b972140b289dbc646e6fb117d1d27baa850ce86ed84b53fa220fc240523da5",
+     "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
+     "scene.scene": "4ba8901a7c2299183ffbd28bdde78d68cadb595da2f0814084d0a978dfe0f3a8",
+     "scene_scene.f90": "fc3caf8fbb6f667376a34b1d139ecea287ba829443f63e1f07cb5d2251498e4c"
+    }
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd faces camera for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd points at mira for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd nods for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd shakes head for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd dances for 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd sleeps for 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "12dbb7da52a3dd4aa945cac9a81c4e79eee2db7563d0adc7808e464466fd9882",
+     "scene.js": "31862fa73b1e75786d9f64d7b9a4ff76d92208940fdac7474fd96190a0de0a26",
+     "scene.json": "e9fd706724ae0d741e43e9cc992cb3ae628342d3f9cc26b0196e2d00b028818b",
+     "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
+     "scene.scene": "e664220addcd609c90a8b628746c251b8061691233ab75a2eb55ee1781ddc645",
+     "scene_scene.f90": "6b7e8644ccbef7ef7e5f938d21315e2e7629545e7037b41328196bfa2813e999"
+    }
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd smiles for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd face happy for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd picks up mango for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd gives mango to mira for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd taps foot for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd spins speed 360 for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "0cecc71f6f954e9c5f8897e3e1c911ea25f5f2be08ba0e92418fd52b31170a20",
+     "scene.js": "7926673c9d000468c143e8780bbb56b1f887b7b9e06cfe540da4b928c14b890a",
+     "scene.json": "fc7019f2e2c34b0325c8ced0de0011d92a74924bb3cbd4d426bb99dfd570feb0",
+     "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
+     "scene.scene": "edfc1d6d35d093c6edb0836bcfa446ff7dee596ac1a275785cb73b6743ebd787",
+     "scene_scene.f90": "383cf90cc67ea731bd5a30108197f5c82c9d6a7676034220bc920dcf06f123de"
+    }
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nmango moves to bench-front in 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd walks in from left in 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\naction celebrate\n  it jumps\n  it waves both hands\n  it spins speed 360\nend\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd does celebrate for 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "084fbeb79685d54a0e4ed0750db7ee276b12b6f4f6412ab7aa6b04e5cf7c6115",
+     "scene.js": "644487d0960a8b204230563e88589d81020862b5f079a8debbcc43066b888b00",
+     "scene.json": "c06b61857ab988a267daf6797f466b7878203f70faa9233082ea9bd72c2c2172",
+     "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
+     "scene.scene": "f547c0338506fab994b73ef8c173dde83db698b3112037f7dd0b1b7af82b65a7",
+     "scene_scene.f90": "28bf10f0b67363ad5b59e69265955a4222e9bf096e8686fa022dbdebd4ca53b1"
+    }
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\naction celebrate\n  it jumps\n  it waves both hands\nend\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd does celebrate\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\naction greet\n  it waves right hand\n  it nods\nend\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nmira does greet for 3 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\naction inner\n  it jumps\nend\naction outer\n  it does inner\n  it waves\nend\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd does outer for 3 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "a367550e25b295a7e722de1e3df52485f5a4fe877fbc551cab6266dcc16f724a",
+     "scene.js": "7e3b052397866315e1df3e42364806c8da1ee9b0a52b92b9f281d268e3a9b593",
+     "scene.json": "7696ac9ecd606d4a6cf8bd7492f6b82b6ac401514ff9158d19c2b795c27429b4",
+     "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
+     "scene.scene": "89176479e2a70bd100ce023db8024cf858f6e445b58ec7f5ada0359249ad48c7",
+     "scene_scene.f90": "30c9c6d3ca461d9f9b4ef0929f182b78f3d72686bcc57ff62869d116896b2c21"
+    }
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\naction waves\n  it jumps\nend\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd does waves for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\naction sitdown\n  it sits on bench\nend\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncharacter lloyd blue at 0 0 2\nlloyd does sitdown for 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "9beaff5194d620e487ec060bf6a4490aa400d19fe0e3523006bf0bc105b58cc5",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1036 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\naction peek\n  it looks at mira\nend\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd does peek for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\naction spinfast\n  it spins speed 720\nend\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd does spinfast for 1 second\nmira does spinfast for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\naction cel\n  it jumps\nend\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd does cel for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd does cel for 2 seconds\naction cel\n  it jumps\nend\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\naction a1\n  it jumps\nend\naction a2\n  it waves\nend\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd does a1 for 1 second\nlloyd does a2 for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\naction dance2\n  it dances\n  it spins\nend\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nmira does dance2 for 4 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "cad601bd6ff0bfa6ffd7ec26f9021c4f73adc2d3412c5fd151064aecee64ff13",
+     "scene.js": "d530a62e862529bc123b71dc391d4741d0a13815924d1b2da9126b8504be1b35",
+     "scene.json": "2ac2cb81172ad6547786e6596b2bc19c0e876c34e729211035f5560c9538aa19",
+     "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
+     "scene.scene": "4973caaee4b424c388dfbad9beaecb0b6eb2ada197055881f544fd929c06531d",
+     "scene_scene.f90": "390556225094e2b9d2f0339d3f112820179ac0ab8377aeee831058fe7b5d0c47"
+    }
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\naction wave2\n  it waves left hand\n  it waves right hand\nend\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd does wave2\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\naction bow\n  it nods\n  it nods\nend\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd does bow for 2 seconds\nwith mira does bow for 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\naction rest\n  it sleeps\nend\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd does rest for 3 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd waves for 1 second\nmira waves for 1 second\nlloyd jumps\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd waves for 2 seconds\nwith mira waves for 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd walks to bench-front in 3 seconds\nwith camera follows lloyd\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\ntogether\n  lloyd dances for 2 seconds\n  mira dances for 2 seconds\nend\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nat 3 seconds lloyd jumps\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nwait 1 second\nlloyd waves for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd smiles for 1 second\nwith fade out in 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd walks to mira in 2 seconds slowly\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "847d156e3706b1972b10eea68daddc8743f314f60c794a4c811cf1f977e1d8df",
+     "scene.js": "562d8cd9bc7d243f8e87b3c063da54655673858f679baf510ee422e59833532b",
+     "scene.json": "0fe1e34d0e97702b4a3b911cc772680619ac40c383f247a61b4b11fca2695699",
+     "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
+     "scene.scene": "505e2ed42c5676bdced5c7b299f6c2ac00956a54ec5f051e5d13a8e666b96ea1",
+     "scene_scene.f90": "72ecd3d91e935dc791230c7e0c977b5564f6167a7138bb847c219575688992fe"
+    }
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd walks to mira in 2 seconds ease out\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "847d156e3706b1972b10eea68daddc8743f314f60c794a4c811cf1f977e1d8df",
+     "scene.js": "562d8cd9bc7d243f8e87b3c063da54655673858f679baf510ee422e59833532b",
+     "scene.json": "0fe1e34d0e97702b4a3b911cc772680619ac40c383f247a61b4b11fca2695699",
+     "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
+     "scene.scene": "505e2ed42c5676bdced5c7b299f6c2ac00956a54ec5f051e5d13a8e666b96ea1",
+     "scene_scene.f90": "72ecd3d91e935dc791230c7e0c977b5564f6167a7138bb847c219575688992fe"
+    }
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd walks to mira in 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd walk to mira in 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd waves for 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "25b62de015e920f9645a86b3f5056c13c095db34aa530ed371ed01ca43a1480d",
+     "scene.js": "8d67e9d8b9c21c826c74e4bb9d8d902ea1ac387a012e7cf2c101e9e0be9a6231",
+     "scene.json": "e9ddc9f591f6ffeae9de97feff23dbc78452cc5e4aae7547ead7ca359b46ec90",
+     "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
+     "scene.scene": "94a9f33f49d7f423a2069946aa28943030eebb2762abcf414f6d74f14f7b6800",
+     "scene_scene.f90": "55b320d16b50a70a9b44757acad4b9c1687013276b1f7237eab3437ea6fd84a6"
+    }
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd waves for 2 beats\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "25b62de015e920f9645a86b3f5056c13c095db34aa530ed371ed01ca43a1480d",
+     "scene.js": "8d67e9d8b9c21c826c74e4bb9d8d902ea1ac387a012e7cf2c101e9e0be9a6231",
+     "scene.json": "e9ddc9f591f6ffeae9de97feff23dbc78452cc5e4aae7547ead7ca359b46ec90",
+     "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
+     "scene.scene": "94a9f33f49d7f423a2069946aa28943030eebb2762abcf414f6d74f14f7b6800",
+     "scene_scene.f90": "55b320d16b50a70a9b44757acad4b9c1687013276b1f7237eab3437ea6fd84a6"
+    }
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd waves for 1 second\nat 5 seconds lloyd jumps\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "bd0048fc7ffc64b43f3fd3d7aa433b5eae7e76bb1028e8b3a2cdb6085b85ca23",
+     "scene.js": "e89c863ca0c96e593940cdd1a461dc1157b193776b15ed3cdbb5283c597c5310",
+     "scene.json": "f607eeabfad898cc6852495ff9dbc0811561e200c99b219322243a742c97d97d",
+     "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
+     "scene.scene": "69189e14a4cb01a155b06e996121846ed7a1d6944078aedc55853799c4fd0b39",
+     "scene_scene.f90": "6ee2c9c6fe3361a74cc20d7032143d11f7965e991d3ebb94b235e4b77c31054f"
+    }
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd waves for 1 second\nat 0:05 lloyd jumps\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "bd0048fc7ffc64b43f3fd3d7aa433b5eae7e76bb1028e8b3a2cdb6085b85ca23",
+     "scene.js": "e89c863ca0c96e593940cdd1a461dc1157b193776b15ed3cdbb5283c597c5310",
+     "scene.json": "f607eeabfad898cc6852495ff9dbc0811561e200c99b219322243a742c97d97d",
+     "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
+     "scene.scene": "69189e14a4cb01a155b06e996121846ed7a1d6944078aedc55853799c4fd0b39",
+     "scene_scene.f90": "6ee2c9c6fe3361a74cc20d7032143d11f7965e991d3ebb94b235e4b77c31054f"
+    }
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd walks to mira in 2 seconds gently\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd waves for 2 seconds\nafter lloyd mira waves for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\ncamera follows lloyd\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "91c095f2397e88d2be614f3ebdde8b9fe980522db4ee5c650d25e11d975dc982",
+     "scene.js": "2a6233196443ce575889303b8dcf956af18497b6439892a635aaad8a9b3ef5d0",
+     "scene.json": "edebcb872b6782fc7f1ae579def67524f9f9cb3ae1433b56aae1e109f817dfe6",
+     "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
+     "scene.scene": "e32f26537663d385ff28d6015fe3dadec30ba78ea3c643a672cc43cf4b872f6f",
+     "scene_scene.f90": "de8090f827c81d209698ecdbb29dfc89122e02ea2ada1491c94f7cbf74bc1e6d"
+    }
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd walks to bench-front in 3 seconds\nwith camera follows lloyd\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\ncamera zooms in on bench in 2 seconds ease smooth\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\ncamera zooms in on lloyd in 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\ncamera zooms out in 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\ncamera pans to mira in 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\ncamera pans to bench-front in 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\ncamera orbits mira in 3 seconds ease smooth\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "588f111ab5b9c9c9d932a0c27cd4c54ec0cf9ba735dd67a860e5698f88565400",
+     "scene.js": "b34b0784beee494065ead1fce004b444b95d59dc8a9342f57c12f79300b2f596",
+     "scene.json": "8fe87f95bb5ac4c78a8d0cdb503ca49514d5e752beaa8c6bd28ea5df20dd81a1",
+     "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
+     "scene.scene": "bdb3122c6c5817cf36e5715e741893831bc8bcffff545cd4418c9d27b2b67050",
+     "scene_scene.f90": "5b8fd65dc93e1aa7b86a50127be29e5cf83b3e5ce27f75d593a597e685c490d6"
+    }
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\ncamera looks at bench in 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look lloyd\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\nlloyd waves for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "31afdd0d9fc50200b3de7f8bf5c48b6c3ac6a390b510d7354372ffa2460d7989",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (2 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\ncamera zooms in on bench in 2 seconds\ncamera pans to mira in 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\ncamera follows mira\nlloyd waves for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd says \"Good morning, Mira!\" for 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "3ec2b0857037a095e7f56ea66fad264197f5abb176100ce3bd81cdd5770598df",
+     "scene.js": "947d0d4fbdd4d5f6fd176068d8851d7d2982ea678b2f5fcc280d709e59ceb8a3",
+     "scene.json": "4a3863968042d8bfc16234a8de44f5666a5feb40ec7f90cf8088ca69fd2ddc9d",
+     "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
+     "scene.scene": "4d61d5501ef14053366d6b6a502fd02c52b46653799fa10e0452c855414ec853",
+     "scene_scene.f90": "e4f92bf4d37cf20d83663aeb35db42d27e29a42e4fb36ab464b17d97528550de"
+    }
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd says \"Hello there friend\"\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "dc5b3abaf3671d0d097e6f74c0654c81ab3b0f5445f46d5c551b5af11b103b8e",
+    "stdout_len": 47,
+    "stderr_len": 342,
+    "codes": [
+     "W101",
+     "W204"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\nwarning W204: dialogue duration estimated: 'lloyd''s line at 0.0s is given 1.5s to be read\n  why: the line had no written duration, so the compiler estimated the reading time\n  help: write 'for N seconds' on the line to fix its duration\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd says \"শুভ সকাল, মীরা!\" for 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "9d458624914be7b53cdf9801b0bfb080de474290763aad5b948b8770e66aab4d",
+     "scene.js": "df7accfd5b90ed658cb69c75571515ea94713ffa79028772daf3c622fda37146",
+     "scene.json": "0f275f38a9af5923cb4fbce1cfd1b4bf9b82ad62443b5cb6b69120d494b4023f",
+     "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
+     "scene.scene": "1354a91d644f34652de1ec8ee31f58383f1ce3295f67377d03a19f0ddb439dcf",
+     "scene_scene.f90": "924bf85267ede612ad50785a1e3503cdc2828998428bc52a38cf8e9f5e405e6b"
+    }
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd says \"Hi\" for 1 second bubble only\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd says \"Hi\" for 1 second subtitle only\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd says \"Hmm, where is it?\" for 1 second thinking\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\ncaption \"Meanwhile, across town...\" for 3 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\ntitle \"The Lost Key\" for 3 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "3930a5f8e251b5586522860cb25599f96c45b81d0704e799d2045e0b17494882",
+     "scene.js": "305d84fc2c863ef66395b29a02f32d41090e0edecb23c7afec53a7e4e1b2356d",
+     "scene.json": "01b7595228bcab4624d3ea1c8b2533db08ab636665493dd8bc6e2df5c2308afe",
+     "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
+     "scene.scene": "c14ea37ae3af652b6945fb779305f003ea04598037cbf8a2a0a2dbf757510e11",
+     "scene_scene.f90": "67e7b1b6ed33b3739072f89961ba644917cd35152cb101b742948a462b78d5fa"
+    }
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\ncaption \"One sunny morning.\" for 2 seconds\ntitle \"Chapter One\" for 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd says \"Good morning!\" for 2 seconds\nmira says \"Morning! The mangoes look fresh.\" for 3 seconds\nlloyd says \"Let us buy some.\" for 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nmira says \"This is a much longer line of dialogue that will take a while to read aloud\"\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "dab94afbd85419102b03d6cf3092f7fba06c535fd01b8d9bff9a1ed788dca3eb",
+    "stdout_len": 47,
+    "stderr_len": 341,
+    "codes": [
+     "W101",
+     "W204"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\nwarning W204: dialogue duration estimated: 'mira''s line at 0.0s is given 6.4s to be read\n  why: the line had no written duration, so the compiler estimated the reading time\n  help: write 'for N seconds' on the line to fix its duration\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd says \"Look!\" for 1 second\nwith mira points at mango for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd says \"\" for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\ncaption \"শহরে একদিন\" for 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube mango orange at 3 1 0 size 0.3\nplace bench-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nmira says \"Found it!\" for 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "c17e6cf83dce6ad72c81a981eaf0ebcebcfc0fad228cd871caed00d0af7be0b0",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"one\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\nlloyd waves for 1 second\nscene \"two\" background black\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\nlloyd jumps\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "6d1ad9b38390f2ae8ba0621754cce065b31a2dd611ca2bf131d23fcaae663cd1",
+    "stderr_sha256": "343a6481b4c90f171689a9f3e5f60c65b666c19c543f5a816f77aad0e0040ec3",
+    "stdout_len": 175,
+    "stderr_len": 210,
+    "codes": [
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: .scene.multi0.f3d (2 objects, 1024 triangles est.)\nscene 1/2: one\nOK: .scene.multi1.f3d (2 objects, 1024 triangles est.)\nscene 2/2: two\nmulti-scene: 2 scenes in scene.f3d\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene-one.html": "3d8341e7dd2c8156941ddcae4e568c887fbc6051154adc53e20410aedc6ff39b",
+     "scene-one.js": "eb65739264b80c739c32f133e125e7c1ed9e66545b3ba607440f8367f8b00161",
+     "scene-one.json": "b3cb8eccc32fc455af63744e64668bc9cce0a920f0c3796d4dc1bbb19d39a839",
+     "scene-one.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
+     "scene-one.scene": "a940acdaa711abf6a1818cb502be96e1eb866fd259541242cf2645db6e268c4b",
+     "scene-one_scene.f90": "8554b4ba1cc1e97545217692b11b562c685fdec454312bf7ecf99c10c01d2aa5",
+     "scene-two.html": "9895e60e26430422c8c8949b6e9e78a999fc5462c1b0ba95f00f98be20cb5095",
+     "scene-two.js": "8938dab075af1142b5e1c3a7c2c832248d454971564f00061ca5157d6cd023d8",
+     "scene-two.json": "c0193ace5845316e6500252ed3c472015c42cf96a68efe382022583a344dc9e5",
+     "scene-two.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
+     "scene-two.scene": "493c584190ac38ba0738273f6ec6c736900c87c1f6f04adcaab1356b47e44248",
+     "scene-two_scene.f90": "89df42c2ae623073cd6a073ade7bef594f85c162c417e5c4d1ae71c427182c4d"
+    }
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"one\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\nlloyd waves for 1 second\nscene \"two\" background black transition fade 1 second\ncamera at 0 3 10 look 0 1 0\ncube blue\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "3e3f5320c86d4a9e2d2f147e1a2147302dc810b57630b841fd5541c1a0092fc5",
+    "stderr_sha256": "343a6481b4c90f171689a9f3e5f60c65b666c19c543f5a816f77aad0e0040ec3",
+    "stdout_len": 173,
+    "stderr_len": 210,
+    "codes": [
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: .scene.multi0.f3d (2 objects, 1024 triangles est.)\nscene 1/2: one\nOK: .scene.multi1.f3d (1 objects, 12 triangles est.)\nscene 2/2: two\nmulti-scene: 2 scenes in scene.f3d\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"one\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\nlloyd waves for 1 second\nscene \"two\" background black transition dissolve 1 second\ncamera at 0 3 10 look 0 1 0\ncube blue\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "3e3f5320c86d4a9e2d2f147e1a2147302dc810b57630b841fd5541c1a0092fc5",
+    "stderr_sha256": "343a6481b4c90f171689a9f3e5f60c65b666c19c543f5a816f77aad0e0040ec3",
+    "stdout_len": 173,
+    "stderr_len": 210,
+    "codes": [
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: .scene.multi0.f3d (2 objects, 1024 triangles est.)\nscene 1/2: one\nOK: .scene.multi1.f3d (1 objects, 12 triangles est.)\nscene 2/2: two\nmulti-scene: 2 scenes in scene.f3d\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"one\" background white transition fade 1 second\ncamera at 0 3 10 look 0 1 0\ncube red\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 45,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"one\" background white transition cut\ncamera at 0 3 10 look 0 1 0\ncube red\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 45,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"one\" background white transition wipe 1 second\ncamera at 0 3 10 look 0 1 0\ncube red\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 45,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"one\" background white transition slide left 1 second\ncamera at 0 3 10 look 0 1 0\ncube red\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 45,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"one\" background white transition slide right 1 second\ncamera at 0 3 10 look 0 1 0\ncube red\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 45,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"one\" background white transition fade black 1 second\ncamera at 0 3 10 look 0 1 0\ncube red\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 45,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"one\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\nlloyd waves for 1 second\nscene \"two\" background black transition dissolve 1 second\ncamera at 0 3 10 look 0 1 0\ncube blue\nscene \"three\" background white transition fade 1 second\ncamera at 0 3 10 look 0 1 0\ncube green\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "0669d79bcd1e3bb8b87fceb026e5734de54bce419e24e49b4784ae5b3246aee4",
+    "stderr_sha256": "c87736f1cf5b11953448c1ee69cedfa8e84fa0055621bbb481cca02e2192ab05",
+    "stdout_len": 243,
+    "stderr_len": 315,
+    "codes": [
+     "W101",
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: .scene.multi0.f3d (2 objects, 1024 triangles est.)\nscene 1/3: one\nOK: .scene.multi1.f3d (1 objects, 12 triangles est.)\nscene 2/3: two\nOK: .scene.multi2.f3d (1 objects, 12 triangles est.)\nscene 3/3: three\nmulti-scene: 3 scenes in scene.f3d\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene-one.html": "3d8341e7dd2c8156941ddcae4e568c887fbc6051154adc53e20410aedc6ff39b",
+     "scene-one.js": "eb65739264b80c739c32f133e125e7c1ed9e66545b3ba607440f8367f8b00161",
+     "scene-one.json": "b3cb8eccc32fc455af63744e64668bc9cce0a920f0c3796d4dc1bbb19d39a839",
+     "scene-one.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
+     "scene-one.scene": "a940acdaa711abf6a1818cb502be96e1eb866fd259541242cf2645db6e268c4b",
+     "scene-one_scene.f90": "8554b4ba1cc1e97545217692b11b562c685fdec454312bf7ecf99c10c01d2aa5",
+     "scene-three.html": "5988f8df134095db3a48e3e494497b06722ae21aeb81f6cfa7635411bf4d015c",
+     "scene-three.js": "96e14c421ac690b6261ea82c7ab854bd90bc0f36ab0ec8ff3f6f74a24bcb8726",
+     "scene-three.json": "7bb8d03a0b2de95f427eb4ad3f394f0b6a0b7759eab056f15e19a7796159a70c",
+     "scene-three.legacy.json": "45ff7bf9c1e3140f6aecc8c316408e1da36215dc09c8921400249d10fd273f94",
+     "scene-three.scene": "fa2961f9bef1548d5d4a4a233726ed0a1c05da4dd83f606f6a5a466c45e3a901",
+     "scene-three_scene.f90": "1bcae25b33da1f5e568f1c10ff60096c61331faeac54ab163c36bd91d63c4c3c",
+     "scene-two.html": "8fc7f2525f0130fd4db3b9745ec92bc03af26eb5b558e50c42376fe685f29dd2",
+     "scene-two.js": "07bf2560442e850596380f2165d69bf4bbb1c09c8d9fedd30b2bdb10f6aad288",
+     "scene-two.json": "c9107b88ac8592a462005a24b0b72a1287f5e908d02cd8cffb2f053130a670ee",
+     "scene-two.legacy.json": "b0bb84241d3994ec2cf951de3bf192d73f1c51bcc9a928d9c28bdb164f024505",
+     "scene-two.scene": "78782f3e71c05e62176cd776b3323040f073307b24567f23342103e4e72e69df",
+     "scene-two_scene.f90": "695860cf274177c6168e3424efb97b4c51dbbfa1fa4aab36122bb86334186e77"
+    }
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"one\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\nlloyd waves for 1 second\nscene \"two\" background black\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter mira pink at 0 0 2 kid\nmira waves for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "6d1ad9b38390f2ae8ba0621754cce065b31a2dd611ca2bf131d23fcaae663cd1",
+    "stderr_sha256": "343a6481b4c90f171689a9f3e5f60c65b666c19c543f5a816f77aad0e0040ec3",
+    "stdout_len": 175,
+    "stderr_len": 210,
+    "codes": [
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: .scene.multi0.f3d (2 objects, 1024 triangles est.)\nscene 1/2: one\nOK: .scene.multi1.f3d (2 objects, 1024 triangles est.)\nscene 2/2: two\nmulti-scene: 2 scenes in scene.f3d\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"one\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\nlloyd smiles for 1 second\nwith fade out in 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "31afdd0d9fc50200b3de7f8bf5c48b6c3ac6a390b510d7354372ffa2460d7989",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (2 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nlet wait-time be 3 seconds\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd waves for wait-time\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "d1664afe27ef744d03f277e6876e2d1b21141444df44df80c707581bf44602d6",
+     "scene.js": "c18f988e1f19ca8656542d53ab1508e56f10df4b7620b9364560be44613c37e2",
+     "scene.json": "027b3a13fab991ea461f4577a4d38c127aced7b2a9bcb887fca0c55b2ef1a1b8",
+     "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
+     "scene.scene": "5c74b2d8ab4fa5a09056dbeb726960592daa7b7a0374c082a124a66a74c31528",
+     "scene_scene.f90": "78f873e9c7751b34a5b03828b6e0a5c49f0b89f6137f6931de08eeabf5f8486b"
+    }
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nrepeat 2 times\n  lloyd taps foot for 1 second\nend\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nrepeat 3 times\n  lloyd taps foot for 1 second\nend\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "612606d10f23d88c879d82cd8b4d8e9df00b8a99031ac9fed5d992c99b1b79bf",
+     "scene.js": "29573c91e089b3d49070fab73eb897c7759b875df9ade37542b0eeec8b1197e8",
+     "scene.json": "41ce2d52bf3e7bb9ab2d9c16ad73587fe455bbe2ff5b8fbdbeed444bf03d90ec",
+     "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
+     "scene.scene": "f5a99ccac4fb31f85367225e5e251d97bd88d17a243e6daec9a0909ebda2e0b5",
+     "scene_scene.f90": "779f73115558ea86800c6412e07589638f271f9f9a7c84eaaf24526401e854f2"
+    }
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nrepeat 0 times\n  lloyd waves for 1 second\nend\nlloyd jumps\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nrepeat 2 times\n  lloyd taps foot for 1 second\n  lloyd nods for 1 second\nend\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nrepeat 2 times\n  repeat 2 times\n    lloyd taps foot for 1 second\n  end\nend\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd dances loop forever\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nlet slow be 3 seconds\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\ncamera zooms in on lloyd in slow\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nlet line be 4 seconds\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd says \"A long hello\" for line\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nlet a be 1 second\nlet b be 2 seconds\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd waves for a\nlloyd nods for b\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd waves for 2 beats\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nlet n be 2\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nrepeat n times\n  lloyd taps foot for 1 second\nend\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nrepeat 2 times\n  lloyd waves for 1 second\nend\nlloyd jumps\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nlet pause be 1 second\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nwait pause\nlloyd waves for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd taps foot for 1 second\nlloyd taps foot for 1 second\nlloyd taps foot for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 12\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd waves for 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 30\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd waves for 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 60\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd waves for 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24 tempo 120\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd dances for 4 beats\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24 tempo 90\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd dances for 3 beats\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 12\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd waves for 1.5 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd waves for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd waves for 0.5 seconds\nlloyd nods for 0.25 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd does danse for 2 seconds\n",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "6e40dbfb4c118bff39cfe684547ea8322438fb800986130a3722f0094499d845",
+    "stdout_len": 0,
+    "stderr_len": 199,
+    "codes": [
+     "E206",
+     "W101"
+    ],
+    "stdout_text": "",
+    "stderr_text": "error E206: timeline uses action 'danse', but no action is called that; did you mean 'dance'?\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd does dance for 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd walks to mira in 4 seconds\nat 2 seconds lloyd waves for 2 seconds\n",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "3c35b645c6fae9264c52bf77d32d104c5eb921a132e9323b3aaa70ae212361a4",
+    "stdout_len": 0,
+    "stderr_len": 352,
+    "codes": [
+     "W101",
+     "E207"
+    ],
+    "stdout_text": "",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\nerror E207: 'lloyd' is already doing 'walk' from 0.0s to 4.0s, so 'wave' cannot start at 2.0s\n  why: two body actions on the same character cannot overlap\n  help: start 'wave' with 'after walk', or join it with 'with' if they should play together\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd walks to mira in 4 seconds\nwith lloyd waves for 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd waves for 5 seconds\nrender duration 2\n",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "0133c936994da1af6bbb6b5b198dd2ba837ccfff2abe3e0776591ce10bf8ce37",
+    "stdout_len": 0,
+    "stderr_len": 176,
+    "codes": [
+     "W101",
+     "E208"
+    ],
+    "stdout_text": "",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\nerror E208: the timeline runs to 5.0s, but the scene renders only 2.0s\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd waves for 5 seconds\nrender duration 10\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nbob waves for 1 second\n",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "a7f9e5bd98ad85682ad7700ddf40b62177ff67279ba9f999a0e8b4d3a20f3612",
+    "stdout_len": 0,
+    "stderr_len": 354,
+    "codes": [
+     "W101",
+     "E209"
+    ],
+    "stdout_text": "",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\nerror E209: cue targets 'bob', but no character definition or object provides that name\n  why: a cue can only act on a character defined with 'character' or an object/group in the scene\n  help: define the character first, or fix the name in the cue\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\ncharacter bob green at 1 0 2\nbob waves for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "29e3fd68197be23456c51fa4898d9a176769aa1f0eeb72d60307f43bb9e6118e",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (4 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\ncamera follows bob\n",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "cea82ec6cb5add75f5b42df846ffe96f3426c7ffb31e05d55eecdb13cfccaf4d",
+    "stdout_len": 0,
+    "stderr_len": 340,
+    "codes": [
+     "W101",
+     "E210"
+    ],
+    "stdout_text": "",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\nerror E210: camera follows 'bob', but no character or object is called that\n  why: a camera follow target must be a defined character or an object in the scene\n  help: define the character first, or fix the name after 'camera follows'\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\ncamera follows lloyd\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\ncube box red at 0 0 0\nbox says \"hi\" for 1 second\n",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "a7cbf29058f768a353652a83ae57bedd71cae4ecdb963f55dcb35ded8f0746ba",
+    "stdout_len": 0,
+    "stderr_len": 316,
+    "codes": [
+     "W101",
+     "E211"
+    ],
+    "stdout_text": "",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\nerror E211: dialogue is spoken by 'box', but no character is called that\n  why: only characters speak; an object name is not sufficient for dialogue\n  help: add a 'character box ...' line, or change the speaker\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\ncharacter box green at 1 0 2\nbox says \"hi\" for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "29e3fd68197be23456c51fa4898d9a176769aa1f0eeb72d60307f43bb9e6118e",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (4 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\naction loopa\n  it does loopa\nend\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd does loopa\n",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "6ef31e8e7bce61e835017c7c7bc40e04f86d8adc9641a537a04b91496a6bee5f",
+    "stdout_len": 0,
+    "stderr_len": 160,
+    "codes": [
+     "E212",
+     "W101"
+    ],
+    "stdout_text": "",
+    "stderr_text": "error E212: action 'loopa' uses itself: loopa -> loopa\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\naction aa\n  it does bb\nend\naction bb\n  it does aa\nend\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd does aa\n",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "d6cb67fbb816ab171f4317f4a6908902d4e1c72bcb66f9c726c9c792c8c1dbbc",
+    "stdout_len": 0,
+    "stderr_len": 157,
+    "codes": [
+     "E212",
+     "W101"
+    ],
+    "stdout_text": "",
+    "stderr_text": "error E212: action 'aa' uses itself: aa -> bb -> aa\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\naction cel\n  it jumps\nend\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd does cel for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd waves for nosuchvar\n",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "28a751c80e7e3d852814c4451898f701a511c766df6de004007569460d2f0fcf",
+    "stdout_len": 0,
+    "stderr_len": 327,
+    "codes": [
+     "E213",
+     "E213",
+     "W101"
+    ],
+    "stdout_text": "",
+    "stderr_text": "error E213: 'nosuchvar' is used as a duration, but no 'let nosuchvar be ...' line defines it before this point\nerror E213: 'nosuchvar' is used as a duration, but no 'let nosuchvar be ...' line defines it before this point\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nlet x be 2 seconds\nlet x be 3 seconds\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd waves for x\n",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "e07df84151758903170c44c03c8aab06f74b8fe7892629c233ec7c83647b51b3",
+    "stdout_len": 0,
+    "stderr_len": 205,
+    "codes": [
+     "E213",
+     "W101"
+    ],
+    "stdout_text": "",
+    "stderr_text": "error E213: 'let x' is defined twice; let names are immutable -- give the second value its own name\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nlet x be 2 seconds\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd waves for x\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\naction unused1\n  it jumps\nend\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd waves for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "b490ef1b6b192c6d018770542068033540f4601c3cb4f856aec3c9a34c57b7a7",
+    "stdout_len": 47,
+    "stderr_len": 282,
+    "codes": [
+     "W101",
+     "W203"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\nwarning W203: action 'unused1' is defined but never used\n  why: no cue in the film uses this action\n  help: use it in a cue, like '<who> does unused1', or remove the definition\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\naction used1\n  it jumps\nend\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd does used1 for 1 second\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd says \"Hello there friend\"\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "dc5b3abaf3671d0d097e6f74c0654c81ab3b0f5445f46d5c551b5af11b103b8e",
+    "stdout_len": 47,
+    "stderr_len": 342,
+    "codes": [
+     "W101",
+     "W204"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\nwarning W204: dialogue duration estimated: 'lloyd''s line at 0.0s is given 1.5s to be read\n  why: the line had no written duration, so the compiler estimated the reading time\n  help: write 'for N seconds' on the line to fix its duration\n"
+   }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\ncharacter mira pink at 2 0 2\nlloyd says \"Hello there friend\" for 2 seconds\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   }
+  },
+  {
+   "src": "film \"Saturday Market\" size 1280 720 fps 24\n\nscene \"market\" background white transition fade 1 second\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube stall red at 3 0 0 size 2\nsphere mango orange at 3 1 0 radius 0.3\nplace stall-front at 1 0 2\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\n\nlloyd walks to stall-front in 4 seconds ease smooth\nwith camera follows lloyd\nlloyd waves for 2 seconds\nwith mira waves for 2 seconds\nlloyd says \"Good morning, Mira!\" for 2 seconds\nmira says \"The mangoes look fresh today!\" for 3 seconds\ncamera zooms in on stall in 2 seconds ease smooth\nmira picks up mango for 1 second\nmira smiles for 1 second\nwith fade out in 1 second\n\nrender \"saturday-market.mp4\"\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "a9a476a7e884ecfcb1c61a8a7f9c26547421d26e58e114e3bfd97a4a56544eb6",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (5 objects, 1388 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "846ecca1efa60a0451e1fd81812b8eee40e20bcf6f634052f3f7decc13e6e08d",
+     "scene.js": "b69bde2cce45d180d4683980cc7efac91619fd879987af375176172c9ff36ca1",
+     "scene.json": "a7eb0480d108ff8e9a6c517206a5ebadc325070bc550819744b70330212fe0ed",
+     "scene.legacy.json": "2f6767ba88f905a7e2ad7a375a399186d12097bad388df2b8aad71d4619b1370",
+     "scene.scene": "154896290a84d6b3224db290ec17ec26d971de9bfc29e8a9e056047a56688f68",
+     "scene_scene.f90": "d77698c55e2c4255d25007f55e78215c8ef149134ee7341d4e869874e3b1c024"
+    }
+   }
+  },
+  {
+   "src": "film \"The Bus Is Late\" size 1280 720 fps 24\nlet wait-time be 3 seconds\n\naction celebrate\n  it jumps\n  it waves both hands\n  it spins speed 360\nend\n\nscene \"bus stop\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at -2 0 0 size 2\ncube bus yellow at -14 0 0 size 4\nplace stop at 3 0 2\ncharacter rafi green at -2 0 2 short face determined\n\nrafi sits on bench for wait-time\nrepeat 2 times\n  rafi taps foot for 1 second\nend\nbus moves to stop in 4 seconds ease out\nwith rafi stands for 1 second\nrafi says \"Finally!\" for 2 seconds\nrafi does celebrate for 2 seconds\nrafi walks to bus in 2 seconds\n\nrender \"the-bus-is-late.mp4\"\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "1ac75cae5340919a8d803a0218f43f0de689f035553ac95cbcac6705a9cc1341",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (4 objects, 1048 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "4bf3343b39037bb6aee198a67a7961db2f455fe699bac9898f9ff55237a7344b",
+     "scene.js": "69c3bd2880989f8a78b79b516af995642f13721f196b3b50cb9f62c95bd5eab5",
+     "scene.json": "f7aac4d70b424298a1d4cd0eda82173ece0375785427ccff822077d790388c34",
+     "scene.legacy.json": "544089ef9645c8a85bef05b5d6717b76b511f797d096d0c1a9bff1b6c38756e1",
+     "scene.scene": "d8d9d661dba1a86f71e402a9131db5c32204ccc7b943af54a284d6c1b21fa4fb",
+     "scene_scene.f90": "8d453c1d0d5c796c833d0bc8a127edfd02def5821e2df3eb87d5809e7db65723"
+    }
+   }
+  },
+  {
+   "src": "film \"The Lost Key\" size 1280 720 fps 24\n\nscene \"park\" background white transition fade 1 second\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncube bench gray at 2 0 0 size 2\ncube key yellow at 2 -1 1 size 0.3\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\n\ncaption \"One sunny morning, Lloyd lost his key.\" for 2 seconds\nlloyd walks to bench in 3 seconds ease smooth\nlloyd picks up key for 1 second\nlloyd says \"Found it!\" for 2 seconds\n\nscene \"home\" background black transition dissolve 1 second\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at -3 0 2 tall head round wears cap red\ncharacter mira pink at 3 0 2 kid head round hair bun\n\nmira says \"You found it!\" for 2 seconds\ntogether\n  lloyd dances for 3 seconds\n  mira dances for 3 seconds\n  camera orbits lloyd in 3 seconds ease smooth\nend\ncamera zooms out in 1 second\nlloyd smiles for 1 second\nwith mira smiles for 1 second\nwith fade out in 1 second\n\nrender \"the-lost-key.mp4\"\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "30691eb64019e194883af3074440019b779dfe59b68d8f514cd40f7aabf352b9",
+    "stderr_sha256": "343a6481b4c90f171689a9f3e5f60c65b666c19c543f5a816f77aad0e0040ec3",
+    "stdout_len": 177,
+    "stderr_len": 210,
+    "codes": [
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: .scene.multi0.f3d (4 objects, 1048 triangles est.)\nscene 1/2: park\nOK: .scene.multi1.f3d (3 objects, 1024 triangles est.)\nscene 2/2: home\nmulti-scene: 2 scenes in scene.f3d\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene-home.html": "06980207551abf235c03deddc7b73293c8712c97a4712b0c37266c6578138f99",
+     "scene-home.js": "ff96afd940d7b06a183b3332f044719c10e65097e4950f090140241d87b6e977",
+     "scene-home.json": "13f17bb5d2bd7f5881dbd352cef19527780b607a40ff902259b4afbcce6d547c",
+     "scene-home.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
+     "scene-home.scene": "6f31415fe2169fca39050fc36841a4af2b0dee0a376282ad56ee48968a00a69a",
+     "scene-home_scene.f90": "72ea38990b5b624b6189dbb25224ea2e89a67e284b85382cead9084295020c5b",
+     "scene-park.html": "4e0a4285f1022bdfb32c18c249b989858899fe2a8113477de7bff3f89eee2990",
+     "scene-park.js": "ada08c926e4422a099b76a53ace3d5b065892d8a29d451d2ffa653f0dd9979e3",
+     "scene-park.json": "c29945eac86938046bb3e5c5e3e0d68bc951ab0a96041ce86c75b6f80f95f5f9",
+     "scene-park.legacy.json": "8d5846e984fe0dd51285631eb389df3933f982e7619ceb0154735e6cfd0eca00",
+     "scene-park.scene": "5ba247d9f04bd0a2113a5e472126719f62a03594396cfa8cabdec0b51f52e2c4",
+     "scene-park_scene.f90": "045ec552e3f443e9e65272c13687a0a166917daf7798a5870c5ac883fd704c5b"
+    }
+   }
+  }
  ]
+}
 }
