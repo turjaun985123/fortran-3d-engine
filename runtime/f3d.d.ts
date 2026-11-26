@@ -139,7 +139,7 @@ declare interface F3DCoreModule {
   auto(scene: F3DScene): F3DPlayer | null;
   /** World-space triangle stream for `scene` at time `t`. */
   worldTris(scene: F3DScene, t?: number): F3DTriangles;
-  readonly version: "3.0.0";
+  readonly version: "4.0.0";
 }
 
 /** One geometry builder: parameters vary, always returns triangles. */
@@ -843,7 +843,7 @@ declare module "forge3d" {
   export const ortho: F3DOrthoModule;
 
   /* Core (runtime/f3d.js), flat. */
-  export const version: "3.0.0";
+  export const version: "4.0.0";
   export function auto(scene: F3DScene): F3DPlayer | null;
   export function worldTris(scene: F3DScene, t?: number): F3DTriangles;
 

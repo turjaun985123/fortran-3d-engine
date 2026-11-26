@@ -137,7 +137,7 @@ module f3dc_preview
   character(len=:), allocatable :: p_timeline
   ! Compiler version stamped into the timeline generator record,
   ! mirroring f3dc_cli's VERSION parameter.
-  character(len=*), parameter :: PV_VERSION = "3.0.0"
+  character(len=*), parameter :: PV_VERSION = "4.0.0"
   ! Well-formed empty timeline served by /__timeline for stills.
   character(len=*), parameter :: PV_EMPTY_TIMELINE = &
        '{"format":"forge3d-timeline","ir_version":1,'// &
