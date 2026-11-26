@@ -5558,7 +5558,7 @@ contains
   ! together / repeat-times block (parse_group's child loop,
   ! cue-flavoured).  Child line errors are reported here directly,
   ! as parse_group reports its children's.
-  subroutine collect_cue_block(p, lines, nlines, idx, body, closed)
+  recursive subroutine collect_cue_block(p, lines, nlines, idx, body, closed)
     type(parser_state), intent(inout) :: p
     type(line_rec), intent(in) :: lines(:)
     integer, intent(in) :: nlines
@@ -5617,7 +5617,7 @@ contains
 
   ! together ... end (§1.4): the block's cues are spliced into
   ! the caller's list with timing=with on all but the first.
-  subroutine parse_together_into(p, header, lines, nlines, idx, &
+  recursive subroutine parse_together_into(p, header, lines, nlines, idx, &
                                  body)
     type(parser_state), intent(inout) :: p
     type(line_rec), intent(in) :: header
@@ -5642,7 +5642,7 @@ contains
 
   ! repeat N times ... end (§1.8) -> loopblock node.  Must not
   ! carry obj/mode (it would classify as a RepeatStmt, §2.1).
-  subroutine parse_repeat_block(p, header, lines, nlines, idx, &
+  recursive subroutine parse_repeat_block(p, header, lines, nlines, idx, &
                                 stmt, has_stmt)
     type(parser_state), intent(inout) :: p
     type(line_rec), intent(in) :: header

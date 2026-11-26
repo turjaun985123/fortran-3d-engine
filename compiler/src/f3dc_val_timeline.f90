@@ -16,6 +16,17 @@
 ! W204 dialogue duration estimated.  (E206/E212/E213 are raised in
 ! desugar; their code-table entries live in f3dc_errors.)
 !
+! E209 also covers a cue's named DESTINATION (Wave 6 fix F3):
+! desugar's tl_resolve_dest rewrites a `place` destination to its
+! vec3 (name kept under "<key>_name") and stamps a character /
+! object destination's position under "<key>_pos", but an unknown
+! name passes through as a plain string -- its own comment says
+! "Unknown names pass through for the validator's name checks",
+! and until this fix no check read those keys, so the string
+! reached the Timeline IR unresolved ("params":{"to":"..."} with
+! resolved=false and no diagnostic).  check_cue_destinations
+! below is that missing check.
+!
 ! Builds: ir_anim `start` per animation (val_anim populates it
 ! first; this section guarantees it on the resolved stream), the
 ! "dialogue" scene extension ([{speaker, text, start, duration}])
@@ -652,6 +663,66 @@ contains
   end subroutine check_follow_targets
 
 
+  !> E209 for a cue's named destination (Wave 6 fix F3).  The
+  !! destination keys are exactly the ones desugar's
+  !! tl_resolve_dest resolves on every built-in cue: "to"
+  !! (walk / run / move), "on" (sit) and "target" (look / point /
+  !! face).  On the resolved stream a destination value is:
+  !!   * a vec3 LIST  -- a `place` (rewritten, name under
+  !!     "<key>_name") or an authored vec3 literal: resolved,
+  !!     never checked;
+  !!   * a STRING with a "<key>_pos" sibling -- a character or
+  !!     object destination, position stamped by desugar:
+  !!     resolved, never checked;
+  !!   * a bare STRING with no "<key>_pos" -- desugar found
+  !!     nothing by that name.  It is an error only when nothing
+  !!     in the scene provides the name either (name_provided,
+  !!     the same whole-scene test the E209 actor check uses, so
+  !!     a name the scene does provide stays legal even where
+  !!     desugar's in-order tables could not stamp it).
+  !! Other authored name props are NOT destinations in this
+  !! sense and stay unchecked here: pick/give's "object" and
+  !! give's "give_to" never pass through tl_resolve_dest, and
+  !! enter/exit take a direction word, not a name.
+  !! One reserved name is exempt: `faces camera` (ANIM-PLAN
+  !! SS1.3: `faces <character|camera>`) -- "camera" as a face
+  !! cue's "target" is defined by the language, and the
+  !! character plugins' face templates carry a dedicated
+  !! name_is "camera" branch for it, so it never resolves
+  !! through the place/object tables by design.
+  subroutine check_cue_destinations(cues, n_cues)
+    type(cue_t), intent(in) :: cues(:)
+    integer, intent(in) :: n_cues
+    character(8) :: keys(3)
+    type(dyn) :: props, v
+    integer :: k, m
+    keys = [character(8) :: "to", "on", "target"]
+    do k = 1, n_cues
+      props = props_of(cues(k)%node)
+      do m = 1, 3
+        v = dyn_dict_get(props, trim(keys(m)))
+        if (v%kind /= DYN_K_STR .or. len(v%s) == 0) cycle
+        if (dyn_dict_has(props, trim(keys(m)) // "_pos")) cycle
+        if (trim(keys(m)) == "target" .and. v%s == "camera" &
+            .and. cues(k)%kind == "face") cycle
+        if (name_provided(v%s)) cycle
+        call verr_full("E209", &
+             "cue destination " // repr_str(v%s) // " for " // &
+             repr_str(cues(k)%target) // " (" // cues(k)%kind // &
+             ") is not defined: no place, character or object " // &
+             "provides that name", cues(k)%node, &
+             "a named destination must be a place defined " // &
+             "with 'place', a character, or an object in the " // &
+             "scene; an unresolved name would be carried " // &
+             "into the timeline as a plain string", &
+             "add a 'place " // v%s // " at ...' line, define " // &
+             "the character or object, or fix the name in " // &
+             "the cue")
+      end do
+    end do
+  end subroutine check_cue_destinations
+
+
   !> W203 from desugar's `unused_actions` provenance stamp (see
   !! the header note): a list of action names on any visible node.
   subroutine check_unused_actions()
@@ -1149,6 +1220,9 @@ contains
            "define the character first, or fix the name in " // &
            "the cue")
     end do
+
+    ! ---- E209: cue destinations nothing provides ----------------
+    call check_cue_destinations(cues, n_cues)
 
     ! ---- E207: same target + same channel overlap ---------------
     call check_overlaps(cues, n_cues)

@@ -275,11 +275,22 @@ contains
     character(len=:), allocatable, intent(out) :: out_text, err_text
     logical, intent(out) :: timed_out
     character(len=:), allocatable :: base, full, tpath
+    character(len=1024) :: tmpdir
     type(str_builder) :: sb
     logical :: have_timeout
-    integer :: pid
+    integer :: pid, tlen, tstat
     pid = c_getpid()
-    base = "/tmp/f3dc_driver_"//trim(int_str(int(pid, int64)))
+    ! Scratch files honour TMPDIR (the capture mechanism must not
+    ! depend on a writable /tmp: a full or read-only /tmp would
+    ! silently empty every captured listing/output).
+    call get_environment_variable("TMPDIR", tmpdir, length=tlen, &
+                                  status=tstat)
+    if (tstat == 0 .and. tlen > 0 .and. tlen <= len(tmpdir)) then
+       base = trim(tmpdir)//"/f3dc_driver_"// &
+              trim(int_str(int(pid, int64)))
+    else
+       base = "/tmp/f3dc_driver_"//trim(int_str(int(pid, int64)))
+    end if
     call driver_find_tool("timeout", tpath, have_timeout)
     call sb_init(sb)
     if (len_trim(cwd) > 0) then

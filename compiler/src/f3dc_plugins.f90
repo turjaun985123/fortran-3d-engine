@@ -237,6 +237,7 @@ contains
     type(char_list) :: dirs
     character(:), allocatable :: env
     integer :: st, ln, i, a
+    logical :: sep
     if (plugins_ready) return
     plugins_ready = .true.
     call get_environment_variable("F3DC_PLUGIN_PATH", length=ln, &
@@ -250,7 +251,16 @@ contains
                                       status=st)
         a = 1
         do i = 1, ln + 1
-          if (i > ln .or. env(i:i) == ":") then
+          ! Nested ifs, NOT `i > ln .or. env(i:i) == ":"`: Fortran
+          ! .or. does not short-circuit, so at i = ln + 1 the
+          ! substring env(i:i) would be read out of bounds.
+          sep = .false.
+          if (i > ln) then
+            sep = .true.
+          else if (env(i:i) == ":") then
+            sep = .true.
+          end if
+          if (sep) then
             if (i > a) call char_list_append(dirs, env(a:i - 1))
             a = i + 1
           end if
@@ -309,11 +319,19 @@ contains
   function canon_key(dir, cwd) result(key)
     character(*), intent(in) :: dir, cwd
     character(:), allocatable :: key, d
+    logical :: is_abs
     d = dir
     if (len(d) > 1) then
       if (d(len(d):len(d)) == "/") d = d(1:len(d) - 1)
     end if
-    if (len(d) >= 1 .and. d(1:1) == "/") then
+    ! Nested ifs, NOT `len(d) >= 1 .and. d(1:1) == "/"`: Fortran
+    ! .and. does not short-circuit, so for an empty d the substring
+    ! d(1:1) would be read out of bounds.
+    is_abs = .false.
+    if (len(d) >= 1) then
+      if (d(1:1) == "/") is_abs = .true.
+    end if
+    if (is_abs) then
       key = d
     else
       if (len(d) >= 2) then
@@ -337,7 +355,7 @@ contains
     character(len=256) :: tmp
     character(:), allocatable :: out, err, line
     integer :: rc, n, i, j, pos, start
-    logical :: timed_out
+    logical :: timed_out, is_eol
     n = 0
     call driver_run_capture("ls -1 "//driver_quote(dir), "", 0, &
                             rc, out, err, timed_out)
@@ -345,7 +363,17 @@ contains
     ! Split the listing into lines.
     start = 1
     do pos = 1, len(out) + 1
-      if (pos > len(out) .or. out(pos:pos) == achar(10)) then
+      ! Nested ifs, NOT `pos > len(out) .or. out(pos:pos) == ...`:
+      ! Fortran .or. does not short-circuit, so at
+      ! pos = len(out) + 1 the substring out(pos:pos) would be
+      ! read out of bounds (aborts under -fcheck=all).
+      is_eol = .false.
+      if (pos > len(out)) then
+        is_eol = .true.
+      else if (out(pos:pos) == achar(10)) then
+        is_eol = .true.
+      end if
+      if (is_eol) then
         if (pos > start .and. n < 4096) then
           line = out(start:pos - 1)
           if (len(line) > 0) then
