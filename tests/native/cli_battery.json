@@ -11,12 +11,12 @@
    "build_artifacts": false,
    "expect": {
     "exit": 0,
-    "stdout_sha256": "d5bd3c1281e9164d1ff5b5ae444ce9674ebffa5d3fda29738779c31da3e5d472",
+    "stdout_sha256": "93b5eb8bb49d4a07ecf27bdcf7348777ba7cf45a60d07267438f43d7427a3c7a",
     "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "stdout_len": 11,
     "stderr_len": 0,
     "codes": [],
-    "stdout_text": "f3dc 3.0.0\n",
+    "stdout_text": "f3dc 4.0.0\n",
     "stderr_text": ""
    }
   },
@@ -558,12 +558,12 @@
     "stdout_text": "out/scene.scene\nout/scene.json\nout/scene.legacy.json\nout/scene.js\nout/scene.html\nout/scene_scene.f90\n",
     "stderr_text": "warning W101: no scene statement: injecting default scene 640x480 bg #191923\nwarning W101: no camera statement: injecting default camera at (3, 2.5, 4) looking at (0, 0, 0), fov 60\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n",
     "artifacts": {
-     "scene.html": "161558f35d6f6ef5c9284dfb07b0f80134fba9e68465cd341e0ef65b0dfe1d59",
+     "scene.html": "fe5019a4b22b818e68aaed081c52f5f05165a07dbcf79345fdf92924b2eb114c",
      "scene.js": "6fb8bbd35983a623dab7adf01b4e003528065ea3364e8e8d15369527a2384d0b",
      "scene.json": "d3980294aaf012c2b380df2c1f06744dc0ac8572963d22d0a473eedca27031d8",
      "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
      "scene.scene": "9f9df6c2edfe9c1ed3e34ffdc687bfc3d719693edf26d4911ba598170d18d66e",
-     "scene.timeline.json": "4a6b5613d9b13756d7a23fb7cc74f63ce4488d3321777d3dba4f1148b9f1ab57",
+     "scene.timeline.json": "e77b784ebbcb302ece83b9c8fe7e61d73d9d875e57fe443c94ee81dafc8b6dbe",
      "scene_scene.f90": "e4f100b203e7b23987621d7fdc28e07761755523642d097ebbc0f1795798b9e5"
     }
    }
@@ -591,7 +591,7 @@
     "stdout_text": "out/scene.scene\nout/scene.json\nout/scene.legacy.json\nout/scene.js\nout/scene.html\nout/scene_scene.f90\n",
     "stderr_text": "",
     "artifacts": {
-     "scene.html": "418dc2a65baec46c63cb7225b4649e881d5877c2bd439c93e27e5d488dff7c0a",
+     "scene.html": "d6a813f885bb0380e7fbaecf5ba3ecb781769ea964ae004dd603e56d39f9aeab",
      "scene.js": "c23b188ffb359f99f7788b4408ea6aee5874a5d07d9b4ed941039709c4da2577",
      "scene.json": "087e0d65343d5b027fb50c4b293279adc66fb272335cd21215bd666afcbd2962",
      "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
