@@ -16,6 +16,7 @@ program main
     use postprocess_3d, only: post_apply_chain
     use camera_ortho_3d, only: ortho_proj_from_size
     use renderer_v3_3d, only: v3_render_scene_fb
+    use timeline_ir_3d, only: tl_timeline, read_timeline
     use, intrinsic :: iso_fortran_env, only: error_unit, int64
     implicit none
 
@@ -364,6 +365,47 @@ program main
         ! Scene mode: one argument = path to a .scene file.
         ! ================================================================
         call get_command_argument(scene_arg_idx, scene_path)
+
+        ! Timeline IR (Wave 2, slice A4): a .timeline.json argument
+        ! is NOT a scene -- load it with the typed, version-gated
+        ! reader (timeline_ir_3d), print a short report, and exit.
+        ! There is no evaluation or rendering yet (Wave 3); every
+        ! other path, including the legacy demo, is untouched.
+        block
+            integer :: plen
+            type(tl_timeline) :: tlrep
+            logical :: tok
+            character(len=1024) :: terr
+            integer :: note_i
+            plen = len_trim(scene_path)
+            if (plen > 14 .and. &
+                scene_path(plen - 13:plen) == '.timeline.json') then
+                call read_timeline(trim(scene_path), tlrep, tok, terr)
+                if (.not. tok) then
+                    write(error_unit, '(A)') 'error: ' // trim(terr)
+                    stop 1
+                end if
+                print *, '[+] Timeline IR: ', trim(tlrep%name)
+                write(*, '(A, I0, A, I0, A, I0, A)') &
+                    '    fps ', tlrep%fps_num, '/', tlrep%fps_den, &
+                    ', duration ', tlrep%duration_frames, ' frames'
+                write(*, '(A, I0, A, I0, A, I0, A, I0, A, I0)') &
+                    '    characters ', tlrep%n_characters, &
+                    ', scenes ', tlrep%n_scenes, &
+                    ', tracks ', tlrep%n_tracks, &
+                    ', dialogue ', tlrep%n_dialogue, &
+                    ', markers ', tlrep%n_markers
+                if (tlrep%n_skipped_tracks > 0) &
+                    write(*, '(A, I0, A)') '    skipped tracks: ', &
+                        tlrep%n_skipped_tracks, &
+                        ' (unknown kind, see notes)'
+                do note_i = 1, tlrep%n_notes
+                    write(*, '(A, A)') '    note: ', &
+                        trim(tlrep%notes(note_i))
+                end do
+                stop
+            end if
+        end block
 
         call scene_load(trim(scene_path), sc, ok, errmsg)
         if (.not. ok) then
