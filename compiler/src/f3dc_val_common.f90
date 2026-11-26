@@ -22,6 +22,7 @@ module f3dc_val_common
   use f3dc_str, only: fmt_int, fmt_real, to_lower, &
        str_builder, sb_init, sb_add, sb_text
   use f3dc_ir, only: ir_parse_color
+  use f3dc_plugins, only: plugin_is_verb
   implicit none
   private
   public :: vget
@@ -86,7 +87,7 @@ module f3dc_val_common
   public :: GEOM_PRIMS
   public :: MATERIALS
   public :: ANIM_KINDS
-  public :: ANIM_KINDS_EXT
+  public :: anim_kind_ext
   public :: LIGHT_KINDS_V1
   public :: CONTROLS_KINDS
   public :: EASES
@@ -151,15 +152,11 @@ module f3dc_val_common
   ! their base-form aliases).  Accepted by val_anim ONLY for anims
   ! carrying a resolved `start` field; legacy anims keep the
   ! ANIM_KINDS-only rule above, unchanged.
-  character(16), parameter :: ANIM_KINDS_EXT(40) = [character(16) :: &
-       "walks", "walk", "runs", "run", "enters", "enter", &
-       "waves", "wave", &
-       "sits", "sit", "stands", "stand", "jumps", "jump", &
-       "falls", "fall", "looks", "look", "faces", "face", &
-       "points", "point", "nods", "nod", "shakes", "shake", &
-       "dances", "dance", "sleeps", "sleep", "smiles", "smile", &
-       "picks", "pick", "gives", "give", "taps", "tap", &
-       "exits", "exit"]
+  ! ANIM Wave 2 flag 3: that verb list is no longer a core table.
+  ! Action sets register with the PLUGIN REGISTRY (f3dc_plugins);
+  ! core keeps only the resolution mechanism -- anim_kind_ext()
+  ! below, the union query over every registered plugin's verbs
+  ! (the stickman plugin registers exactly the Wave-1 list).
   character(16), parameter :: LIGHT_KINDS_V1(4) = [character(16) :: &
        "directional", "ambient", "point", "spot"]
   character(16), parameter :: CONTROLS_KINDS(2) = [character(16) :: &
@@ -224,6 +221,17 @@ module f3dc_val_common
     ! section consults for the .mp4 gate (ANIM-PLAN SS1.9 rule 7).
     type(dyn) :: dialogue_nodes
     logical :: has_film = .false.
+    ! ANIM Wave 2 (slice B1): the film header node itself, kept by
+    ! classify_node so the timeline section can read the film's
+    ! title / fps for the Timeline IR fragment (the flag alone is
+    ! not enough once an emitter needs the values).
+    type(dyn) :: film_node
+    ! ANIM Wave 2 (slice B3): the scene node itself, kept by
+    ! walk_scene so the timeline section can read the scene's
+    ! `transition` prop (SS1.7) for the Timeline IR fragment --
+    ! it rides the scene node's props bag and survives into no
+    ! other validator state.
+    type(dyn) :: scene_node
     logical :: has_camera = .false., has_controls = .false.
     logical :: has_scene = .false.
     type(dyn) :: camera_node, controls_node
@@ -890,6 +898,16 @@ contains
   end function in_words
 
 
+  !> ANIM Wave 2 flag 3: is `word` an extended (plugin-registered)
+  !! action verb?  The union of every registered plugin's verb set
+  !! in f3dc_plugins -- the registry query that replaced the core
+  !! ANIM_KINDS_EXT table.
+  logical function anim_kind_ext(word)
+    character(*), intent(in) :: word
+    anim_kind_ext = plugin_is_verb(word)
+  end function anim_kind_ext
+
+
   !> dyn list of 3 reals / 3 ints (IR tuple fields).
   function vec3_dyn(vec) result(out)
     real(real64), intent(in) :: vec(3)
@@ -1035,6 +1053,7 @@ contains
     if (dyn_dict_has(node, "film_def")) then
       cat = C_FILM
       vs%has_film = .true.
+      call dyn_assign(vs%film_node, node)
       return
     end if
     if (dyn_dict_has(node, "char_def") .or. &

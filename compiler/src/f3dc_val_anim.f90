@@ -14,6 +14,7 @@ module f3dc_val_anim
        DYN_K_BOOL, DYN_K_INT, DYN_K_REAL, DYN_K_STR, &
        DYN_K_LIST, DYN_K_DICT
   use f3dc_val_common
+  use f3dc_plugins, only: ease_canonical
   use f3dc_str, only: to_lower, fmt_int, fmt_real, &
        char_list, char_list_len, char_list_at, char_list_clear
   implicit none
@@ -46,9 +47,11 @@ contains
         end if
         ! ANIM Wave 1 (ANIM-PLAN SS2.2/SS2.4): a timeline-resolved
         ! AnimStmt carries a fields-bag `start`; such anims may use
-        ! the sentence verbs (ANIM_KINDS_EXT) beyond the legacy
-        ! ANIM_KINDS.  Legacy anims (no `start`) keep the legacy
-        ! rule and message, unchanged.
+        ! the sentence verbs beyond the legacy ANIM_KINDS.  Legacy
+        ! anims (no `start`) keep the legacy rule and message,
+        ! unchanged.  ANIM Wave 2 flag 3: the extended verb set is
+        ! the plugin registry's union (anim_kind_ext), not a core
+        ! table.
         anim_start = 0.0_real64
         has_anim_start = .false.
         block
@@ -59,7 +62,7 @@ contains
         end block
         if (.not. in_words(akind, ANIM_KINDS)) then
           if (.not. (has_anim_start .and. &
-               in_words(akind, ANIM_KINDS_EXT))) then
+               anim_kind_ext(akind))) then
             call verrn("E201", "animation kind " // &
                  py_repr(kind_raw) // &
                  " is missing or unknown; v1 has: " // &
@@ -141,6 +144,13 @@ contains
         else
           ease_s = "linear"
         end if
+        ! ANIM Wave 2 flag 6: a timeline-resolved anim emits ONE
+        ! canonical easing spelling into the IR (ease_canonical in
+        ! f3dc_plugins: ease-in -> cubic-in, the adverb-derived
+        ! ease-in-out -> cubic-in-out, ...).  Legacy anims (no
+        ! resolved `start`) keep their accepted spelling verbatim,
+        ! byte-identical to Wave 1.
+        if (has_anim_start) ease_s = ease_canonical(ease_s)
         call vfield(node, props, [character(12) :: "loop", &
                                   "loop_mode"], loopv)
         ir_anim = dyn_dict()

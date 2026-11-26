@@ -629,11 +629,19 @@ contains
   ! by hand for all 6).  AN_PASS_MIN 16 -> 144, AN_XFAIL_MAX
   ! 130 -> 6.
   !   anim:     150 parsing sources, 144 full pass, 6 xfail
+  ! Adjusted 2026-11-26 (Wave 2): the Timeline IR wave added one
+  ! more multi-scene anim case (case 164, a two-scene film), so
+  ! the class-3 structural xfail count moves 6 -> 7.  Case 164
+  ! verified by hand: fmt idempotent, both builds succeed, and
+  ! the full artifact trees are byte-identical except the
+  ! timeline's generator.source_sha256, which correctly hashes
+  ! the fmt-rewritten source.  AN_XFAIL_MAX 6 -> 7.
+  !   anim:     156 parsing sources, 149 full pass, 7 xfail
   ! -------------------------------------------------------------
   subroutine section_sweep()
     integer, parameter :: EX_PASS_MIN = 12, EX_XFAIL_MAX = 4
     integer, parameter :: CO_PASS_MIN = 91, CO_XFAIL_MAX = 0
-    integer, parameter :: AN_PASS_MIN = 144, AN_XFAIL_MAX = 6
+    integer, parameter :: AN_PASS_MIN = 144, AN_XFAIL_MAX = 7
     integer :: fails, rc, i, cc, cls
     integer :: ex_n, ex_pass, ex_x(3), co_n, co_pass, co_x(3)
     integer :: an_n = 0, an_pass = 0, an_x(3) = 0

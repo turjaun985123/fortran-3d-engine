@@ -141,6 +141,7 @@ contains
     vs%key_nodes = dyn_list()
     vs%dialogue_nodes = dyn_list()
     vs%has_film = .false.
+    vs%film_node = dyn_null()
     vs%filter_nodes = dyn_list()
     vs%instance_nodes = dyn_list()
     vs%shader_nodes = dyn_list()

@@ -87,6 +87,9 @@ program f3dc
   use f3dc_emit_json, only: emit_json_v2, emit_json_legacy
   use f3dc_emit_js, only: emit_js
   use f3dc_emit_html, only: emit_html, emit_html_runtime_js
+  use f3dc_emit_timeline, only: tl_reset, tl_add_scene, &
+       tl_finalize
+  use f3dc_val_timeline, only: timeline_fragment
   use f3dc_driver, only: driver_repo_root, driver_find_tool, &
        driver_ensure_engine, driver_run_engine, driver_run_capture, &
        driver_quote, driver_cwd, driver_file_exists, driver_is_dir, &
@@ -2793,14 +2796,19 @@ contains
     logical :: cache_hit, cacheable, cache_protected, manifestable
     type(error_bag_t) :: bag
     logical :: ok
-    character(len=256) :: names(6)
+    character(len=256) :: names(7)
     character(len=:), allocatable :: c_scene, c_json, c_legacy, &
          c_js, c_html, c_f90, content_k, root, target, summary
     integer :: k
     logical :: wok
+    ! ANIM Wave 2 slice B1: Timeline IR state for this build.
+    character(len=:), allocatable :: tl_text, tl_err, tl_stem
+    logical :: tl_made, tl_has
+    integer :: n_out_names
     ir = dyn_null()
     out_dir = ""
     stem = ""
+    tl_made = .false.
     call multi_chunks(path, chunks, n_chunks, multi)
     if (multi) then
        call write_chunks(path, chunks, n_chunks, temps)
@@ -2810,6 +2818,10 @@ contains
        else
           out_dir = "build"
        end if
+       ! Slice B1: the timeline aggregates ALL chunks into ONE
+       ! file named after the build stem; chunk sub-builds only
+       ! accumulate their scenes (tl_add_scene below).
+       call tl_reset()
        do i = 1, n_chunks
           sub = path_stem(path)//"-"// &
                 chunk_scene_name(trim(chunks(i)), i - 1)
@@ -2818,8 +2830,35 @@ contains
           if (sub_code /= 0 .and. code == 0) code = sub_code
        end do
        call drop_chunks(temps, n_chunks)
+       if (code == 0) then
+          tl_stem = path_stem(path)
+          call tl_finalize(tl_stem, VERSION, path_basename(path), &
+                           path, tl_text, tl_has, tl_err)
+          if (len(tl_err) > 0) then
+             call err_line("error E201: "//tl_err)
+             code = 1
+             return
+          end if
+          if (tl_has) then
+             call write_file(out_dir//"/"//tl_stem// &
+                  ".timeline.json", tl_text, wok)
+             if (.not. wok) then
+                call err_line("error E502: cannot write output: "// &
+                     "i/o error")
+                code = 3
+                return
+             end if
+          else
+             ! Absence = still: remove any stale timeline file.
+             call delete_quiet(out_dir//"/"//tl_stem// &
+                  ".timeline.json")
+          end if
+       end if
        return
     end if
+    ! Slice B1: a top-level (non-chunk) build starts a fresh
+    ! timeline accumulation; chunk sub-builds append to it.
+    if (.not. has_stem_override) call tl_reset()
     ! v3.0 Phase 6 (Seat X): incremental compile.  A plain
     ! `f3dc build` (no --force, no --explain, not a multi-scene
     ! chunk sub-build) may skip the compile when the manifest in
@@ -2846,6 +2885,10 @@ contains
     names(4) = stem//".js"
     names(5) = stem//".html"
     names(6) = stem//"_scene.f90"
+    ! Slice B1: the timeline file is a SEVENTH, conditional
+    ! output -- present in the manifest's output set exactly when
+    ! the recorded build emitted one (see the manifest write).
+    names(7) = stem//".timeline.json"
     if (cacheable) then
        ! The E502 protected-target refusal below must not be
        ! bypassed by a cache hit, so it is checked first here.
@@ -2860,8 +2903,24 @@ contains
        cache_hit = .false.
        if (.not. cache_protected) then
           mpath = out_dir//"/.f3dc-manifest-"//stem
-          call driver_manifest_check(mpath, stem, out_dir, names, &
-                                     cache_hit)
+          ! Slice B1: a hit is a manifest whose recorded output
+          ! set matches THIS build's possible outputs -- six
+          ! names when the recorded build was a still (no
+          ! timeline file), seven when it emitted a timeline
+          ! (whose presence the check then verifies like any
+          ! other output).  Pre-B1 manifests have six names and
+          ! keep hitting.
+          call driver_manifest_check(mpath, stem, out_dir, &
+                                     names(1:6), cache_hit)
+          if (cache_hit) then
+             ! Six-name hit: the recorded build was a still, so
+             ! a timeline file here could only be stale -- the
+             ! absence rule (no file = still) removes it.
+             call delete_quiet(out_dir//"/"//trim(names(7)))
+          else
+             call driver_manifest_check(mpath, stem, out_dir, &
+                                        names(1:7), cache_hit)
+          end if
        end if
        if (cache_hit) then
           ir = dyn_null()
@@ -2919,6 +2978,39 @@ contains
     end do
     ! v3.0 Phase 8 (profile): all six outputs are on disk.
     call driver_timing_mark("write")
+    ! ANIM Wave 2 slice B1: Timeline IR.  Every successful build
+    ! records its scene with the emitter (chunk sub-builds only
+    ! accumulate; the multi-scene parent in the branch above
+    ! finalizes).  A top-level single-scene build finalizes here:
+    ! the file is written when the source has timeline content,
+    ! and a stale file is removed when it does not (absence =
+    ! still).  `check` never reaches this code, so it writes
+    ! nothing.
+    call tl_add_scene(ir, timeline_fragment(), trim(names(2)))
+    n_out_names = 6
+    if (.not. has_stem_override) then
+       call tl_finalize(stem, VERSION, path_basename(path), path, &
+                        tl_text, tl_has, tl_err)
+       if (len(tl_err) > 0) then
+          call err_line("error E201: "//tl_err)
+          code = 1
+          return
+       end if
+       if (tl_has) then
+          call write_file(out_dir//"/"//trim(names(7)), tl_text, &
+                          wok)
+          if (.not. wok) then
+             call err_line("error E502: cannot write output: "// &
+                  "i/o error")
+             code = 3
+             return
+          end if
+          tl_made = .true.
+          n_out_names = 7
+       else
+          call delete_quiet(out_dir//"/"//trim(names(7)))
+       end if
+    end if
     ! v3.0 Phase 6 (Seat X): record the incremental manifest for
     ! the next build.  Best effort and silent: a failed manifest
     ! write changes nothing about this build's outputs or exit
@@ -2943,8 +3035,12 @@ contains
                "for this build")
        else
           mpath = out_dir//"/.f3dc-manifest-"//stem
-          call driver_manifest_write(mpath, stem, names, dep_paths, &
-                                     n_deps)
+          ! Slice B1: record six output names for a still, seven
+          ! when this build emitted a timeline file, so a later
+          ! cache check verifies the timeline's presence too.
+          call driver_manifest_write(mpath, stem, &
+                                     names(1:n_out_names), &
+                                     dep_paths, n_deps)
        end if
     end if
     if (explain) then

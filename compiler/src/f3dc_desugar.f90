@@ -79,6 +79,7 @@ module f3dc_desugar
   use f3dc_errors, only: error_bag_t, make_diagnostic, error_bag_add, &
                          error_bag_error_count, did_you_mean
   use f3dc_parser, only: f3dc_parse
+  use f3dc_plugins, only: plugin_default_id, plugin_channel_for_verb
   use f3dc_ast, only: ast_program, ast_program_from_dyn, &
                       ast_program_to_dyn
   implicit none
@@ -2329,10 +2330,21 @@ contains
   !! second pass cannot raise twice) and, when the string names
   !! a binding, import_path / at / pos / to / target (names that
   !! are not bindings -- places, objects -- pass through).
-  recursive subroutine subst_walk(v, tab, bag)
+  ! ANIM Wave 2 carried item B: `reported` carries the
+  ! "<slot>:<name>" E213 reports already emitted for THIS
+  ! statement.  One logical reference is stored in several slots
+  ! (a cue's duration rides both the node's fields bag and its
+  ! props bag -- duration_fields writes both), so without the
+  ! dedupe the same unbound name printed its E213 twice.  The
+  ! slot is still nulled either way, so a later desugar pass
+  ! cannot raise it again; other statements referencing the same
+  ! unbound name still report their own E213 (a fresh list per
+  ! statement, created in step_let_pass).
+  recursive subroutine subst_walk(v, tab, bag, reported)
     type(dyn), intent(inout) :: v
     type(let_tab), intent(in) :: tab
     type(error_bag_t), intent(inout) :: bag
+    type(char_list), intent(inout) :: reported
     integer :: k, idx
     character(len=:), allocatable :: key, sname
     type(dyn) :: child
@@ -2355,10 +2367,13 @@ contains
               call dyn_dict_set(v, "offset_unit", &
                                 dyn_str(trim(tab%units(idx))))
           else
-            call emit_diag(bag, "E213", "error", &
-              "'" // sname // "' is used as a " // key // &
-              ", but no 'let " // sname // &
-              " be ...' line defines it before this point")
+            if (.not. name_in(reported, key // ":" // sname)) then
+              call char_list_append(reported, key // ":" // sname)
+              call emit_diag(bag, "E213", "error", &
+                "'" // sname // "' is used as a " // key // &
+                ", but no 'let " // sname // &
+                " be ...' line defines it before this point")
+            end if
             call dyn_dict_set(v, key, dyn_null())
           end if
         else if ((key == "import_path" .or. key == "at" .or. &
@@ -2370,7 +2385,7 @@ contains
             call dyn_dict_set(v, key, dyn_copy(tab%vals(idx)))
         else if (child%kind == DYN_K_DICT .or. &
                  child%kind == DYN_K_LIST) then
-          call subst_walk(child, tab, bag)
+          call subst_walk(child, tab, bag, reported)
           call dyn_dict_set(v, key, child)
         end if
       end do
@@ -2379,7 +2394,7 @@ contains
         child = dyn_list_at(v, k)
         if (child%kind == DYN_K_DICT .or. &
             child%kind == DYN_K_LIST) then
-          call subst_walk(child, tab, bag)
+          call subst_walk(child, tab, bag, reported)
           call dyn_list_set_at(v, k, child)
         end if
       end do
@@ -2437,7 +2452,10 @@ contains
         end if
         cycle  ! the let node never survives
       end if
-      call subst_walk(node, active, bag)
+      block
+        type(char_list) :: reported
+        call subst_walk(node, active, bag, reported)
+      end block
       call arr_push(out, node)
     end do
     call move_alloc(out%items, stmts%items)
@@ -2577,16 +2595,17 @@ contains
     end select
   end function tl_is_builtin
 
-  !> The channel a built-in verb animates (SS2.4 E207 channels):
-  !! face for the expression verbs, body for everything else.
+  !> The channel a built-in verb animates (SS2.4 E207 channels).
+  !! ANIM Wave 2 flag 1: resolved through the PLUGIN REGISTRY
+  !! (f3dc_plugins) -- the verb's owning plugin declares which of
+  !! its channels the verb animates; core holds no channel names.
+  !! A verb no plugin owns keeps the historical default "body"
+  !! (unreachable for built-ins: tl_is_builtin gates this call).
   function tl_channel(action) result(ch)
     character(len=*), intent(in) :: action
     character(len=:), allocatable :: ch
-    if (action == "smile" .or. action == "face") then
-      ch = "face"
-    else
-      ch = "body"
-    end if
+    ch = plugin_channel_for_verb(action)
+    if (len(ch) == 0) ch = "body"
   end function tl_channel
 
   !> Word count of a dialogue line for the duration estimate
@@ -2790,6 +2809,16 @@ contains
     call dyn_dict_set(phprops, "pos", dyn_copy(at))
     call dyn_dict_set(phprops, "tris", dyn_list())
     call dyn_dict_set(phprops, "character", dyn_bool(.true.))
+    ! ANIM Wave 2 flag 4: the placeholder carries the character's
+    ! PLUGIN id (registry default -- characters declare no plugin
+    ! in the Wave-2 language) instead of a core humanoid
+    ! assumption, plus the character's full declared props under
+    ! "char_props" so the validator's schema-driven character
+    ! checks (f3dc_val_timeline) can see them on the resolved
+    ! stream, where the character node itself no longer exists.
+    call dyn_dict_set(phprops, "plugin", &
+                      dyn_str(plugin_default_id()))
+    call dyn_dict_set(phprops, "char_props", dyn_copy(props))
     ph = dyn_dict()
     call dyn_dict_set(ph, "prim", dyn_str("tris"))
     call dyn_dict_set(ph, "name", dyn_str(cname))

@@ -16360,6 +16360,7 @@
      "scene.json": "af8e28427cad343a703ef98e234c8ace2a42224d62bcebbde2cec7de8c07a0eb",
      "scene.legacy.json": "8eb7925a96a44a1b8423a131dc5649087dd9742d41fad9c7d3239944f69a6e58",
      "scene.scene": "bba4c376aab8b81609eda45e4b8bb484526190a94f38c11c30414b5246ec9beb",
+     "scene.timeline.json": "f0bb023c93cacf73fb2f43d9eef49eb865423e16bfbc1c9da855246c6fb7059b",
      "scene_scene.f90": "0ab0e7f9a27c53d4c321419c1fb0e2c657e7ca148e3b3e6a04bcb3a7884dbd35"
     }
    }
@@ -16541,6 +16542,7 @@
      "scene.json": "d3980294aaf012c2b380df2c1f06744dc0ac8572963d22d0a473eedca27031d8",
      "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
      "scene.scene": "9f9df6c2edfe9c1ed3e34ffdc687bfc3d719693edf26d4911ba598170d18d66e",
+     "scene.timeline.json": "4a6b5613d9b13756d7a23fb7cc74f63ce4488d3321777d3dba4f1148b9f1ab57",
      "scene_scene.f90": "e4f100b203e7b23987621d7fdc28e07761755523642d097ebbc0f1795798b9e5"
     }
    }
@@ -25558,6 +25560,7 @@
      "scene.json": "e053f5857bbc1ce8d166aeba92cc842052e203da3f4d9afb342502a7386007b7",
      "scene.legacy.json": "51f1214272ad79a2ef4798fc3ccff66dbe29f2faabecc1a3b0691fe422854530",
      "scene.scene": "44f8288f4626a1b47869d4419b17059293c9a13fc4f537ac78e475420655945c",
+     "scene.timeline.json": "dbb5e210afa23f7cc66b924face7b1d4c90456aed50901db66a3c92d339225c5",
      "scene_scene.f90": "517c417f325cbf309e7278a462b7921213bd7dc5356d2a6b09ec5ac93cc08819"
     }
    }
@@ -28163,8 +28166,8 @@
   }
  ],
  "anim_cases": {
- "about": "ANIM Wave 1 (ANIM-PLAN SS5.1) animation-compiler corpus: film mode, characters, built-in/custom actions, plain-word timelines (incl. plain-word<->numeric equivalence pairs with identical baked expectations), camera moves, dialogue/subtitles (incl. Bangla), multi-scene + transitions, loops & variables, fps/timebase edges, one minimal failing case per new diagnostic E206-E213/W203/W204 each with a near-miss valid twin, and the three SS1.10 example scripts. Expectations baked 2026-11-26 from the landed native bin/f3dc with the same extractor semantics as the corpus section of test_native_compiler.f90 (check capture sha256 + codes; build artifact sha256 sets, manifest excluded). Two cases bake landed-compiler defects against the plan (walks-in-from -> E201, gently -> E201) and one a limitation (let in repeat count), each named in the wave report.",
- "kept": 162,
+ "about": "ANIM Wave 1 (ANIM-PLAN SS5.1) animation-compiler corpus: film mode, characters, built-in/custom actions, plain-word timelines (incl. plain-word<->numeric equivalence pairs with identical baked expectations), camera moves, dialogue/subtitles (incl. Bangla), multi-scene + transitions, loops & variables, fps/timebase edges, one minimal failing case per new diagnostic E206-E213/W203/W204 each with a near-miss valid twin, and the three SS1.10 example scripts. Expectations baked 2026-11-26 from the landed native bin/f3dc with the same extractor semantics as the corpus section of test_native_compiler.f90 (check capture sha256 + codes; build artifact sha256 sets, manifest excluded). Two cases bake landed-compiler defects against the plan (walks-in-from -> E201, gently -> E201) and one a limitation (let in repeat count), each named in the wave report. ANIM Wave 2 slice A1: case 152 re-pinned (E213 prints once -- carried item B fix in desugar let-substitution) and one case appended (character head triangle -> E205, carried item A: schema-driven character prop validation via the plugin registry). ANIM Wave 2 slice B1: timeline-artifact pins added to the 37 expectation cases (corpus/anim/examples/cli) whose builds now emit a .timeline.json -- in every case the ONLY delta, all other artifact hashes byte-identical -- plus six appended cases pinning the timeline artifact itself (film dialogue/camera, film two-scene cast union, Bangla dialogue, legacy keys, legacy verb, non-film character keys).",
+ "kept": 169,
  "cases": [
   {
    "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2\n",
@@ -28187,6 +28190,7 @@
      "scene.json": "f315ebcb81928160c0aa0328790d25c08416c7af4efc87d72d1422fd94f29984",
      "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
      "scene.scene": "c98e546696f54fb3c764e46989021317536a3fcf1c747216c24d066b7c4e1572",
+     "scene.timeline.json": "18cfe9eebc02795060c9e9588df6101f54318b1417a20574ebc0dff58b2d2b48",
      "scene_scene.f90": "2e67ac19dd4a85d2ea90f66f8e19b0f35a52f4f94a80b3ddb4dd2a2fb1fc8063"
     }
    }
@@ -28242,6 +28246,7 @@
      "scene.json": "803d48e8421191d91ec2a0dc24b3a49718089e52bbd46d4e16a501155e50b317",
      "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
      "scene.scene": "69f797b3486fe91002b61b970d7e7bd3301b7c56dea157d70068cad258c05fa5",
+     "scene.timeline.json": "15d08818a3101b91d6f0ad183088ce0ff7bcf3a7836b8ce340f6ed92c156a0d4",
      "scene_scene.f90": "7fd222d97005c3707833b6ff6b65a760a18f1ec23e065c46c71b5879420e78c8"
     }
    }
@@ -28387,6 +28392,7 @@
      "scene.json": "803d48e8421191d91ec2a0dc24b3a49718089e52bbd46d4e16a501155e50b317",
      "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
      "scene.scene": "69f797b3486fe91002b61b970d7e7bd3301b7c56dea157d70068cad258c05fa5",
+     "scene.timeline.json": "4271e2f4f0aacc4c14507ed6f6460db40f67726aeefb823038e5b5abd7b88b31",
      "scene_scene.f90": "7fd222d97005c3707833b6ff6b65a760a18f1ec23e065c46c71b5879420e78c8"
     }
    }
@@ -28459,6 +28465,7 @@
      "scene.json": "c06091fc195bfb674ac86ec45d9d08e4879b78ff168c9248e7ab5d62bbdfe47f",
      "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
      "scene.scene": "b24375d650f58936a86fc1452adb64334568b860cb85948c6138574bb75e4b0f",
+     "scene.timeline.json": "3b8c7e3eceab4cc1db8f842f742b71b0bdcf482d8a060e3a413dcac257e95b42",
      "scene_scene.f90": "78c97267367ac340b78c46a3dcb58abe341fb19dd90ce6f38f8d2982e9e0b3cf"
     }
    }
@@ -28559,6 +28566,7 @@
      "scene.json": "e9ddc9f591f6ffeae9de97feff23dbc78452cc5e4aae7547ead7ca359b46ec90",
      "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
      "scene.scene": "94a9f33f49d7f423a2069946aa28943030eebb2762abcf414f6d74f14f7b6800",
+     "scene.timeline.json": "f27d480811d93a77cba9ff9f798766a996bcc10d03c10eb450044b4853c8d6fb",
      "scene_scene.f90": "55b320d16b50a70a9b44757acad4b9c1687013276b1f7237eab3437ea6fd84a6"
     }
    }
@@ -28659,6 +28667,7 @@
      "scene.json": "69b972140b289dbc646e6fb117d1d27baa850ce86ed84b53fa220fc240523da5",
      "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
      "scene.scene": "4ba8901a7c2299183ffbd28bdde78d68cadb595da2f0814084d0a978dfe0f3a8",
+     "scene.timeline.json": "bc360deddd586ca645e17ad67821d3432b857e23ccf284d9d2dbd894bcf59643",
      "scene_scene.f90": "fc3caf8fbb6f667376a34b1d139ecea287ba829443f63e1f07cb5d2251498e4c"
     }
    }
@@ -28759,6 +28768,7 @@
      "scene.json": "e9fd706724ae0d741e43e9cc992cb3ae628342d3f9cc26b0196e2d00b028818b",
      "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
      "scene.scene": "e664220addcd609c90a8b628746c251b8061691233ab75a2eb55ee1781ddc645",
+     "scene.timeline.json": "9b68a1c0babfde4cec6067142c8051cee076405a586cd437b500a861893b638d",
      "scene_scene.f90": "6b7e8644ccbef7ef7e5f938d21315e2e7629545e7037b41328196bfa2813e999"
     }
    }
@@ -28859,6 +28869,7 @@
      "scene.json": "fc7019f2e2c34b0325c8ced0de0011d92a74924bb3cbd4d426bb99dfd570feb0",
      "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
      "scene.scene": "edfc1d6d35d093c6edb0836bcfa446ff7dee596ac1a275785cb73b6743ebd787",
+     "scene.timeline.json": "97917ef046e8154245ad4fa74404f603eb0b737d5700ce7084fa696f87a25f85",
      "scene_scene.f90": "383cf90cc67ea731bd5a30108197f5c82c9d6a7676034220bc920dcf06f123de"
     }
    }
@@ -28914,6 +28925,7 @@
      "scene.json": "c06b61857ab988a267daf6797f466b7878203f70faa9233082ea9bd72c2c2172",
      "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
      "scene.scene": "f547c0338506fab994b73ef8c173dde83db698b3112037f7dd0b1b7af82b65a7",
+     "scene.timeline.json": "04f57f0aa1b21860fa1684293149068903f66f9d1f5a45bda30fc94966b25fab",
      "scene_scene.f90": "28bf10f0b67363ad5b59e69265955a4222e9bf096e8686fa022dbdebd4ca53b1"
     }
    }
@@ -28969,6 +28981,7 @@
      "scene.json": "7696ac9ecd606d4a6cf8bd7492f6b82b6ac401514ff9158d19c2b795c27429b4",
      "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
      "scene.scene": "89176479e2a70bd100ce023db8024cf858f6e445b58ec7f5ada0359249ad48c7",
+     "scene.timeline.json": "d6019d5a01d6bf28c368aef6da3085d782f7abdc16beef48be678141d88c31c2",
      "scene_scene.f90": "30c9c6d3ca461d9f9b4ef0929f182b78f3d72686bcc57ff62869d116896b2c21"
     }
    }
@@ -29099,6 +29112,7 @@
      "scene.json": "2ac2cb81172ad6547786e6596b2bc19c0e876c34e729211035f5560c9538aa19",
      "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
      "scene.scene": "4973caaee4b424c388dfbad9beaecb0b6eb2ada197055881f544fd929c06531d",
+     "scene.timeline.json": "6ab6b90f47cf9190466fe4fd74b4a7f4da4a261ff143fb1dbfafbe67d0f4db72",
      "scene_scene.f90": "390556225094e2b9d2f0339d3f112820179ac0ab8377aeee831058fe7b5d0c47"
     }
    }
@@ -29274,6 +29288,7 @@
      "scene.json": "0fe1e34d0e97702b4a3b911cc772680619ac40c383f247a61b4b11fca2695699",
      "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
      "scene.scene": "505e2ed42c5676bdced5c7b299f6c2ac00956a54ec5f051e5d13a8e666b96ea1",
+     "scene.timeline.json": "9ead85cd15fc6149c648c6cd0ea9e5de01edf9ee158b36badc99a17229dd1781",
      "scene_scene.f90": "72ecd3d91e935dc791230c7e0c977b5564f6167a7138bb847c219575688992fe"
     }
    }
@@ -29299,6 +29314,7 @@
      "scene.json": "0fe1e34d0e97702b4a3b911cc772680619ac40c383f247a61b4b11fca2695699",
      "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
      "scene.scene": "505e2ed42c5676bdced5c7b299f6c2ac00956a54ec5f051e5d13a8e666b96ea1",
+     "scene.timeline.json": "ea6700a993c0c705d3b69375db71935e093050ca196f02721fcc139b2f0239b4",
      "scene_scene.f90": "72ecd3d91e935dc791230c7e0c977b5564f6167a7138bb847c219575688992fe"
     }
    }
@@ -29354,6 +29370,7 @@
      "scene.json": "e9ddc9f591f6ffeae9de97feff23dbc78452cc5e4aae7547ead7ca359b46ec90",
      "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
      "scene.scene": "94a9f33f49d7f423a2069946aa28943030eebb2762abcf414f6d74f14f7b6800",
+     "scene.timeline.json": "90280b4e5b9b883c74a95fa625799f6f34f4749c4339cabf65ae84d82b962c34",
      "scene_scene.f90": "55b320d16b50a70a9b44757acad4b9c1687013276b1f7237eab3437ea6fd84a6"
     }
    }
@@ -29379,6 +29396,7 @@
      "scene.json": "e9ddc9f591f6ffeae9de97feff23dbc78452cc5e4aae7547ead7ca359b46ec90",
      "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
      "scene.scene": "94a9f33f49d7f423a2069946aa28943030eebb2762abcf414f6d74f14f7b6800",
+     "scene.timeline.json": "55d61360232f9c5ccfa2ca626ece2300ed9c32831e3fb71d287bc21934d086b0",
      "scene_scene.f90": "55b320d16b50a70a9b44757acad4b9c1687013276b1f7237eab3437ea6fd84a6"
     }
    }
@@ -29404,6 +29422,7 @@
      "scene.json": "f607eeabfad898cc6852495ff9dbc0811561e200c99b219322243a742c97d97d",
      "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
      "scene.scene": "69189e14a4cb01a155b06e996121846ed7a1d6944078aedc55853799c4fd0b39",
+     "scene.timeline.json": "23c75540ca47ab71d8268733798be745c064a59769bb778b309f3bef5eee5d40",
      "scene_scene.f90": "6ee2c9c6fe3361a74cc20d7032143d11f7965e991d3ebb94b235e4b77c31054f"
     }
    }
@@ -29429,6 +29448,7 @@
      "scene.json": "f607eeabfad898cc6852495ff9dbc0811561e200c99b219322243a742c97d97d",
      "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
      "scene.scene": "69189e14a4cb01a155b06e996121846ed7a1d6944078aedc55853799c4fd0b39",
+     "scene.timeline.json": "3a83db9a6e30309f70e2574c4bd98072947c4218f7ffabd79cf1cee219596761",
      "scene_scene.f90": "6ee2c9c6fe3361a74cc20d7032143d11f7965e991d3ebb94b235e4b77c31054f"
     }
    }
@@ -29484,6 +29504,7 @@
      "scene.json": "edebcb872b6782fc7f1ae579def67524f9f9cb3ae1433b56aae1e109f817dfe6",
      "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
      "scene.scene": "e32f26537663d385ff28d6015fe3dadec30ba78ea3c643a672cc43cf4b872f6f",
+     "scene.timeline.json": "b711cdd21834fbad593a6770b35512d12cf597ef35131dc601bcb971c7bf721b",
      "scene_scene.f90": "de8090f827c81d209698ecdbb29dfc89122e02ea2ada1491c94f7cbf74bc1e6d"
     }
    }
@@ -29599,6 +29620,7 @@
      "scene.json": "8fe87f95bb5ac4c78a8d0cdb503ca49514d5e752beaa8c6bd28ea5df20dd81a1",
      "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
      "scene.scene": "bdb3122c6c5817cf36e5715e741893831bc8bcffff545cd4418c9d27b2b67050",
+     "scene.timeline.json": "27e889a90d28bb5e93c2a6250613c0ff202564317a2ae530a7fea49cc3bcfa4b",
      "scene_scene.f90": "5b8fd65dc93e1aa7b86a50127be29e5cf83b3e5ce27f75d593a597e685c490d6"
     }
    }
@@ -29684,6 +29706,7 @@
      "scene.json": "4a3863968042d8bfc16234a8de44f5666a5feb40ec7f90cf8088ca69fd2ddc9d",
      "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
      "scene.scene": "4d61d5501ef14053366d6b6a502fd02c52b46653799fa10e0452c855414ec853",
+     "scene.timeline.json": "f59d44c6ea894f10493b439e2c4e1294ec5e585350bf97d7ae6e5150f29ba56c",
      "scene_scene.f90": "e4f92bf4d37cf20d83663aeb35db42d27e29a42e4fb36ab464b17d97528550de"
     }
    }
@@ -29725,6 +29748,7 @@
      "scene.json": "0f275f38a9af5923cb4fbce1cfd1b4bf9b82ad62443b5cb6b69120d494b4023f",
      "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
      "scene.scene": "1354a91d644f34652de1ec8ee31f58383f1ce3295f67377d03a19f0ddb439dcf",
+     "scene.timeline.json": "bb4274ed1c844f4d6b41a0ec9e919d1d167af84ae3a40be28921385c032650d9",
      "scene_scene.f90": "924bf85267ede612ad50785a1e3503cdc2828998428bc52a38cf8e9f5e405e6b"
     }
    }
@@ -29810,6 +29834,7 @@
      "scene.json": "01b7595228bcab4624d3ea1c8b2533db08ab636665493dd8bc6e2df5c2308afe",
      "scene.legacy.json": "9184242bd865fc377635010d9f1d99ea6bff29dfa679eeaa4390c6e99fca039c",
      "scene.scene": "c14ea37ae3af652b6945fb779305f003ea04598037cbf8a2a0a2dbf757510e11",
+     "scene.timeline.json": "d05ac035bfa08dbb3c765bf49097bcc89b0213d33a1ca1de217d50f50b090595",
      "scene_scene.f90": "67e7b1b6ed33b3739072f89961ba644917cd35152cb101b742948a462b78d5fa"
     }
    }
@@ -29942,6 +29967,7 @@
      "scene-one.json": "b3cb8eccc32fc455af63744e64668bc9cce0a920f0c3796d4dc1bbb19d39a839",
      "scene-one.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
      "scene-one.scene": "a940acdaa711abf6a1818cb502be96e1eb866fd259541242cf2645db6e268c4b",
+     "scene.timeline.json": "1c0840dc3efdab88b4479fe59034c2f9f607a15a98d7ff6a9a86a13944f84e63",
      "scene-one_scene.f90": "8554b4ba1cc1e97545217692b11b562c685fdec454312bf7ecf99c10c01d2aa5",
      "scene-two.html": "9895e60e26430422c8c8949b6e9e78a999fc5462c1b0ba95f00f98be20cb5095",
      "scene-two.js": "8938dab075af1142b5e1c3a7c2c832248d454971564f00061ca5157d6cd023d8",
@@ -30097,6 +30123,7 @@
      "scene-one.json": "b3cb8eccc32fc455af63744e64668bc9cce0a920f0c3796d4dc1bbb19d39a839",
      "scene-one.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
      "scene-one.scene": "a940acdaa711abf6a1818cb502be96e1eb866fd259541242cf2645db6e268c4b",
+     "scene.timeline.json": "3fc6e80bf135b440aac95fffe1a78c60e2dcc18bcca591f0e8956c0c31b51306",
      "scene-one_scene.f90": "8554b4ba1cc1e97545217692b11b562c685fdec454312bf7ecf99c10c01d2aa5",
      "scene-three.html": "5988f8df134095db3a48e3e494497b06722ae21aeb81f6cfa7635411bf4d015c",
      "scene-three.js": "96e14c421ac690b6261ea82c7ab854bd90bc0f36ab0ec8ff3f6f74a24bcb8726",
@@ -30165,6 +30192,7 @@
      "scene.json": "027b3a13fab991ea461f4577a4d38c127aced7b2a9bcb887fca0c55b2ef1a1b8",
      "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
      "scene.scene": "5c74b2d8ab4fa5a09056dbeb726960592daa7b7a0374c082a124a66a74c31528",
+     "scene.timeline.json": "1ece34ca753f71a4fc1a4bf30eb7459f049bf73a3ae1f8a0c303e1553d2bb155",
      "scene_scene.f90": "78f873e9c7751b34a5b03828b6e0a5c49f0b89f6137f6931de08eeabf5f8486b"
     }
    }
@@ -30205,6 +30233,7 @@
      "scene.json": "41ce2d52bf3e7bb9ab2d9c16ad73587fe455bbe2ff5b8fbdbeed444bf03d90ec",
      "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
      "scene.scene": "f5a99ccac4fb31f85367225e5e251d97bd88d17a243e6daec9a0909ebda2e0b5",
+     "scene.timeline.json": "7b202a848e9697a2ec5d8b4ad233e197a0f638ec8a9903706d7d1432e0a85584",
      "scene_scene.f90": "779f73115558ea86800c6412e07589638f271f9f9a7c84eaaf24526401e854f2"
     }
    }
@@ -30747,16 +30776,15 @@
    "check": {
     "exit": 1,
     "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "stderr_sha256": "28a751c80e7e3d852814c4451898f701a511c766df6de004007569460d2f0fcf",
+    "stderr_sha256": "4951971bddeadc5a3bcecd3e7d7b8ad4894af762d257195c75470e98933d4622",
     "stdout_len": 0,
-    "stderr_len": 327,
+    "stderr_len": 216,
     "codes": [
-     "E213",
      "E213",
      "W101"
     ],
     "stdout_text": "",
-    "stderr_text": "error E213: 'nosuchvar' is used as a duration, but no 'let nosuchvar be ...' line defines it before this point\nerror E213: 'nosuchvar' is used as a duration, but no 'let nosuchvar be ...' line defines it before this point\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+    "stderr_text": "error E213: 'nosuchvar' is used as a duration, but no 'let nosuchvar be ...' line defines it before this point\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
    }
   },
   {
@@ -30873,6 +30901,7 @@
      "scene.json": "a7eb0480d108ff8e9a6c517206a5ebadc325070bc550819744b70330212fe0ed",
      "scene.legacy.json": "2f6767ba88f905a7e2ad7a375a399186d12097bad388df2b8aad71d4619b1370",
      "scene.scene": "154896290a84d6b3224db290ec17ec26d971de9bfc29e8a9e056047a56688f68",
+     "scene.timeline.json": "f1bb5012f848fe084d51105109b3ed02f2e2eb3f38b986737dcb93c396ff41af",
      "scene_scene.f90": "d77698c55e2c4255d25007f55e78215c8ef149134ee7341d4e869874e3b1c024"
     }
    }
@@ -30898,6 +30927,7 @@
      "scene.json": "f7aac4d70b424298a1d4cd0eda82173ece0375785427ccff822077d790388c34",
      "scene.legacy.json": "544089ef9645c8a85bef05b5d6717b76b511f797d096d0c1a9bff1b6c38756e1",
      "scene.scene": "d8d9d661dba1a86f71e402a9131db5c32204ccc7b943af54a284d6c1b21fa4fb",
+     "scene.timeline.json": "204318c5fccaa919f387772005c098d0870cfef98df3bda1b7c2179a394304d8",
      "scene_scene.f90": "8d453c1d0d5c796c833d0bc8a127edfd02def5821e2df3eb87d5809e7db65723"
     }
    }
@@ -30924,6 +30954,7 @@
      "scene-home.json": "13f17bb5d2bd7f5881dbd352cef19527780b607a40ff902259b4afbcce6d547c",
      "scene-home.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
      "scene-home.scene": "6f31415fe2169fca39050fc36841a4af2b0dee0a376282ad56ee48968a00a69a",
+     "scene.timeline.json": "ec654e24e3a1435d117260272fe4e2c13a755c3c35375df3f988cc4ff0615997",
      "scene-home_scene.f90": "72ea38990b5b624b6189dbb25224ea2e89a67e284b85382cead9084295020c5b",
      "scene-park.html": "4e0a4285f1022bdfb32c18c249b989858899fe2a8113477de7bff3f89eee2990",
      "scene-park.js": "ada08c926e4422a099b76a53ace3d5b065892d8a29d451d2ffa653f0dd9979e3",
@@ -30933,7 +30964,187 @@
      "scene-park_scene.f90": "045ec552e3f443e9e65272c13687a0a166917daf7798a5870c5ac883fd704c5b"
     }
    }
+  },
+  {
+   "src": "film \"T\" size 640 480 fps 24\nscene \"s\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at 0 0 2 head triangle\nlloyd waves\n",
+   "check": {
+    "exit": 1,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "1906eac1d7573930c1fbea5eb87b5b89de772abd1a500b9621fa967a56aa21eb",
+    "stdout_len": 0,
+    "stderr_len": 308,
+    "codes": [
+     "W101",
+     "E205"
+    ],
+    "stdout_text": "",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\nerror E205: character 'lloyd' has head 'triangle', but 'head' must be one of: round, square, oval\n  why: the 'stickman' plugin declares the values 'head' may take\n  help: use one of: round, square, oval\n"
+   }
+  },
+  {
+   "src": "film \"Gate Scene\" size 640 480 fps 24\nscene \"gate\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter mira blue at -2 0 2\ncharacter finn yellow at 2 0 2 short\nmira waves for 2 seconds\nmira says \"Finn — over here!\" for 2 seconds\ncamera zooms in on finn in 2 seconds ease smooth\nrender \"gate.mp4\"\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "05bc072c00834713771c56af782871de7b5b54c3b5c42d5f762eaf4ed1447ddf",
+     "scene.js": "b39c4d27b70a5fe5eb71f263031935a05aecb22f218ecf50696949c59078c9d0",
+     "scene.json": "9857c557f6978ce012fa952cea6e3be42025dd8903e9255440615090f0f14091",
+     "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
+     "scene.scene": "b854b354d1f199b9039250a1e8cb791450248c5423028fec5099702ce763fbc7",
+     "scene.timeline.json": "c497d4f9ac8d430189d14c5ba90e324fefc8ffb11adb86cce1ffb96162750431",
+     "scene_scene.f90": "76da886bf91e57fce646099e32978fc0874ffd04e4452e0e59c142d8037080e2"
+    }
+   }
+  },
+  {
+   "src": "film \"Two Rooms\" size 640 480 fps 30\nscene \"kitchen\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter rafi green at 0 0 2\nrafi jumps for 1 second\nscene \"garden\" background black\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter rafi green at 0 0 2\ncharacter mira pink at 3 0 2 kid\nmira says \"Outside at last!\" for 2 seconds\nrafi waves for 1 second\nrender \"two-rooms.mp4\"\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "d722e87327b404576cf3727744a65316354660357029577ce917fbc0737809b7",
+    "stderr_sha256": "343a6481b4c90f171689a9f3e5f60c65b666c19c543f5a816f77aad0e0040ec3",
+    "stdout_len": 182,
+    "stderr_len": 210,
+    "codes": [
+     "W101",
+     "W101"
+    ],
+    "stdout_text": "OK: .scene.multi0.f3d (2 objects, 1024 triangles est.)\nscene 1/2: kitchen\nOK: .scene.multi1.f3d (3 objects, 1024 triangles est.)\nscene 2/2: garden\nmulti-scene: 2 scenes in scene.f3d\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\nwarning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene-garden.html": "589315e36baf10039d088b3056f4897da086884f01d14ceb35fe5dd6c27ab7ef",
+     "scene-garden.js": "db1875b2b9d9b70ea3f58e5bd4c8ea3539c923a890897cf5d6d979149bb7ec04",
+     "scene-garden.json": "dda751bcbc776f0fa07ff13a83a9dc93248f0b1f85b1da38872fdabf0b9fe428",
+     "scene-garden.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
+     "scene-garden.scene": "1e0ed131b3f6238af79db1750c209d13ea5ce15dc8a255ad279b172b22e0f932",
+     "scene-garden_scene.f90": "24e81b978caacd69501205b19d2b87b8ef4a2cf956144e67219d658529d1d8ee",
+     "scene-kitchen.html": "87bf595d1ef0b3bc1a096e0b94c6bed425c5f00f14fd9daa86dbaf9247d1aebd",
+     "scene-kitchen.js": "fc997879026333dc53e32cdc20c954aaf574c8bb2dcace3f890365e6da126a65",
+     "scene-kitchen.json": "2bbf47c9674e6f39787e21e33a5079ec8b39c3462f13d6284e7ad0b750a9656f",
+     "scene-kitchen.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
+     "scene-kitchen.scene": "71d196e08b7e435cf90f9cc7808893c828925608b77ce6c54967d7e33fa5dee9",
+     "scene-kitchen_scene.f90": "6b3acb6dc9ecb4e385185a70ab3a5ac2556b28aff50343b05fc515b50bb75d70",
+     "scene.timeline.json": "a1cbef0a3ebb972e3c63e0853f66667a7f645c18bc6b76fbdf2912d6a33d8ae8"
+    }
+   }
+  },
+  {
+   "src": "film \"Bhor\" size 640 480 fps 24\nscene \"bari\" background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at -5 0 2 tall head round wears cap red\ncharacter mira pink at 4 0 2 kid head round hair bun\nlloyd says \"শুভ সকাল, মীরা!\" for 2 seconds\nmira says \"আমগুলো দেখো!\" for 2 seconds\nrender \"bhor.mp4\"\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "f154bb865286ed50ac51090f4a3c8f02b5bf7e7d93071b3c34248ca53b2693a2",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (3 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "5bb55ce7d5f69f0c3f1aee876a95114d35f2a10b3253ae0e40491b4e0b95fe5c",
+     "scene.js": "73cc76bc26d5f7e6c79e72f482362d6f1d4eb88e820ca104b59286c6ac5322e4",
+     "scene.json": "c2730c5ee3930bdb998b267eac9d35aac87beda86fc71e1d24cf3affd302bb1d",
+     "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
+     "scene.scene": "16750ffce8b4be3a755c192ccbcea8ff33e8e941f53129c8d6464fd98b1c87c4",
+     "scene.timeline.json": "94ab2eb7e3515730cb792f619c60b8b99419d1dd48c62184c1a3953d17da4c71",
+     "scene_scene.f90": "7bd45f917436ac8497ac63223f8e4e0ecb1e8df59e5ce5cafa29ff80c187448d"
+    }
+   }
+  },
+  {
+   "src": "scene \"s\" size 640 480 background white\ncamera at 0 3 10 look 0 1 0\ncube box red at 0 0 0 size 2\nkeys box duration 2 loop once\nkey box at 0 pos 0 0 0 rot 0 0 0 scale 1\nkey box at 2 pos 3 0 0 rot 0 90 0 scale 2 ease smooth\nrender \"keys.png\"\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 45,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "ec4e93ec73c4371b777c68c3267e94f40da698ba542eeec12cc9df53d9316501",
+     "scene.js": "a44f8c31b3e5ae64242aca246f5be55f0e1d3c143ea45859893f484a3a23004b",
+     "scene.json": "6665ef5ba7fff6264c55e7084065af436453a90c78570ecf79c2f22a52f86c06",
+     "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
+     "scene.scene": "8180c75c264c58f54aacd8c7fe8ce1a42afe9926b3b909a90b35463a5c0b7f76",
+     "scene.timeline.json": "6602bf03096cb25f65e143cf68280a220476d3459cf0d7496ea00221b037acde",
+     "scene_scene.f90": "ca3ca78c8b4f04640719419b548ca4a892a00f263c58f2255039cbd42ad0fc3d"
+    }
+   }
+  },
+  {
+   "src": "scene \"s\" size 640 480 background white\ncamera at 0 3 10 look 0 1 0\ncube box red at 0 0 0 size 2\nspin box axis y speed 90 duration 2\nrender \"spin.png\"\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "8cb3aec1e1b9168adbde00c4ac91af6a01961244384f61ef53febf6cdf9d8e55",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 45,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (1 objects, 12 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "f1f9cc52b2312ade51ade8c03316c240c21bf5ac282774b19f2e47553a117181",
+     "scene.js": "e51d3baddfe0bc42256210b804e9d21d83f2eec1f9afb7c1e94979c498fe69c3",
+     "scene.json": "b8cbaeea0177d95199094b16a1bd31313aa03e87311d9fb03e8e62de977fbe30",
+     "scene.legacy.json": "75c30e5dd83faa95635c2be15d862e6b44dd4a3cf7f2dab4ade5bdd0a304c9bc",
+     "scene.scene": "97553f94441d74aabe7b94e9204bf8b331a1e96db115771ea9bde47adeb113b0",
+     "scene.timeline.json": "3e1a9d656c827b85a1ecd0690483312857b5c5f4c58b452dacd89d43795369ae",
+     "scene_scene.f90": "cd37f4918c83d062c3e53b6345ddf784a71401fd95ec115f540985808d97cc96"
+    }
+   }
+  },
+  {
+   "src": "scene \"s\" size 640 480 background white\ncamera at 0 3 10 look 0 1 0\nplane ground gray at 0 -2 0 size 16\ncharacter lloyd blue at -5 0 2 tall head round\nkeys lloyd duration 2 loop once\nkey lloyd at 0 pos -5 0 2 rot 0 0 0 scale 1\nkey lloyd at 2 pos 5 0 2 rot 0 90 0 scale 1 ease smooth\nrender \"x.png\"\n",
+   "check": {
+    "exit": 0,
+    "stdout_sha256": "31afdd0d9fc50200b3de7f8bf5c48b6c3ac6a390b510d7354372ffa2460d7989",
+    "stderr_sha256": "c0727c2d0308e20ae27d3f00604cf2836ecc5846913dad9962f97f90d37e7326",
+    "stdout_len": 47,
+    "stderr_len": 105,
+    "codes": [
+     "W101"
+    ],
+    "stdout_text": "OK: scene.f3d (2 objects, 1024 triangles est.)\n",
+    "stderr_text": "warning W101: no light statement: injecting default directional light dir (-0.5, -1, -0.7) intensity 1.0\n"
+   },
+   "build": {
+    "artifacts": {
+     "scene.html": "c2c27e9df61c34c99d8d0b552c6ca6bfd326cd14b7fb1cf2c63fa9408057b817",
+     "scene.js": "34ad9bff9be75e94c10d6972828184ef15a483303409a92a93e861173e727996",
+     "scene.json": "375a34364b151b59dcdabc80c3d9eacd21d5a9966b16e369d1d93d526daffb92",
+     "scene.legacy.json": "16b50ace07136e962908653c24eef447118fe7faaee0db4f574a04714a5b0368",
+     "scene.scene": "15e3492cb76d5fc969162323751c55b8e2d0488e4bf3315ca99a38ff1414dd85",
+     "scene.timeline.json": "3f33db3889d2ec31cde87f9d85cd77505e108aea4a6f0db28faab342a373e667",
+     "scene_scene.f90": "43d59b4d8cab3755e6259209caaf6a6d1818c6a0bc4fed70c33f24d771e4e0e1"
+    }
+   }
   }
+
  ]
 }
 }

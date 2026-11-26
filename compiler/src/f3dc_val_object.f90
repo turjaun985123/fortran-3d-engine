@@ -107,6 +107,7 @@ contains
     integer :: rgb(3)
     logical :: has_rgb
     props = props_of(node)
+    vs%scene_node = dyn_copy(node)
     env_keys = [character(12) :: "fog", "tonemap", "shadow", &
                 "antialias"]
     do k = 1, 4

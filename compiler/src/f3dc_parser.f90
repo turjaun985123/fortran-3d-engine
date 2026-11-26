@@ -95,6 +95,7 @@ module f3dc_parser
                         TK_COLON, TK_NEWLINE, TK_EOF
   use f3dc_ast, only: ast_program, ast_stmt, ast_program_from_dyn, &
                       ast_program_to_dyn
+  use f3dc_plugins, only: plugin_default_id, plugin_prop_by_surface
   implicit none
   private
   public :: f3dc_parse
@@ -4447,17 +4448,35 @@ contains
   end subroutine parse_film
 
   ! character name colour [props...]  (§1.2; also legal outside
-  ! film mode, §1.9 rule 6).  Identity props ride the props bag;
-  ! `wears` accumulates a list of {item, colour} dicts.
+  ! film mode, §1.9 rule 6).  Identity props ride the props bag.
+  !
+  ! ANIM Wave 2 flag 2: the core parser keeps ONLY name, colour
+  ! and the `at` placement.  Every other prop is collected
+  ! GENERICALLY: the surface word is looked up in the character's
+  ! plugin schema (f3dc_plugins -- the registry, not core tables)
+  ! and the value tokens are consumed by the schema entry's KIND
+  ! (flag / number / enum / word / free / colour / itemcolour).
+  ! The parser holds no prop names or values of its own and does
+  ! no value validation: name/value checking against the same
+  ! schema happens in the validator (f3dc_val_timeline's
+  ! check_character_props).  A surface word no plugin declares is
+  ! still collected (word + at most one generic value token, or a
+  ! bare flag) so the validator can reject it there with its
+  ! schema diagnostic.  The props-bag shapes produced for valid
+  ! scripts are exactly Wave 1's (an itemcolour prop accumulates
+  ! a list of {item, colour} dicts, set into the bag after the
+  ! loop, as `wears` was), so fmt output is byte-identical.
   subroutine parse_character(p, lp, stmt, has_stmt)
     type(parser_state), intent(inout) :: p
     type(line_cur), intent(inout) :: lp
     type(dyn), intent(out) :: stmt
     logical, intent(out) :: has_stmt
-    character(:), allocatable :: name, w, s, item
-    type(dyn) :: colour, props, node, v, wears, wdict, cval
+    character(:), allocatable :: name, w, s, item, pid
+    character(:), allocatable :: pname, pkind, w2, dn, dk, mname
+    type(dyn) :: colour, props, node, v, mlist, wdict, cval
     type(str_set) :: seen
-    logical :: hasw, hasid, has_colour, has_wears
+    logical :: hasw, hasid, has_colour, has_multi, pmulti, plower
+    logical :: pfound, hasw2, dfound
     has_stmt = .false.
     stmt = dyn_null()
     call lp_next(lp)  ! character
@@ -4467,10 +4486,12 @@ contains
                       // "like: character lloyd blue at -5 0 2")
       return
     end if
+    pid = plugin_default_id()
     colour = dyn_null()
     has_colour = .false.
-    wears = dyn_list()
-    has_wears = .false.
+    mlist = dyn_list()
+    has_multi = .false.
+    pname = ""
     props = dyn_dict()
     seen%n = 0
     do while (.not. lp_at_end(lp))
@@ -4483,92 +4504,132 @@ contains
         if (p%le_set) return
         call dset(props, "at", dyn_copy(v))
         call dset(props, "pos", v)
-      else if (hasw .and. (w == "tall" .or. w == "short" &
-               .or. w == "kid")) then
-        call lp_next(lp)
-        call lp_dup(p, seen, "proportions")
-        if (p%le_set) return
-        call dset(props, "proportions", dyn_str(w))
-      else if (hasw .and. w == "height") then
-        call lp_next(lp)
-        call lp_dup(p, seen, "height")
-        if (p%le_set) return
-        call lp_number(p, lp, "height", v)
-        if (p%le_set) return
-        call dset(props, "height", v)
-      else if (hasw .and. w == "head") then
-        call lp_next(lp)
-        call lp_dup(p, seen, "head")
-        if (p%le_set) return
-        call lp_ident(lp, s, hasid)
-        if (.not. hasid) then
-          call raise_line(p, "E103", "'head' needs round, square " &
-                          // "or oval")
-          return
-        end if
-        call dset(props, "head", dyn_str(str_lower(s)))
-      else if (hasw .and. w == "hair") then
-        call lp_next(lp)
-        call lp_dup(p, seen, "hair")
-        if (p%le_set) return
-        call lp_ident(lp, s, hasid)
-        if (.not. hasid) then
-          call raise_line(p, "E103", "'hair' needs a style or " &
-                          // "colour, like: hair bun")
-          return
-        end if
-        call dset(props, "hair", dyn_str(str_lower(s)))
-      else if (hasw .and. w == "face") then
-        call lp_next(lp)
-        call lp_dup(p, seen, "face")
-        if (p%le_set) return
-        call lp_ident(lp, s, hasid)
-        if (.not. hasid) then
-          call raise_line(p, "E103", "'face' needs an expression, " &
-                          // "like: face happy")
-          return
-        end if
-        call dset(props, "face", dyn_str(str_lower(s)))
-      else if (hasw .and. w == "wears") then
-        call lp_next(lp)
-        call lp_ident(lp, item, hasid)
-        if (.not. hasid) then
-          call raise_line(p, "E103", "'wears' needs an item, " &
-                          // "like: wears cap red")
-          return
-        end if
-        cval = dyn_null()
-        call lp_peek_word(lp, w, hasw)
-        if (lp_peek_kind(lp) == K_COLOR .or. (hasw &
-            .and. w == "rgb") .or. (hasw .and. &
-            in_list(w, COLOUR_WORDS))) then
-          call lp_colour(p, lp, cval)
-          if (p%le_set) return
-        end if
-        wdict = dyn_dict()
-        call dset(wdict, "item", dyn_str(str_lower(item)))
-        call dset(wdict, "colour", dyn_copy(cval))
-        call dyn_list_push(wears, wdict)
-        has_wears = .true.
-      else if (hasw .and. w == "holds") then
-        call lp_next(lp)
-        call lp_dup(p, seen, "holds")
-        if (p%le_set) return
-        call lp_ident(lp, s, hasid)
-        if (.not. hasid) then
-          call raise_line(p, "E103", "'holds' needs the name of " &
-                          // "the object held")
-          return
-        end if
-        call dset(props, "holds", dyn_str(s))
       else if (lp_peek_kind(lp) == K_COLOR .or. (hasw &
-               .and. w == "rgb") .or. (hasw .and. &
-               in_list(w, COLOUR_WORDS))) then
+               .and. w == "rgb")) then
         call lp_dup(p, seen, "colour")
         if (p%le_set) return
         call lp_colour(p, lp, colour)
         if (p%le_set) return
         has_colour = .true.
+      else if (hasw) then
+        call plugin_prop_by_surface(pid, w, pname, pkind, &
+                                    pmulti, plower, pfound)
+        if (pfound) then
+          call lp_next(lp)  ! the surface word
+          select case (pkind)
+          case ("flag")
+            call lp_dup(p, seen, pname)
+            if (p%le_set) return
+            call dset(props, pname, dyn_str(w))
+          case ("number")
+            call lp_dup(p, seen, pname)
+            if (p%le_set) return
+            call lp_number(p, lp, pname, v)
+            if (p%le_set) return
+            call dset(props, pname, v)
+          case ("enum", "word", "free")
+            call lp_dup(p, seen, pname)
+            if (p%le_set) return
+            call lp_ident(lp, s, hasid)
+            if (.not. hasid) then
+              call raise_line(p, "E103", "'" // w // &
+                              "' needs a value in a character " &
+                              // "statement")
+              return
+            end if
+            if (plower) s = str_lower(s)
+            call dset(props, pname, dyn_str(s))
+          case ("colour")
+            call lp_dup(p, seen, pname)
+            if (p%le_set) return
+            call lp_colour(p, lp, v)
+            if (p%le_set) return
+            call dset(props, pname, v)
+          case ("itemcolour")
+            ! Repeatable (no dup check): an item word plus an
+            ! optional colour, accumulated as {item, colour}.
+            call lp_ident(lp, item, hasid)
+            if (.not. hasid) then
+              call raise_line(p, "E103", "'" // w // &
+                              "' needs an item in a character " &
+                              // "statement")
+              return
+            end if
+            if (plower) item = str_lower(item)
+            cval = dyn_null()
+            call lp_peek_word(lp, w, hasw)
+            if (lp_peek_kind(lp) == K_COLOR .or. (hasw &
+                .and. w == "rgb") .or. (hasw .and. &
+                in_list(w, COLOUR_WORDS))) then
+              call lp_colour(p, lp, cval)
+              if (p%le_set) return
+            end if
+            wdict = dyn_dict()
+            call dset(wdict, "item", dyn_str(item))
+            call dset(wdict, "colour", dyn_copy(cval))
+            call dyn_list_push(mlist, wdict)
+            has_multi = .true.
+            mname = pname
+          case default
+            call raise_line(p, "E103", "unexpected '" // w &
+                            // "' in character statement")
+            return
+          end select
+        else if (in_list(w, COLOUR_WORDS)) then
+          call lp_dup(p, seen, "colour")
+          if (p%le_set) return
+          call lp_colour(p, lp, colour)
+          if (p%le_set) return
+          has_colour = .true.
+        else
+          ! A prop no registered plugin declares: collect it
+          ! generically (the validator rejects the name against
+          ! the schema).  Consume at most one value token -- a
+          ! number, a colour, or a word that does not itself
+          ! introduce a core clause or a declared prop.
+          call lp_next(lp)
+          call lp_dup(p, seen, w)
+          if (p%le_set) return
+          pname = w
+          if (lp_peek_kind(lp) == K_NUMBER) then
+            call lp_number(p, lp, pname, v)
+            if (p%le_set) return
+            call dset(props, pname, v)
+          else if (lp_peek_kind(lp) == K_COLOR) then
+            call lp_colour(p, lp, v)
+            if (p%le_set) return
+            call dset(props, pname, v)
+          else if (lp_peek_kind(lp) == K_WORD .or. &
+                   lp_peek_kind(lp) == K_STRING) then
+            call lp_peek_word(lp, w2, hasw2)
+            if (hasw2 .and. (in_list(w2, COLOUR_WORDS) .or. &
+                             w2 == "rgb")) then
+              call lp_colour(p, lp, v)
+              if (p%le_set) return
+              call dset(props, pname, v)
+            else if (hasw2 .and. w2 == "at") then
+              call dset(props, pname, dyn_bool(.true.))
+            else if (hasw2) then
+              call plugin_prop_by_surface(pid, w2, dn, dk, &
+                                          pmulti, plower, dfound)
+              if (dfound) then
+                call dset(props, pname, dyn_bool(.true.))
+              else
+                call lp_ident(lp, s, hasid)
+                call dset(props, pname, dyn_str(s))
+              end if
+            else
+              call lp_ident(lp, s, hasid)
+              if (hasid) then
+                call dset(props, pname, dyn_str(s))
+              else
+                call dset(props, pname, dyn_bool(.true.))
+              end if
+            end if
+          else
+            call dset(props, pname, dyn_bool(.true.))
+          end if
+        end if
       else
         call lp_peek_text(lp, s)
         call raise_line(p, "E103", "unexpected '" // s &
@@ -4576,7 +4637,7 @@ contains
         return
       end if
     end do
-    if (has_wears) call dset(props, "wears", dyn_copy(wears))
+    if (has_multi) call dset(props, mname, dyn_copy(mlist))
     call adopt_colour(props, colour, has_colour)
     node = dyn_dict()
     call dset(node, "char_def", dyn_bool(.true.))
