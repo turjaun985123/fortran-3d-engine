@@ -69,7 +69,7 @@ module timeline_ir_3d
     implicit none
     private
 
-    public :: tl_kv, tl_character, tl_scene_span, tl_key, tl_track
+    public :: tl_kv, tl_character, tl_wear, tl_scene_span, tl_key, tl_track
     public :: tl_dialogue_cue, tl_marker, tl_timeline
     public :: read_timeline, timeline_free
     public :: TL_IR_VERSION, TL_MAX_NOTES
@@ -100,7 +100,24 @@ module timeline_ir_3d
         character(len=:), allocatable :: rig_kind    ! rig.kind, '' if absent
         character(len=:), allocatable :: rig_topology
         character(len=:), allocatable :: voice_speaker  ! voice.speaker
+        ! Wave 3 (additive): proportions{} + identity{} records,
+        ! consumed by the engine film evaluator (timeline_eval_3d).
+        character(len=:), allocatable :: proportions_word  ! '' if absent
+        logical :: has_height = .false.
+        real(real64) :: height = 0.0_real64
+        character(len=:), allocatable :: id_head   ! identity.head
+        character(len=:), allocatable :: id_hair   ! identity.hair
+        character(len=:), allocatable :: id_face   ! identity.face
+        character(len=:), allocatable :: id_holds  ! identity.holds
+        type(tl_wear), allocatable :: wears(:)     ! identity.wears
+        integer :: n_wears = 0
     end type tl_character
+
+    ! One identity.wears entry: {item, colour} (colour name verbatim).
+    type, public :: tl_wear
+        character(len=:), allocatable :: item
+        character(len=:), allocatable :: colour
+    end type tl_wear
 
     type, public :: tl_scene_span
         character(len=:), allocatable :: id
@@ -112,6 +129,11 @@ module timeline_ir_3d
         integer :: end_frame = 0           ! start + duration (derived)
         type(tl_kv), allocatable :: bindings(:)
         integer :: n_bindings = 0
+        ! Wave 3 (additive): transition{} record (kind +
+        ! duration_frames); absent = cut (TIMELINE-FORMAT).
+        logical :: has_transition = .false.
+        character(len=:), allocatable :: transition_kind
+        integer :: transition_duration_frames = 0
     end type tl_scene_span
 
     ! One resolved key; see the module header for the shape union.
@@ -121,6 +143,10 @@ module timeline_ir_3d
         character(len=:), allocatable :: ease        ! 'linear' if absent
         logical :: has_value_deg = .false.
         real(real64) :: value_deg = 0.0_real64
+        ! Wave 3 (additive): plain "value" (non-angle channels,
+        ! e.g. root.x / face.expr action keys).
+        logical :: has_value = .false.
+        real(real64) :: value = 0.0_real64
         logical :: has_pos = .false.
         real(real64) :: pos(3) = 0.0_real64
         logical :: has_rot = .false.
@@ -520,6 +546,71 @@ contains
         else
             allocate(character(len=0) :: ch%voice_speaker)
         end if
+        ! proportions {proportions: word, height: n} (Wave 3, additive)
+        allocate(character(len=0) :: ch%proportions_word)
+        call t_get(doc, node, 'proportions', sub, found)
+        if (found .and. json_kind(doc, sub) == TK_OBJ) then
+            deallocate(ch%proportions_word)
+            call t_str(doc, sub, 'proportions', ch%proportions_word, &
+                       present)
+            if (.not. allocated(ch%proportions_word)) &
+                allocate(character(len=0) :: ch%proportions_word)
+            ch%height = t_num(doc, sub, 'height', 0.0_real64, &
+                              ch%has_height)
+        end if
+        ! identity {head, hair, face, wears:[{item,colour}], holds}
+        call t_get(doc, node, 'identity', sub, found)
+        if (found .and. json_kind(doc, sub) == TK_OBJ) then
+            call t_str(doc, sub, 'head', ch%id_head, present)
+            call t_str(doc, sub, 'hair', ch%id_hair, present)
+            call t_str(doc, sub, 'face', ch%id_face, present)
+            call t_str(doc, sub, 'holds', ch%id_holds, present)
+            block
+                integer :: warr, wnode, wi
+                logical :: wfound
+                call t_get(doc, sub, 'wears', warr, wfound)
+                if (wfound .and. json_kind(doc, warr) == TK_ARR) then
+                    ch%n_wears = json_arr_len(doc, warr)
+                    allocate(ch%wears(max(1, ch%n_wears)))
+                    do wi = 1, ch%n_wears
+                        call json_arr_at(doc, warr, wi, wnode)
+                        if (json_kind(doc, wnode) == TK_OBJ) then
+                            call t_str(doc, wnode, 'item', &
+                                       ch%wears(wi)%item, present)
+                            call t_str(doc, wnode, 'colour', &
+                                       ch%wears(wi)%colour, present)
+                            if (.not. allocated(ch%wears(wi)%colour)) &
+                                call t_str(doc, wnode, 'color', &
+                                           ch%wears(wi)%colour, present)
+                        else if (json_kind(doc, wnode) == TK_STR) then
+                            ch%wears(wi)%item = json_str(doc, wnode)
+                            allocate(character(len=0) :: &
+                                     ch%wears(wi)%colour)
+                        else
+                            allocate(character(len=0) :: &
+                                     ch%wears(wi)%item)
+                            allocate(character(len=0) :: &
+                                     ch%wears(wi)%colour)
+                        end if
+                        if (.not. allocated(ch%wears(wi)%item)) &
+                            allocate(character(len=0) :: &
+                                     ch%wears(wi)%item)
+                        if (.not. allocated(ch%wears(wi)%colour)) &
+                            allocate(character(len=0) :: &
+                                     ch%wears(wi)%colour)
+                    end do
+                end if
+            end block
+        end if
+        if (.not. allocated(ch%id_head)) &
+            allocate(character(len=0) :: ch%id_head)
+        if (.not. allocated(ch%id_hair)) &
+            allocate(character(len=0) :: ch%id_hair)
+        if (.not. allocated(ch%id_face)) &
+            allocate(character(len=0) :: ch%id_face)
+        if (.not. allocated(ch%id_holds)) &
+            allocate(character(len=0) :: ch%id_holds)
+        if (.not. allocated(ch%wears)) allocate(ch%wears(0))
         ok = .true.
     end subroutine parse_character
 
@@ -586,6 +677,18 @@ contains
             allocate(sp%bindings(0))
             sp%n_bindings = 0
         end if
+        ! transition {kind, duration_frames} (Wave 3, additive)
+        allocate(character(len=0) :: sp%transition_kind)
+        call t_get(doc, node, 'transition', sub, found)
+        if (found .and. json_kind(doc, sub) == TK_OBJ) then
+            deallocate(sp%transition_kind)
+            call t_str(doc, sub, 'kind', sp%transition_kind, has_start)
+            if (.not. allocated(sp%transition_kind)) &
+                allocate(character(len=0) :: sp%transition_kind)
+            sp%transition_duration_frames = &
+                t_int(doc, sub, 'duration_frames', 0)
+            sp%has_transition = len_trim(sp%transition_kind) > 0
+        end if
         ok = .true.
     end subroutine parse_scene_span
 
@@ -626,6 +729,8 @@ contains
         end if
         key%value_deg = t_num(doc, node, 'value_deg', 0.0_real64, &
                               key%has_value_deg)
+        key%value = t_num(doc, node, 'value', 0.0_real64, &
+                          key%has_value)
         v3 = 0.0_real64
         call t_vec3(doc, node, 'pos', v3, key%has_pos)
         if (key%has_pos) key%pos = v3
