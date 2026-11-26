@@ -38,9 +38,10 @@
 !                the moment a compiler fix lands (lower the
 !                baselines in the same commit as the fix).
 !   codes     -- every diagnostic code found in compiler/src
-!                (36 codes: the 32-entry ERROR_CODES table in
+!                (38 codes: the 34-entry ERROR_CODES table in
 !                f3dc_errors.f90 -- extended by ANIM Wave 1 with
-!                E206-E213 + W203/W204 -- plus W202, W302, W510,
+!                E206-E213 + W203/W204 and by ANIM Wave 5 with
+!                E214 + W205 -- plus W202, W302, W510,
 !                W511) has a minimal triggering input asserted
 !                here, EXCEPT five codes with no CLI-reachable
 !                trigger, listed in the section output with their
@@ -807,10 +808,11 @@ contains
 
   ! -------------------------------------------------------------
   ! SECTION codes: minimal trigger per diagnostic code.
-  ! Census (grep compiler/src, 2026-11-26): 36 distinct codes --
-  ! the 32 in f3dc_errors' ERROR_CODES table (ANIM Wave 1 added
-  ! E206-E213 + W203/W204) plus W202 (f3dc_emit_json), W302
-  ! (f3dc_ext_cameras), W510/W511 (f3dc_optimize).  31 are
+  ! Census (grep compiler/src, 2026-11-26): 38 distinct codes --
+  ! the 34 in f3dc_errors' ERROR_CODES table (ANIM Wave 1 added
+  ! E206-E213 + W203/W204; ANIM Wave 5 added E214 + W205) plus
+  ! W202 (f3dc_emit_json), W302
+  ! (f3dc_ext_cameras), W510/W511 (f3dc_optimize).  33 are
   ! triggered below; 5 have no CLI-reachable trigger (listed in
   ! the output, evidence in the file header): E203, E204, W102,
   ! W201, W202.  The grep census at the end of the section fails
@@ -924,6 +926,55 @@ contains
       call note_fail('codes E504', 'import cycle did not emit')
     end if
 
+    ! E214 (ANIM Wave 5, plugin externalization): a film whose
+    ! character's plugin is not loaded.  code_case cannot trigger
+    ! it (it inherits the process env, and the repo-root default
+    ! loads stickman), so run with F3DC_PLUGIN_PATH="" -- the
+    ! complete, empty search list -- via the same capture pattern
+    ! run_f3dc uses.
+    call write_all(work // '/s.f3d', b // &
+                   'lloyd waves for 1 second' // nl)
+    block
+      character(len=:), allocatable :: cmd
+      integer :: drc
+      cmd = "cd '" // work // "' && F3DC_PLUGIN_PATH='' '" // &
+            f3dc // "' check s.f3d > '" // scratch // &
+            "/run.out' 2> '" // scratch // "/run.err'"
+      call execute_command_line(cmd, exitstat=rc)
+      call read_all(scratch // '/run.out', out_s, drc)
+      call read_all(scratch // '/run.err', err_s, drc)
+    end block
+    if (.not. has_code(err_s // out_s, 'E214')) then
+      fails = fails + 1
+      call note_fail('codes E214', 'absent-plugin case did ' // &
+                     'not emit')
+    end if
+
+    ! W205 (ANIM Wave 5): a malformed plugin package on the
+    ! search path is skipped with a loader warning, never a
+    ! crash; the compile itself proceeds (a plain cube needs no
+    ! plugin).
+    call sh("mkdir -p '" // work // "/badpkgs/badpkg'", rc)
+    call write_all(work // '/badpkgs/badpkg/plugin.json', &
+                   '{not json' // nl)
+    call write_all(work // '/s.f3d', 'cube red' // nl)
+    block
+      character(len=:), allocatable :: cmd
+      integer :: drc
+      cmd = "cd '" // work // "' && F3DC_PLUGIN_PATH='" // &
+            work // "/badpkgs' '" // f3dc // &
+            "' check s.f3d > '" // scratch // &
+            "/run.out' 2> '" // scratch // "/run.err'"
+      call execute_command_line(cmd, exitstat=rc)
+      call read_all(scratch // '/run.out', out_s, drc)
+      call read_all(scratch // '/run.err', err_s, drc)
+    end block
+    if (.not. has_code(err_s // out_s, 'W205')) then
+      fails = fails + 1
+      call note_fail('codes W205', 'malformed-package case ' // &
+                     'did not emit')
+    end if
+
     ! W510 / W511: via a minimal v2 scene JSON (the .f3d validator
     ! rejects these shapes earlier with E301, so the optimizer
     ! warnings are only reachable through the JSON input path).
@@ -967,8 +1018,9 @@ contains
       integer :: p, llen, crc2
       character(len=*), parameter :: COVERED = &
         'E101 E102 E103 E104 E110 E201 E202 E205 E206 E207 ' // &
-        'E208 E209 E210 E211 E212 E213 E301 E302 E303 E401 ' // &
-        'E402 E501 E502 E504 E820 W101 W203 W204 W302 ' // &
+        'E208 E209 E210 E211 E212 E213 E214 E301 E302 ' // &
+        'E303 E401 ' // &
+        'E402 E501 E502 E504 E820 W101 W203 W204 W205 W302 ' // &
         'W510 W511'
       character(len=*), parameter :: UNREACH = &
         'E203 E204 W102 W201 W202'
@@ -1001,7 +1053,7 @@ contains
     end block
 
     if (fails == 0) then
-      write(*, '(A)') 'SECTION codes: PASS (31 of 36 codes ' // &
+      write(*, '(A)') 'SECTION codes: PASS (33 of 38 codes ' // &
         'triggered by minimal inputs; 5 unreachable, ' // &
         'documented; grep census over compiler/src complete)'
     else
