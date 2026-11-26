@@ -56,7 +56,8 @@
 ! map onto it; every other name passes through unchanged.
 module f3dc_plugins
   use f3dc_str, only: char_list, char_list_append, char_list_len, &
-       char_list_at, to_lower
+       char_list_at, to_lower, str_builder, sb_init, sb_add, &
+       sb_text, sb_len
   use f3dc_dyn, only: dyn, dyn_dict, dyn_str, dyn_null, dyn_copy, &
        dyn_assign, dyn_dict_set, DYN_K_NULL
   implicit none
@@ -444,11 +445,13 @@ contains
   function plugin_prop_allowed_csv(id, name) result(csv)
     character(*), intent(in) :: id, name
     character(:), allocatable :: csv
+    type(str_builder) :: sb
     integer :: p, i
     call ensure_plugins()
     csv = ""
     p = find_plugin(id)
     if (p == 0) return
+    call sb_init(sb)
     do i = 1, plugins(p)%nprops
       if (trim(plugins(p)%props(i)%name) /= name) cycle
       select case (trim(plugins(p)%props(i)%kind))
@@ -456,10 +459,11 @@ contains
         csv = csv_join_commas(trim(plugins(p)%props(i)%allowed))
         return
       case ("flag")
-        if (len(csv) > 0) csv = csv // ", "
-        csv = csv // trim(plugins(p)%props(i)%surface)
+        if (sb_len(sb) > 0) call sb_add(sb, ", ")
+        call sb_add(sb, trim(plugins(p)%props(i)%surface))
       end select
     end do
+    csv = sb_text(sb)
   end function plugin_prop_allowed_csv
 
   !> All prop names of plugin `id`, ", "-joined, in schema order
@@ -467,12 +471,14 @@ contains
   function plugin_prop_names_csv(id) result(csv)
     character(*), intent(in) :: id
     character(:), allocatable :: csv, nm
+    type(str_builder) :: sb
     integer :: p, i, j
     logical :: seen
     call ensure_plugins()
     csv = ""
     p = find_plugin(id)
     if (p == 0) return
+    call sb_init(sb)
     do i = 1, plugins(p)%nprops
       nm = trim(plugins(p)%props(i)%name)
       seen = .false.
@@ -480,9 +486,10 @@ contains
         if (trim(plugins(p)%props(j)%name) == nm) seen = .true.
       end do
       if (seen) cycle
-      if (len(csv) > 0) csv = csv // ", "
-      csv = csv // nm
+      if (sb_len(sb) > 0) call sb_add(sb, ", ")
+      call sb_add(sb, nm)
     end do
+    csv = sb_text(sb)
   end function plugin_prop_names_csv
 
   function csv_join_commas(s) result(out)
@@ -495,9 +502,10 @@ contains
     end do
     ! "a b c" -> "a, b, c": rebuild with separators.
     block
-      character(:), allocatable :: res, item
+      character(:), allocatable :: item
+      type(str_builder) :: sb
       integer :: a, b
-      res = ""
+      call sb_init(sb)
       a = 1
       do while (a <= len(out))
         b = index(out(a:), " ")
@@ -508,10 +516,10 @@ contains
           item = out(a:a + b - 2)
           a = a + b
         end if
-        if (len(res) > 0) res = res // ", "
-        res = res // item
+        if (sb_len(sb) > 0) call sb_add(sb, ", ")
+        call sb_add(sb, item)
       end do
-      out = res
+      out = sb_text(sb)
     end block
   end function csv_join_commas
 

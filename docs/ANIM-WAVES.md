@@ -167,7 +167,11 @@ Recorded at Wave 1 close (audit of the landed front-end):
   change bumps `ir_version` with migration notes.
 - Commits: `c7462c2` (compiler: registry + flags + emission +
   pins), `9545eff` (engine reader), `476bc20` (tests/ir), plus
-  the docs commit carrying this entry.
+  the docs commit carrying this entry. CI fix-forward: the first
+  CI run's concat lint (cap 0) caught 5 self-concat sites in the
+  new Wave-2 code; all rewritten onto `str_builder` (slug
+  functions ×2, plugin CSV builders ×3) with the native/property/
+  IR layers re-verified byte-identical before re-push.
 - Gates: full suite PASS (native incl. anim 169/169 + curated
   72/323, compiler-js 190, e2e 65, fortran 42, ir 63; golden
   layer SKIP by design); legacy golden `28b6a81d…` verified

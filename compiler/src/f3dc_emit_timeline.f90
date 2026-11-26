@@ -38,7 +38,7 @@ module f3dc_emit_timeline
        dyn_dict_value_at, DYN_K_NULL, DYN_K_BOOL, DYN_K_INT, &
        DYN_K_REAL, DYN_K_STR, DYN_K_LIST, DYN_K_DICT
   use f3dc_str, only: fmt_int, to_lower, str_builder, sb_init, &
-       sb_add, sb_text
+       sb_add, sb_text, sb_len
   use f3dc_emit_common, only: fmt_num_real, sha256_file_hex, &
        named_color
   use f3dc_plugins, only: plugin_rig, plugin_verb_channel, &
@@ -142,22 +142,24 @@ contains
   function tl_slug(name) result(out)
     character(*), intent(in) :: name
     character(:), allocatable :: out
+    type(str_builder) :: sb
     integer :: i, c
     logical :: pending_dash
-    out = ""
+    call sb_init(sb)
     pending_dash = .false.
     do i = 1, len(name)
       c = iachar(name(i:i))
       if (c >= iachar("A") .and. c <= iachar("Z")) c = c + 32
       if ((c >= iachar("a") .and. c <= iachar("z")) .or. &
           (c >= iachar("0") .and. c <= iachar("9"))) then
-        if (pending_dash .and. len(out) > 0) out = out // "-"
+        if (pending_dash .and. sb_len(sb) > 0) call sb_add(sb, "-")
         pending_dash = .false.
-        out = out // achar(c)
+        call sb_add(sb, achar(c))
       else
         pending_dash = .true.
       end if
     end do
+    out = sb_text(sb)
   end function tl_slug
 
   integer(int64) function gcd64(a, b) result(g)

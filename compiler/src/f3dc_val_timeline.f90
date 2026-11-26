@@ -52,7 +52,7 @@ module f3dc_val_timeline
        plugin_prop_by_name, plugin_prop_value_ok, &
        plugin_prop_allowed_csv, plugin_prop_names_csv
   use f3dc_str, only: to_lower, char_list, char_list_len, &
-       char_list_at
+       char_list_at, str_builder, sb_init, sb_add, sb_text, sb_len
   use f3dc_ext_keys, only: build_tracks, validate_tracks
   implicit none
   private
@@ -648,22 +648,24 @@ contains
   function tl_slug(name) result(out)
     character(*), intent(in) :: name
     character(:), allocatable :: out
+    type(str_builder) :: sb
     integer :: i, c
     logical :: pending_dash
-    out = ""
+    call sb_init(sb)
     pending_dash = .false.
     do i = 1, len(name)
       c = iachar(name(i:i))
       if (c >= iachar("A") .and. c <= iachar("Z")) c = c + 32
       if ((c >= iachar("a") .and. c <= iachar("z")) .or. &
           (c >= iachar("0") .and. c <= iachar("9"))) then
-        if (pending_dash .and. len(out) > 0) out = out // "-"
+        if (pending_dash .and. sb_len(sb) > 0) call sb_add(sb, "-")
         pending_dash = .false.
-        out = out // achar(c)
+        call sb_add(sb, achar(c))
       else
         pending_dash = .true.
       end if
     end do
+    out = sb_text(sb)
   end function tl_slug
 
 
