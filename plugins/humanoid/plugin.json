@@ -1,0 +1,213 @@
+{
+  "format": 1,
+  "id": "humanoid",
+  "version": "1.0.0",
+  "capabilities": [
+    "speaks"
+  ],
+  "channels": [
+    "body",
+    "face"
+  ],
+  "rig": {
+    "kind": "humanoid",
+    "topology": "humanoid11"
+  },
+  "rig_channels": [],
+  "props": [
+    {
+      "name": "proportions",
+      "kind": "flag",
+      "surface": "tall",
+      "allowed": [],
+      "multi": false,
+      "lower": true
+    },
+    {
+      "name": "proportions",
+      "kind": "flag",
+      "surface": "short",
+      "allowed": [],
+      "multi": false,
+      "lower": true
+    },
+    {
+      "name": "proportions",
+      "kind": "flag",
+      "surface": "kid",
+      "allowed": [],
+      "multi": false,
+      "lower": true
+    },
+    {
+      "name": "height",
+      "kind": "number",
+      "surface": "height",
+      "allowed": [],
+      "multi": false,
+      "lower": true
+    }
+  ],
+  "verbs": [
+    {
+      "forms": [
+        "walks",
+        "walk"
+      ],
+      "channel": "body",
+      "template": null
+    },
+    {
+      "forms": [
+        "runs",
+        "run"
+      ],
+      "channel": "body",
+      "template": null
+    },
+    {
+      "forms": [
+        "enters",
+        "enter"
+      ],
+      "channel": "body",
+      "template": null
+    },
+    {
+      "forms": [
+        "waves",
+        "wave"
+      ],
+      "channel": "body",
+      "template": null
+    },
+    {
+      "forms": [
+        "sits",
+        "sit"
+      ],
+      "channel": "body",
+      "template": null
+    },
+    {
+      "forms": [
+        "stands",
+        "stand"
+      ],
+      "channel": "body",
+      "template": null
+    },
+    {
+      "forms": [
+        "jumps",
+        "jump"
+      ],
+      "channel": "body",
+      "template": null
+    },
+    {
+      "forms": [
+        "falls",
+        "fall"
+      ],
+      "channel": "body",
+      "template": null
+    },
+    {
+      "forms": [
+        "looks",
+        "look"
+      ],
+      "channel": "body",
+      "template": null
+    },
+    {
+      "forms": [
+        "faces",
+        "face"
+      ],
+      "channel": "face",
+      "template": null
+    },
+    {
+      "forms": [
+        "points",
+        "point"
+      ],
+      "channel": "body",
+      "template": null
+    },
+    {
+      "forms": [
+        "nods",
+        "nod"
+      ],
+      "channel": "body",
+      "template": null
+    },
+    {
+      "forms": [
+        "shakes",
+        "shake"
+      ],
+      "channel": "body",
+      "template": null
+    },
+    {
+      "forms": [
+        "dances",
+        "dance"
+      ],
+      "channel": "body",
+      "template": null
+    },
+    {
+      "forms": [
+        "sleeps",
+        "sleep"
+      ],
+      "channel": "body",
+      "template": null
+    },
+    {
+      "forms": [
+        "smiles",
+        "smile"
+      ],
+      "channel": "face",
+      "template": null
+    },
+    {
+      "forms": [
+        "picks",
+        "pick"
+      ],
+      "channel": "body",
+      "template": null
+    },
+    {
+      "forms": [
+        "gives",
+        "give"
+      ],
+      "channel": "body",
+      "template": null
+    },
+    {
+      "forms": [
+        "taps",
+        "tap"
+      ],
+      "channel": "body",
+      "template": null
+    },
+    {
+      "forms": [
+        "exits",
+        "exit"
+      ],
+      "channel": "body",
+      "template": null
+    }
+  ]
+}

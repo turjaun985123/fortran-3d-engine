@@ -1,0 +1,2148 @@
+{
+  "format": 1,
+  "id": "stickman",
+  "version": "1.0.0",
+  "capabilities": [
+    "speaks"
+  ],
+  "channels": [
+    "body",
+    "face"
+  ],
+  "rig": {
+    "kind": "stick",
+    "topology": "humanoid11"
+  },
+  "rig_channels": [
+    {
+      "name": "root.x",
+      "form": "value"
+    },
+    {
+      "name": "root.y",
+      "form": "value"
+    },
+    {
+      "name": "root.z",
+      "form": "value"
+    },
+    {
+      "name": "root.face",
+      "form": "deg"
+    },
+    {
+      "name": "torso",
+      "form": "deg"
+    },
+    {
+      "name": "head.pitch",
+      "form": "deg"
+    },
+    {
+      "name": "head.yaw",
+      "form": "deg"
+    },
+    {
+      "name": "arm.l.upper",
+      "form": "deg"
+    },
+    {
+      "name": "arm.l.fore",
+      "form": "deg"
+    },
+    {
+      "name": "arm.r.upper",
+      "form": "deg"
+    },
+    {
+      "name": "arm.r.fore",
+      "form": "deg"
+    },
+    {
+      "name": "leg.l.thigh",
+      "form": "deg"
+    },
+    {
+      "name": "leg.l.shin",
+      "form": "deg"
+    },
+    {
+      "name": "leg.r.thigh",
+      "form": "deg"
+    },
+    {
+      "name": "leg.r.shin",
+      "form": "deg"
+    },
+    {
+      "name": "face.expr",
+      "form": "value"
+    }
+  ],
+  "expression_codes": {
+    "neutral": 0,
+    "happy": 1,
+    "sad": 2,
+    "determined": 3,
+    "surprised": 4
+  },
+  "props": [
+    {
+      "name": "proportions",
+      "kind": "flag",
+      "surface": "tall",
+      "allowed": [],
+      "multi": false,
+      "lower": true
+    },
+    {
+      "name": "proportions",
+      "kind": "flag",
+      "surface": "short",
+      "allowed": [],
+      "multi": false,
+      "lower": true
+    },
+    {
+      "name": "proportions",
+      "kind": "flag",
+      "surface": "kid",
+      "allowed": [],
+      "multi": false,
+      "lower": true
+    },
+    {
+      "name": "height",
+      "kind": "number",
+      "surface": "height",
+      "allowed": [],
+      "multi": false,
+      "lower": true
+    },
+    {
+      "name": "head",
+      "kind": "enum",
+      "surface": "head",
+      "allowed": [
+        "round",
+        "square",
+        "oval"
+      ],
+      "multi": false,
+      "lower": true
+    },
+    {
+      "name": "hair",
+      "kind": "word",
+      "surface": "hair",
+      "allowed": [],
+      "multi": false,
+      "lower": true
+    },
+    {
+      "name": "face",
+      "kind": "enum",
+      "surface": "face",
+      "allowed": [
+        "happy",
+        "sad",
+        "determined",
+        "surprised",
+        "neutral"
+      ],
+      "multi": false,
+      "lower": true
+    },
+    {
+      "name": "wears",
+      "kind": "itemcolour",
+      "surface": "wears",
+      "allowed": [],
+      "multi": true,
+      "lower": true
+    },
+    {
+      "name": "holds",
+      "kind": "free",
+      "surface": "holds",
+      "allowed": [],
+      "multi": false,
+      "lower": false
+    }
+  ],
+  "verbs": [
+    {
+      "forms": [
+        "walks",
+        "walk"
+      ],
+      "channel": "body",
+      "template": "walk"
+    },
+    {
+      "forms": [
+        "runs",
+        "run"
+      ],
+      "channel": "body",
+      "template": "run"
+    },
+    {
+      "forms": [
+        "enters",
+        "enter"
+      ],
+      "channel": "body",
+      "template": "enter"
+    },
+    {
+      "forms": [
+        "waves",
+        "wave"
+      ],
+      "channel": "body",
+      "template": "wave"
+    },
+    {
+      "forms": [
+        "sits",
+        "sit"
+      ],
+      "channel": "body",
+      "template": "sit"
+    },
+    {
+      "forms": [
+        "stands",
+        "stand"
+      ],
+      "channel": "body",
+      "template": "stand"
+    },
+    {
+      "forms": [
+        "jumps",
+        "jump"
+      ],
+      "channel": "body",
+      "template": "jump"
+    },
+    {
+      "forms": [
+        "falls",
+        "fall"
+      ],
+      "channel": "body",
+      "template": "fall"
+    },
+    {
+      "forms": [
+        "looks",
+        "look"
+      ],
+      "channel": "body",
+      "template": "look"
+    },
+    {
+      "forms": [
+        "faces",
+        "face"
+      ],
+      "channel": "face",
+      "template": "face"
+    },
+    {
+      "forms": [
+        "points",
+        "point"
+      ],
+      "channel": "body",
+      "template": "point"
+    },
+    {
+      "forms": [
+        "nods",
+        "nod"
+      ],
+      "channel": "body",
+      "template": "nod"
+    },
+    {
+      "forms": [
+        "shakes",
+        "shake"
+      ],
+      "channel": "body",
+      "template": "shake"
+    },
+    {
+      "forms": [
+        "dances",
+        "dance"
+      ],
+      "channel": "body",
+      "template": "dance"
+    },
+    {
+      "forms": [
+        "sleeps",
+        "sleep"
+      ],
+      "channel": "body",
+      "template": "sleep"
+    },
+    {
+      "forms": [
+        "smiles",
+        "smile"
+      ],
+      "channel": "face",
+      "template": "smile"
+    },
+    {
+      "forms": [
+        "picks",
+        "pick"
+      ],
+      "channel": "body",
+      "template": "pick"
+    },
+    {
+      "forms": [
+        "gives",
+        "give"
+      ],
+      "channel": "body",
+      "template": "give"
+    },
+    {
+      "forms": [
+        "taps",
+        "tap"
+      ],
+      "channel": "body",
+      "template": "tap"
+    },
+    {
+      "forms": [
+        "exits",
+        "exit"
+      ],
+      "channel": "body",
+      "template": "exit"
+    }
+  ],
+  "templates": {
+    "walk": {
+      "requires": [
+        {
+          "dest_found": "to"
+        }
+      ],
+      "steps": [
+        {
+          "keys": [
+            {
+              "channel": "root.x",
+              "at": "start",
+              "value": "cursor.x",
+              "ease": "linear"
+            },
+            {
+              "channel": "root.x",
+              "at": "end",
+              "value": "dest(to).x",
+              "ease": "cue"
+            },
+            {
+              "channel": "root.z",
+              "at": "start",
+              "value": "cursor.z",
+              "ease": "linear"
+            },
+            {
+              "channel": "root.z",
+              "at": "end",
+              "value": "dest(to).z",
+              "ease": "cue"
+            }
+          ]
+        },
+        {
+          "osc": {
+            "channel": "leg.l.thigh",
+            "waveform": "sin",
+            "base": 0,
+            "amp": 28,
+            "cycles": {
+              "hz": 1.8
+            }
+          }
+        },
+        {
+          "osc": {
+            "channel": "leg.r.thigh",
+            "waveform": "sin",
+            "base": 0,
+            "amp": -28,
+            "cycles": {
+              "hz": 1.8
+            }
+          }
+        },
+        {
+          "osc": {
+            "channel": "leg.l.shin",
+            "waveform": "sin",
+            "base": 20,
+            "amp": 20,
+            "cycles": {
+              "hz": 1.8
+            },
+            "phase_deg": -90
+          }
+        },
+        {
+          "osc": {
+            "channel": "leg.r.shin",
+            "waveform": "sin",
+            "base": 20,
+            "amp": 20,
+            "cycles": {
+              "hz": 1.8
+            },
+            "phase_deg": 90
+          }
+        },
+        {
+          "osc": {
+            "channel": "arm.l.upper",
+            "waveform": "sin",
+            "base": 0,
+            "amp": -18,
+            "cycles": {
+              "hz": 1.8
+            }
+          }
+        },
+        {
+          "osc": {
+            "channel": "arm.r.upper",
+            "waveform": "sin",
+            "base": 0,
+            "amp": 18,
+            "cycles": {
+              "hz": 1.8
+            }
+          }
+        },
+        {
+          "osc": {
+            "channel": "root.y",
+            "waveform": "bob",
+            "base": "cursor.y",
+            "amp": 0.05,
+            "cycles": {
+              "hz": 1.8
+            }
+          }
+        }
+      ],
+      "cursor": {
+        "x": "dest(to).x",
+        "z": "dest(to).z"
+      }
+    },
+    "run": {
+      "requires": [
+        {
+          "dest_found": "to"
+        }
+      ],
+      "steps": [
+        {
+          "keys": [
+            {
+              "channel": "root.x",
+              "at": "start",
+              "value": "cursor.x",
+              "ease": "linear"
+            },
+            {
+              "channel": "root.x",
+              "at": "end",
+              "value": "dest(to).x",
+              "ease": "cue"
+            },
+            {
+              "channel": "root.z",
+              "at": "start",
+              "value": "cursor.z",
+              "ease": "linear"
+            },
+            {
+              "channel": "root.z",
+              "at": "end",
+              "value": "dest(to).z",
+              "ease": "cue"
+            }
+          ]
+        },
+        {
+          "osc": {
+            "channel": "leg.l.thigh",
+            "waveform": "sin",
+            "base": 0,
+            "amp": 40,
+            "cycles": {
+              "hz": 2.6
+            }
+          }
+        },
+        {
+          "osc": {
+            "channel": "leg.r.thigh",
+            "waveform": "sin",
+            "base": 0,
+            "amp": -40,
+            "cycles": {
+              "hz": 2.6
+            }
+          }
+        },
+        {
+          "osc": {
+            "channel": "leg.l.shin",
+            "waveform": "sin",
+            "base": 20,
+            "amp": 20,
+            "cycles": {
+              "hz": 2.6
+            },
+            "phase_deg": -90
+          }
+        },
+        {
+          "osc": {
+            "channel": "leg.r.shin",
+            "waveform": "sin",
+            "base": 20,
+            "amp": 20,
+            "cycles": {
+              "hz": 2.6
+            },
+            "phase_deg": 90
+          }
+        },
+        {
+          "osc": {
+            "channel": "arm.l.upper",
+            "waveform": "sin",
+            "base": 0,
+            "amp": -28,
+            "cycles": {
+              "hz": 2.6
+            }
+          }
+        },
+        {
+          "osc": {
+            "channel": "arm.r.upper",
+            "waveform": "sin",
+            "base": 0,
+            "amp": 28,
+            "cycles": {
+              "hz": 2.6
+            }
+          }
+        },
+        {
+          "osc": {
+            "channel": "root.y",
+            "waveform": "bob",
+            "base": "cursor.y",
+            "amp": 0.07,
+            "cycles": {
+              "hz": 2.6
+            }
+          }
+        }
+      ],
+      "cursor": {
+        "x": "dest(to).x",
+        "z": "dest(to).z"
+      }
+    },
+    "enter": {
+      "requires": [
+        {
+          "param_in": [
+            "from",
+            [
+              "left",
+              "right"
+            ]
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "when": {
+            "param_eq": [
+              "from",
+              "left"
+            ]
+          },
+          "keys": [
+            {
+              "channel": "root.x",
+              "at": "start",
+              "value": "decl.x - 6",
+              "ease": "linear"
+            },
+            {
+              "channel": "root.x",
+              "at": "end",
+              "value": "decl.x",
+              "ease": "cue"
+            }
+          ]
+        },
+        {
+          "when": {
+            "param_eq": [
+              "from",
+              "right"
+            ]
+          },
+          "keys": [
+            {
+              "channel": "root.x",
+              "at": "start",
+              "value": "decl.x + 6",
+              "ease": "linear"
+            },
+            {
+              "channel": "root.x",
+              "at": "end",
+              "value": "decl.x",
+              "ease": "cue"
+            }
+          ]
+        },
+        {
+          "keys": [
+            {
+              "channel": "root.z",
+              "at": "start",
+              "value": "decl.z",
+              "ease": "linear"
+            },
+            {
+              "channel": "root.z",
+              "at": "end",
+              "value": "decl.z",
+              "ease": "cue"
+            }
+          ]
+        },
+        {
+          "osc": {
+            "channel": "leg.l.thigh",
+            "waveform": "sin",
+            "base": 0,
+            "amp": 28,
+            "cycles": {
+              "hz": 1.8
+            }
+          }
+        },
+        {
+          "osc": {
+            "channel": "leg.r.thigh",
+            "waveform": "sin",
+            "base": 0,
+            "amp": -28,
+            "cycles": {
+              "hz": 1.8
+            }
+          }
+        },
+        {
+          "osc": {
+            "channel": "leg.l.shin",
+            "waveform": "sin",
+            "base": 20,
+            "amp": 20,
+            "cycles": {
+              "hz": 1.8
+            },
+            "phase_deg": -90
+          }
+        },
+        {
+          "osc": {
+            "channel": "leg.r.shin",
+            "waveform": "sin",
+            "base": 20,
+            "amp": 20,
+            "cycles": {
+              "hz": 1.8
+            },
+            "phase_deg": 90
+          }
+        },
+        {
+          "osc": {
+            "channel": "arm.l.upper",
+            "waveform": "sin",
+            "base": 0,
+            "amp": -18,
+            "cycles": {
+              "hz": 1.8
+            }
+          }
+        },
+        {
+          "osc": {
+            "channel": "arm.r.upper",
+            "waveform": "sin",
+            "base": 0,
+            "amp": 18,
+            "cycles": {
+              "hz": 1.8
+            }
+          }
+        },
+        {
+          "osc": {
+            "channel": "root.y",
+            "waveform": "bob",
+            "base": "decl.y",
+            "amp": 0.05,
+            "cycles": {
+              "hz": 1.8
+            }
+          }
+        }
+      ],
+      "cursor": {
+        "x": "decl.x",
+        "y": "decl.y",
+        "z": "decl.z"
+      }
+    },
+    "exit": {
+      "param_defaults": {
+        "direction": "right"
+      },
+      "requires": [
+        {
+          "param_in": [
+            "direction",
+            [
+              "left",
+              "right"
+            ]
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "when": {
+            "param_eq": [
+              "direction",
+              "left"
+            ]
+          },
+          "keys": [
+            {
+              "channel": "root.x",
+              "at": "start",
+              "value": "cursor.x",
+              "ease": "linear"
+            },
+            {
+              "channel": "root.x",
+              "at": "end",
+              "value": "cursor.x - 6",
+              "ease": "cue"
+            }
+          ]
+        },
+        {
+          "when": {
+            "param_eq": [
+              "direction",
+              "right"
+            ]
+          },
+          "keys": [
+            {
+              "channel": "root.x",
+              "at": "start",
+              "value": "cursor.x",
+              "ease": "linear"
+            },
+            {
+              "channel": "root.x",
+              "at": "end",
+              "value": "cursor.x + 6",
+              "ease": "cue"
+            }
+          ]
+        },
+        {
+          "keys": [
+            {
+              "channel": "root.z",
+              "at": "start",
+              "value": "cursor.z",
+              "ease": "linear"
+            },
+            {
+              "channel": "root.z",
+              "at": "end",
+              "value": "cursor.z",
+              "ease": "cue"
+            }
+          ]
+        },
+        {
+          "osc": {
+            "channel": "leg.l.thigh",
+            "waveform": "sin",
+            "base": 0,
+            "amp": 28,
+            "cycles": {
+              "hz": 1.8
+            }
+          }
+        },
+        {
+          "osc": {
+            "channel": "leg.r.thigh",
+            "waveform": "sin",
+            "base": 0,
+            "amp": -28,
+            "cycles": {
+              "hz": 1.8
+            }
+          }
+        },
+        {
+          "osc": {
+            "channel": "leg.l.shin",
+            "waveform": "sin",
+            "base": 20,
+            "amp": 20,
+            "cycles": {
+              "hz": 1.8
+            },
+            "phase_deg": -90
+          }
+        },
+        {
+          "osc": {
+            "channel": "leg.r.shin",
+            "waveform": "sin",
+            "base": 20,
+            "amp": 20,
+            "cycles": {
+              "hz": 1.8
+            },
+            "phase_deg": 90
+          }
+        },
+        {
+          "osc": {
+            "channel": "arm.l.upper",
+            "waveform": "sin",
+            "base": 0,
+            "amp": -18,
+            "cycles": {
+              "hz": 1.8
+            }
+          }
+        },
+        {
+          "osc": {
+            "channel": "arm.r.upper",
+            "waveform": "sin",
+            "base": 0,
+            "amp": 18,
+            "cycles": {
+              "hz": 1.8
+            }
+          }
+        },
+        {
+          "osc": {
+            "channel": "root.y",
+            "waveform": "bob",
+            "base": "cursor.y",
+            "amp": 0.05,
+            "cycles": {
+              "hz": 1.8
+            }
+          }
+        }
+      ],
+      "cursor": [
+        {
+          "set": "cursor.x",
+          "expr": "cursor.x - 6",
+          "when": {
+            "param_eq": [
+              "direction",
+              "left"
+            ]
+          }
+        },
+        {
+          "set": "cursor.x",
+          "expr": "cursor.x + 6",
+          "when": {
+            "param_eq": [
+              "direction",
+              "right"
+            ]
+          }
+        }
+      ]
+    },
+    "wave": {
+      "param_defaults": {
+        "hand": "right",
+        "arm": {
+          "expr": "param.hand"
+        },
+        "cycles": {
+          "expr": "max(1, nint(span_sec * 1.2))"
+        }
+      },
+      "steps": [
+        {
+          "when": {
+            "param_eq": [
+              "arm",
+              "right"
+            ]
+          },
+          "keys": [
+            {
+              "channel": "arm.r.upper",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "arm.r.upper",
+              "at": 0.2,
+              "value": 150,
+              "ease": "cue"
+            },
+            {
+              "channel": "arm.r.upper",
+              "at": "end",
+              "value": 150,
+              "ease": "smooth"
+            }
+          ]
+        },
+        {
+          "when": {
+            "param_eq": [
+              "arm",
+              "right"
+            ]
+          },
+          "osc": {
+            "channel": "arm.r.fore",
+            "waveform": "sin",
+            "base": 0,
+            "amp": 25,
+            "cycles": {
+              "expr": "param.cycles"
+            },
+            "from": 0.2
+          }
+        },
+        {
+          "when": {
+            "param_eq": [
+              "arm",
+              "left"
+            ]
+          },
+          "keys": [
+            {
+              "channel": "arm.l.upper",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "arm.l.upper",
+              "at": 0.2,
+              "value": -150,
+              "ease": "cue"
+            },
+            {
+              "channel": "arm.l.upper",
+              "at": "end",
+              "value": -150,
+              "ease": "smooth"
+            }
+          ]
+        },
+        {
+          "when": {
+            "param_eq": [
+              "arm",
+              "left"
+            ]
+          },
+          "osc": {
+            "channel": "arm.l.fore",
+            "waveform": "sin",
+            "base": 0,
+            "amp": 25,
+            "cycles": {
+              "expr": "param.cycles"
+            },
+            "from": 0.2
+          }
+        },
+        {
+          "when": {
+            "param_eq": [
+              "arm",
+              "both"
+            ]
+          },
+          "keys": [
+            {
+              "channel": "arm.r.upper",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "arm.r.upper",
+              "at": 0.2,
+              "value": 150,
+              "ease": "cue"
+            },
+            {
+              "channel": "arm.r.upper",
+              "at": "end",
+              "value": 150,
+              "ease": "smooth"
+            }
+          ]
+        },
+        {
+          "when": {
+            "param_eq": [
+              "arm",
+              "both"
+            ]
+          },
+          "osc": {
+            "channel": "arm.r.fore",
+            "waveform": "sin",
+            "base": 0,
+            "amp": 25,
+            "cycles": {
+              "expr": "param.cycles"
+            },
+            "from": 0.2
+          }
+        },
+        {
+          "when": {
+            "param_eq": [
+              "arm",
+              "both"
+            ]
+          },
+          "keys": [
+            {
+              "channel": "arm.l.upper",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "arm.l.upper",
+              "at": 0.2,
+              "value": -150,
+              "ease": "cue"
+            },
+            {
+              "channel": "arm.l.upper",
+              "at": "end",
+              "value": -150,
+              "ease": "smooth"
+            }
+          ]
+        },
+        {
+          "when": {
+            "param_eq": [
+              "arm",
+              "both"
+            ]
+          },
+          "osc": {
+            "channel": "arm.l.fore",
+            "waveform": "sin",
+            "base": 0,
+            "amp": 25,
+            "cycles": {
+              "expr": "param.cycles"
+            },
+            "from": 0.2
+          }
+        }
+      ],
+      "fail_if_empty": true
+    },
+    "sit": {
+      "steps": [
+        {
+          "keys": [
+            {
+              "channel": "root.y",
+              "at": "start",
+              "value": "cursor.y",
+              "ease": "linear"
+            },
+            {
+              "channel": "root.y",
+              "at": "end",
+              "value": 0.5,
+              "ease": "cue"
+            },
+            {
+              "channel": "leg.l.thigh",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "leg.l.thigh",
+              "at": "end",
+              "value": -90,
+              "ease": "cue"
+            },
+            {
+              "channel": "leg.r.thigh",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "leg.r.thigh",
+              "at": "end",
+              "value": -90,
+              "ease": "cue"
+            },
+            {
+              "channel": "leg.l.shin",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "leg.l.shin",
+              "at": "end",
+              "value": 90,
+              "ease": "cue"
+            },
+            {
+              "channel": "leg.r.shin",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "leg.r.shin",
+              "at": "end",
+              "value": 90,
+              "ease": "cue"
+            },
+            {
+              "channel": "torso",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "torso",
+              "at": "end",
+              "value": 5,
+              "ease": "cue"
+            }
+          ]
+        }
+      ],
+      "cursor": {
+        "y": 0.5
+      }
+    },
+    "stand": {
+      "steps": [
+        {
+          "keys": [
+            {
+              "channel": "root.y",
+              "at": "start",
+              "value": "cursor.y",
+              "ease": "linear"
+            },
+            {
+              "channel": "root.y",
+              "at": "end",
+              "value": "decl.y",
+              "ease": "cue"
+            },
+            {
+              "channel": "leg.l.thigh",
+              "at": "start",
+              "value": -90,
+              "ease": "linear"
+            },
+            {
+              "channel": "leg.l.thigh",
+              "at": "end",
+              "value": 0,
+              "ease": "cue"
+            },
+            {
+              "channel": "leg.r.thigh",
+              "at": "start",
+              "value": -90,
+              "ease": "linear"
+            },
+            {
+              "channel": "leg.r.thigh",
+              "at": "end",
+              "value": 0,
+              "ease": "cue"
+            },
+            {
+              "channel": "leg.l.shin",
+              "at": "start",
+              "value": 90,
+              "ease": "linear"
+            },
+            {
+              "channel": "leg.l.shin",
+              "at": "end",
+              "value": 0,
+              "ease": "cue"
+            },
+            {
+              "channel": "leg.r.shin",
+              "at": "start",
+              "value": 90,
+              "ease": "linear"
+            },
+            {
+              "channel": "leg.r.shin",
+              "at": "end",
+              "value": 0,
+              "ease": "cue"
+            },
+            {
+              "channel": "torso",
+              "at": "start",
+              "value": 5,
+              "ease": "linear"
+            },
+            {
+              "channel": "torso",
+              "at": "end",
+              "value": 0,
+              "ease": "cue"
+            }
+          ]
+        }
+      ],
+      "cursor": {
+        "y": "decl.y"
+      }
+    },
+    "jump": {
+      "steps": [
+        {
+          "keys": [
+            {
+              "channel": "root.y",
+              "at": "start",
+              "value": "cursor.y + 0.55 * 4 * f * (1 - f)",
+              "ease": "smooth"
+            },
+            {
+              "channel": "root.y",
+              "at": 0.25,
+              "value": "cursor.y + 0.55 * 4 * f * (1 - f)",
+              "ease": "smooth"
+            },
+            {
+              "channel": "root.y",
+              "at": 0.5,
+              "value": "cursor.y + 0.55 * 4 * f * (1 - f)",
+              "ease": "smooth"
+            },
+            {
+              "channel": "root.y",
+              "at": 0.75,
+              "value": "cursor.y + 0.55 * 4 * f * (1 - f)",
+              "ease": "smooth"
+            },
+            {
+              "channel": "root.y",
+              "at": "end",
+              "value": "cursor.y + 0.55 * 4 * f * (1 - f)",
+              "ease": "smooth"
+            },
+            {
+              "channel": "leg.l.thigh",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "leg.l.thigh",
+              "at": 0.5,
+              "value": -30,
+              "ease": "smooth"
+            },
+            {
+              "channel": "leg.l.thigh",
+              "at": "end",
+              "value": 0,
+              "ease": "smooth"
+            },
+            {
+              "channel": "leg.r.thigh",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "leg.r.thigh",
+              "at": 0.5,
+              "value": -30,
+              "ease": "smooth"
+            },
+            {
+              "channel": "leg.r.thigh",
+              "at": "end",
+              "value": 0,
+              "ease": "smooth"
+            },
+            {
+              "channel": "leg.l.shin",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "leg.l.shin",
+              "at": 0.5,
+              "value": 55,
+              "ease": "smooth"
+            },
+            {
+              "channel": "leg.l.shin",
+              "at": "end",
+              "value": 0,
+              "ease": "smooth"
+            },
+            {
+              "channel": "leg.r.shin",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "leg.r.shin",
+              "at": 0.5,
+              "value": 55,
+              "ease": "smooth"
+            },
+            {
+              "channel": "leg.r.shin",
+              "at": "end",
+              "value": 0,
+              "ease": "smooth"
+            },
+            {
+              "channel": "arm.r.upper",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "arm.r.upper",
+              "at": 0.5,
+              "value": 150,
+              "ease": "smooth"
+            },
+            {
+              "channel": "arm.r.upper",
+              "at": "end",
+              "value": 0,
+              "ease": "smooth"
+            },
+            {
+              "channel": "arm.l.upper",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "arm.l.upper",
+              "at": 0.5,
+              "value": -150,
+              "ease": "smooth"
+            },
+            {
+              "channel": "arm.l.upper",
+              "at": "end",
+              "value": 0,
+              "ease": "smooth"
+            }
+          ]
+        }
+      ]
+    },
+    "fall": {
+      "steps": [
+        {
+          "keys": [
+            {
+              "channel": "torso",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "torso",
+              "at": "end",
+              "value": 88,
+              "ease": "cubic-in"
+            },
+            {
+              "channel": "root.y",
+              "at": "start",
+              "value": "cursor.y",
+              "ease": "linear"
+            },
+            {
+              "channel": "root.y",
+              "at": "end",
+              "value": 0.1,
+              "ease": "cubic-in"
+            },
+            {
+              "channel": "leg.l.thigh",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "leg.l.thigh",
+              "at": "end",
+              "value": -10,
+              "ease": "cubic-in"
+            },
+            {
+              "channel": "leg.r.thigh",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "leg.r.thigh",
+              "at": "end",
+              "value": -10,
+              "ease": "cubic-in"
+            },
+            {
+              "channel": "leg.l.shin",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "leg.l.shin",
+              "at": "end",
+              "value": 15,
+              "ease": "cubic-in"
+            },
+            {
+              "channel": "leg.r.shin",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "leg.r.shin",
+              "at": "end",
+              "value": 15,
+              "ease": "cubic-in"
+            }
+          ]
+        }
+      ],
+      "cursor": {
+        "y": 0.1
+      }
+    },
+    "look": {
+      "requires": [
+        {
+          "dest_found": "target"
+        }
+      ],
+      "steps": [
+        {
+          "when": {
+            "lt": [
+              "dest(target).x",
+              "cursor.x"
+            ]
+          },
+          "keys": [
+            {
+              "channel": "head.yaw",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "head.yaw",
+              "at": "end",
+              "value": -25,
+              "ease": "cue"
+            }
+          ]
+        },
+        {
+          "when": {
+            "eq": [
+              "dest(target).x",
+              "cursor.x"
+            ]
+          },
+          "keys": [
+            {
+              "channel": "head.yaw",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "head.yaw",
+              "at": "end",
+              "value": 0,
+              "ease": "cue"
+            }
+          ]
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "ge": [
+                  "dest(target).x",
+                  "cursor.x"
+                ]
+              },
+              {
+                "not": {
+                  "eq": [
+                    "dest(target).x",
+                    "cursor.x"
+                  ]
+                }
+              }
+            ]
+          },
+          "keys": [
+            {
+              "channel": "head.yaw",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "head.yaw",
+              "at": "end",
+              "value": 25,
+              "ease": "cue"
+            }
+          ]
+        }
+      ]
+    },
+    "face": {
+      "steps": [
+        {
+          "when": {
+            "param_present": "expression"
+          },
+          "keys": [
+            {
+              "channel": "face.expr",
+              "at": "start",
+              "value": "expr_code(param.expression)",
+              "ease": "linear"
+            },
+            {
+              "channel": "face.expr",
+              "at": "end",
+              "value": "expr_code(param.expression)",
+              "ease": "hold"
+            }
+          ]
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "name_is": [
+                  "target",
+                  "camera"
+                ]
+              },
+              {
+                "not": {
+                  "param_present": "expression"
+                }
+              }
+            ]
+          },
+          "keys": [
+            {
+              "channel": "root.face",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "root.face",
+              "at": "end",
+              "value": 0,
+              "ease": "cue"
+            }
+          ]
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "dest_found": "target"
+              },
+              {
+                "not": {
+                  "param_present": "expression"
+                }
+              },
+              {
+                "not": {
+                  "name_is": [
+                    "target",
+                    "camera"
+                  ]
+                }
+              }
+            ]
+          },
+          "keys": [
+            {
+              "channel": "root.face",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "root.face",
+              "at": "end",
+              "ease": "cue",
+              "value": "clamp(atan2_deg(dest(target).x - cursor.x, dest(target).z - cursor.z), -180, 180)"
+            }
+          ]
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "not": {
+                  "any": [
+                    {
+                      "param_present": "target"
+                    },
+                    {
+                      "param_present": "target_pos"
+                    }
+                  ]
+                }
+              },
+              {
+                "not": {
+                  "param_present": "expression"
+                }
+              }
+            ]
+          },
+          "keys": [
+            {
+              "channel": "root.face",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "root.face",
+              "at": "end",
+              "value": 0,
+              "ease": "cue"
+            }
+          ]
+        }
+      ],
+      "cursor": {
+        "expr": "expr_code(param.expression)"
+      },
+      "fail_if_empty": true
+    },
+    "point": {
+      "requires": [
+        {
+          "dest_found": "target"
+        }
+      ],
+      "steps": [
+        {
+          "when": {
+            "lt": [
+              "dest(target).x",
+              "cursor.x"
+            ]
+          },
+          "keys": [
+            {
+              "channel": "arm.l.upper",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "arm.l.upper",
+              "at": "end",
+              "value": -90,
+              "ease": "cue"
+            },
+            {
+              "channel": "head.yaw",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "head.yaw",
+              "at": "end",
+              "value": -15,
+              "ease": "cue"
+            }
+          ]
+        },
+        {
+          "when": {
+            "ge": [
+              "dest(target).x",
+              "cursor.x"
+            ]
+          },
+          "keys": [
+            {
+              "channel": "arm.r.upper",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "arm.r.upper",
+              "at": "end",
+              "value": 90,
+              "ease": "cue"
+            },
+            {
+              "channel": "head.yaw",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "head.yaw",
+              "at": "end",
+              "value": 15,
+              "ease": "cue"
+            }
+          ]
+        }
+      ]
+    },
+    "nod": {
+      "steps": [
+        {
+          "keys": [
+            {
+              "channel": "head.pitch",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "head.pitch",
+              "at": 0.25,
+              "value": 18,
+              "ease": "smooth"
+            },
+            {
+              "channel": "head.pitch",
+              "at": 0.5,
+              "value": 0,
+              "ease": "smooth"
+            },
+            {
+              "channel": "head.pitch",
+              "at": 0.75,
+              "value": 18,
+              "ease": "smooth"
+            },
+            {
+              "channel": "head.pitch",
+              "at": "end",
+              "value": 0,
+              "ease": "smooth"
+            }
+          ]
+        }
+      ]
+    },
+    "shake": {
+      "steps": [
+        {
+          "keys": [
+            {
+              "channel": "head.yaw",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "head.yaw",
+              "at": 0.3333333333333333,
+              "value": -20,
+              "ease": "smooth"
+            },
+            {
+              "channel": "head.yaw",
+              "at": 0.6666666666666666,
+              "value": 20,
+              "ease": "smooth"
+            },
+            {
+              "channel": "head.yaw",
+              "at": "end",
+              "value": 0,
+              "ease": "smooth"
+            }
+          ]
+        }
+      ]
+    },
+    "dance": {
+      "steps": [
+        {
+          "osc": {
+            "channel": "arm.r.upper",
+            "waveform": "sin",
+            "base": 75,
+            "amp": 75,
+            "cycles": {
+              "hz": 2
+            }
+          }
+        },
+        {
+          "osc": {
+            "channel": "arm.l.upper",
+            "waveform": "sin",
+            "base": -75,
+            "amp": 75,
+            "cycles": {
+              "hz": 2
+            }
+          }
+        },
+        {
+          "osc": {
+            "channel": "torso",
+            "waveform": "sin",
+            "base": 0,
+            "amp": 8,
+            "cycles": {
+              "hz": 2
+            }
+          }
+        },
+        {
+          "osc": {
+            "channel": "leg.l.thigh",
+            "waveform": "sin",
+            "base": 0,
+            "amp": 20,
+            "cycles": {
+              "hz": 2
+            }
+          }
+        },
+        {
+          "osc": {
+            "channel": "leg.r.thigh",
+            "waveform": "sin",
+            "base": 0,
+            "amp": -20,
+            "cycles": {
+              "hz": 2
+            }
+          }
+        },
+        {
+          "osc": {
+            "channel": "head.yaw",
+            "waveform": "sin",
+            "base": 0,
+            "amp": 10,
+            "cycles": {
+              "hz": 2
+            }
+          }
+        },
+        {
+          "osc": {
+            "channel": "root.y",
+            "waveform": "abs_sin",
+            "base": "cursor.y",
+            "amp": 0.06,
+            "cycles": {
+              "hz": 2
+            }
+          }
+        }
+      ]
+    },
+    "sleep": {
+      "steps": [
+        {
+          "keys": [
+            {
+              "channel": "torso",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "torso",
+              "at": "end",
+              "value": 80,
+              "ease": "cubic-in-out"
+            },
+            {
+              "channel": "head.pitch",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "head.pitch",
+              "at": "end",
+              "value": 15,
+              "ease": "cubic-in-out"
+            }
+          ]
+        }
+      ]
+    },
+    "smile": {
+      "steps": [
+        {
+          "keys": [
+            {
+              "channel": "face.expr",
+              "at": "start",
+              "value": 1,
+              "ease": "linear"
+            },
+            {
+              "channel": "face.expr",
+              "at": "end",
+              "value": 1,
+              "ease": "hold"
+            }
+          ]
+        }
+      ],
+      "cursor": {
+        "expr": 1
+      }
+    },
+    "pick": {
+      "steps": [
+        {
+          "keys": [
+            {
+              "channel": "torso",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "torso",
+              "at": 0.5,
+              "value": 25,
+              "ease": "smooth"
+            },
+            {
+              "channel": "torso",
+              "at": "end",
+              "value": 0,
+              "ease": "cue"
+            },
+            {
+              "channel": "arm.r.upper",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "arm.r.upper",
+              "at": 0.5,
+              "value": 60,
+              "ease": "smooth"
+            },
+            {
+              "channel": "arm.r.upper",
+              "at": "end",
+              "value": 20,
+              "ease": "cue"
+            },
+            {
+              "channel": "root.y",
+              "at": "start",
+              "value": "cursor.y",
+              "ease": "linear"
+            },
+            {
+              "channel": "root.y",
+              "at": 0.5,
+              "value": "cursor.y * 0.85",
+              "ease": "smooth"
+            },
+            {
+              "channel": "root.y",
+              "at": "end",
+              "value": "cursor.y",
+              "ease": "cue"
+            }
+          ]
+        }
+      ]
+    },
+    "give": {
+      "steps": [
+        {
+          "keys": [
+            {
+              "channel": "arm.r.upper",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "arm.r.upper",
+              "at": 0.5,
+              "value": 70,
+              "ease": "smooth"
+            },
+            {
+              "channel": "arm.r.upper",
+              "at": "end",
+              "value": 0,
+              "ease": "cue"
+            },
+            {
+              "channel": "arm.l.upper",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "arm.l.upper",
+              "at": 0.5,
+              "value": 70,
+              "ease": "smooth"
+            },
+            {
+              "channel": "arm.l.upper",
+              "at": "end",
+              "value": 0,
+              "ease": "cue"
+            },
+            {
+              "channel": "torso",
+              "at": "start",
+              "value": 0,
+              "ease": "linear"
+            },
+            {
+              "channel": "torso",
+              "at": 0.5,
+              "value": 10,
+              "ease": "smooth"
+            },
+            {
+              "channel": "torso",
+              "at": "end",
+              "value": 0,
+              "ease": "cue"
+            }
+          ]
+        }
+      ]
+    },
+    "tap": {
+      "steps": [
+        {
+          "osc": {
+            "channel": "leg.r.thigh",
+            "waveform": "sin",
+            "base": -6,
+            "amp": 6,
+            "cycles": {
+              "hz": 3
+            }
+          }
+        }
+      ]
+    }
+  }
+}
