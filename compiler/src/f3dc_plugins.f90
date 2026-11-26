@@ -95,11 +95,13 @@
 ! map onto it; every other name passes through unchanged.
 module f3dc_plugins
   use f3dc_str, only: char_list, char_list_append, char_list_len, &
-       char_list_at, to_lower, str_builder, sb_init, sb_add, &
+       char_list_at, char_list_clear, to_lower, str_builder, &
+       sb_init, sb_add, &
        sb_text, sb_len, int_list, int_list_append, int_list_len, &
-       int_list_at, fmt_int
+       int_list_at, int_list_clear, fmt_int
   use, intrinsic :: iso_fortran_env, only: int64, real64
   use f3dc_dyn, only: dyn, dyn_null, dyn_copy, dyn_assign, &
+       dyn_free, &
        dyn_dict_get, dyn_dict_has, dyn_dict_len, dyn_dict_key_at, &
        dyn_list_len, dyn_list_at, &
        DYN_K_NULL, DYN_K_BOOL, DYN_K_INT, DYN_K_REAL, DYN_K_STR, &
@@ -407,6 +409,40 @@ contains
   !> Load one package directory into the registry.  Any defect
   !! skips the WHOLE package with one W205 warning (collected, not
   !! printed here); this subroutine never stops the process.
+  !> Reset a plugin slot to its just-declared state, field by
+  !! field.  (Not `plugins(p) = plugin_rec()`: flang-18 rejects
+  !! the empty structure constructor for a type with allocatable
+  !! components -- dyn and the growable lists -- even though
+  !! every scalar component carries a default.  gfortran accepts
+  !! both; this form is the portable one.)
+  subroutine reset_plugin_rec(r)
+    type(plugin_rec), intent(inout) :: r
+    integer :: i
+    r%id = ""
+    r%version = ""
+    r%origin = ""
+    call dyn_free(r%rig)
+    call dyn_free(r%templates)
+    call char_list_clear(r%channels)
+    call char_list_clear(r%verbs)
+    call char_list_clear(r%verb_channels)
+    call char_list_clear(r%verb_templates)
+    call char_list_clear(r%rig_channels)
+    call char_list_clear(r%rig_ch_forms)
+    call char_list_clear(r%caps)
+    call char_list_clear(r%expr_names)
+    call int_list_clear(r%expr_codes)
+    do i = 1, MAX_PROPS
+      r%props(i)%name = ""
+      r%props(i)%kind = ""
+      r%props(i)%surface = ""
+      r%props(i)%allowed = ""
+      r%props(i)%multi = .false.
+      r%props(i)%lower = .true.
+    end do
+    r%nprops = 0
+  end subroutine reset_plugin_rec
+
   subroutine load_package(pkgdir, dirname)
     character(*), intent(in) :: pkgdir, dirname
     type(dyn) :: root, v, item, sub
@@ -507,7 +543,7 @@ contains
     ! Build into the next slot; n_plugins only advances on full
     ! success, so a failed package leaves no partial registration.
     p = n_plugins + 1
-    plugins(p) = plugin_rec()
+    call reset_plugin_rec(plugins(p))
     plugins(p)%id = idstr
     plugins(p)%origin = pkgdir
     ! version: opaque metadata, recorded never compared.
