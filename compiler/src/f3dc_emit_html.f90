@@ -689,7 +689,13 @@ contains
           out = substitute_js(out, "{{TIMELINE_JS}}", &
                               timeline_js, .false.)
         else if (len(webgl2_js) > 0) then
-          webgl2_js = webgl2_js // NL // timeline_js
+          block
+            type(str_builder) :: sb
+            call sb_add(sb, webgl2_js)
+            call sb_add(sb, NL)
+            call sb_add(sb, timeline_js)
+            webgl2_js = sb_text(sb)
+          end block
         else
           webgl2_js = timeline_js
         end if
