@@ -41,7 +41,10 @@
 ! WebGL2 sidecar runtime/f3d-webgl2.js is loaded from repo_root
 ! by emit_html itself (emit_html_webgl2_js) and substituted into
 ! the {{WEBGL2_JS}} slot, so the viewer boot can default to
-! WebGL2 with the core Canvas2D player as fallback.
+! WebGL2 with the core Canvas2D player as fallback.  Wave 4 S2
+! adds a second, CONDITIONAL exception in the same slot: when
+! the scene has a timeline, runtime/f3d-timeline.js is appended
+! after the WebGL2 sidecar (see emit_html).
 module f3dc_emit_html
   use, intrinsic :: iso_fortran_env, only: int64, real64
   use f3dc_dyn, only: dyn, dyn_dict_get, dyn_kind, dyn_free, &
@@ -49,7 +52,8 @@ module f3dc_emit_html
                       DYN_K_STR, DYN_K_LIST, DYN_K_DICT
   use f3dc_str, only: fmt_int, fmt_real, to_lower, str_replace, &
                       str_builder, sb_init, sb_add, sb_text
-  use f3dc_emit_js, only: emit_js, emit_js_typed
+  use f3dc_emit_js, only: emit_js, emit_js_typed, &
+                          emit_js_timeline_descriptor
   use f3dc_ir, only: ir_scene, ir_scene_to_dict
   implicit none
   private
@@ -59,6 +63,7 @@ module f3dc_emit_html
   ! implementation; emit_html_typed converts once and delegates).
   public :: emit_html_typed
   public :: emit_html_webgl2_js
+  public :: emit_html_timeline_js
   public :: FALLBACK_COMMENT
 
   !> Exact marker required when no runtime is supplied.
@@ -300,6 +305,20 @@ contains
                    webgl2_js, ok)
     if (.not. ok) webgl2_js = ""
   end subroutine emit_html_webgl2_js
+
+  !> Wave 4 S2: the text of <repo_root>/runtime/f3d-timeline.js
+  !! (the Wave-3 Timeline IR evaluator sidecar), or "" when
+  !! missing/unreadable -- the viewer then simply has no
+  !! timeline evaluator, exactly as a missing WebGL2 sidecar
+  !! degrades to the core player alone.
+  subroutine emit_html_timeline_js(repo_root, timeline_js)
+    character(len=*), intent(in) :: repo_root
+    character(len=:), allocatable, intent(out) :: timeline_js
+    logical :: ok
+    call read_file(repo_root // "/runtime/f3d-timeline.js", &
+                   timeline_js, ok)
+    if (.not. ok) timeline_js = ""
+  end subroutine emit_html_timeline_js
 
   ! ==================================================================
   ! Fallback JS + built-in template (emit_html.py constants)
@@ -633,7 +652,9 @@ contains
     character(len=*), intent(in) :: template_arg, repo_root
     character(len=:), allocatable, intent(out) :: text
     character(len=:), allocatable :: out, fallback_html, scene
-    character(len=:), allocatable :: webgl2_js
+    character(len=:), allocatable :: webgl2_js, timeline_js
+    type(dyn) :: tl_desc
+    logical :: has_tl
 
     out = load_template(template_arg, repo_root)
 
@@ -648,6 +669,32 @@ contains
     ! P5-B: inline the WebGL2 sidecar ("" when the file is
     ! missing; the boot degrades to the core player alone).
     call emit_html_webgl2_js(repo_root, webgl2_js)
+    ! Wave 4 S2: when this scene carries a timeline (the same
+    ! condition under which emit_js embeds the "timeline"
+    ! descriptor into the F3D_SCENE blob and f3dc emits
+    ! <name>.timeline.json), inline the Wave-3 evaluator
+    ! runtime/f3d-timeline.js too.  It rides the {{WEBGL2_JS}}
+    ! slot, appended after the WebGL2 sidecar: that slot already
+    ! sits after {{F3D_JS}} (f3d-timeline.js loads after the core
+    ! runtime and publishes F3D.timeline) and before
+    ! {{SCENE_JS}}, and no template change is needed.  A template
+    ! that grows its own {{TIMELINE_JS}} slot gets the evaluator
+    ! there instead.  No timeline -> the substitution below is
+    ! byte-identical to the pre-S2 output.
+    call emit_js_timeline_descriptor(ir, tl_desc, has_tl)
+    if (has_tl) then
+      call emit_html_timeline_js(repo_root, timeline_js)
+      if (len(timeline_js) > 0) then
+        if (index(out, "{{TIMELINE_JS}}") > 0) then
+          out = substitute_js(out, "{{TIMELINE_JS}}", &
+                              timeline_js, .false.)
+        else if (len(webgl2_js) > 0) then
+          webgl2_js = webgl2_js // NL // timeline_js
+        else
+          webgl2_js = timeline_js
+        end if
+      end if
+    end if
     out = substitute_js(out, "{{WEBGL2_JS}}", webgl2_js, .false.)
 
     if (len(scene_js) > 0) then
