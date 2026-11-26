@@ -111,6 +111,82 @@ jobs:
           test "$hash1" = "$hash8"
           test "$hash1" = "45a5af9d20e53496252a52622527dbcf2f6b6c46770878583d56d78766670f77"
 
+      # G3d (Wave 3, docs/V4-GOLDENS.md): the ANIM GOLDEN film
+      # (examples/anim-golden.f3d, 48 frames) rendered in film
+      # mode must be DETERMINISTIC and PINNED: the same timeline
+      # rendered under FORGE3D_THREADS=1 and FORGE3D_THREADS=8
+      # must produce byte-identical frames, and the pinned
+      # frames (1, mid-walk 10, wave 24, transition-midpoint 32,
+      # jump-apex 35, final 48) must match the hashes recorded
+      # in docs/V4-GOLDENS.md.
+      - name: G3d - Anim golden film frames (pinned sha256, threads 1 vs 8)
+        run: |
+          bin/f3dc build examples/anim-golden.f3d
+          test -f build/anim-golden.timeline.json
+          work1="$(mktemp -d)"
+          work8="$(mktemp -d)"
+          cp build/anim-golden.timeline.json build/anim-golden-stage.json build/anim-golden-leap.json "$work1/"
+          cp build/anim-golden.timeline.json build/anim-golden-stage.json build/anim-golden-leap.json "$work8/"
+          (cd "$work1" && FORGE3D_THREADS=1 "$GITHUB_WORKSPACE/bin/engine3d" anim-golden.timeline.json)
+          (cd "$work8" && FORGE3D_THREADS=8 "$GITHUB_WORKSPACE/bin/engine3d" anim-golden.timeline.json)
+          {
+            echo "## G3d - anim golden film frames"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+          for f in 0001 0010 0024 0032 0035 0048; do
+            hash1="$(sha256sum "$work1/output_render_$f.ppm" | awk '{print $1}')"
+            hash8="$(sha256sum "$work8/output_render_$f.ppm" | awk '{print $1}')"
+            echo "anim-golden frame $f sha256: $hash1"
+            echo "anim-golden frame $f threads=1: $hash1"
+            echo "anim-golden frame $f threads=8: $hash8"
+            {
+              echo "- frame $f FORGE3D_THREADS=1: $hash1"
+              echo "- frame $f FORGE3D_THREADS=8: $hash8"
+            } >> "$GITHUB_STEP_SUMMARY"
+            test "$hash1" = "$hash8"
+            case "$f" in
+              0001) test "$hash1" = "0de3d3650368c3926b2c264af023342dc18aae350977310dd679e0fe615d56cd" ;;
+              0010) test "$hash1" = "5223a8e723146acc24b80c193231f072c661c92188b3c25a529a3752e1ace899" ;;
+              0024) test "$hash1" = "775aa3e06f6acb0602c51e2ce8cd6ba81768e306470e83f5aab076215e82b9e7" ;;
+              0032) test "$hash1" = "08d5ae5fc545c0acde800210251793d7e86b83d990d57fc8a595dccceab8fc8d" ;;
+              0035) test "$hash1" = "e2ca353431251d908d82ab802b9b850db16f9aa85ed84c179adadea039e37f33" ;;
+              0048) test "$hash1" = "e532266317f632c9d7c01c2daa4672ea89c488afb995a08ef651c99fa3e4b8cb" ;;
+            esac
+          done
+
+      # G3e (Wave 3, docs/V4-GOLDENS.md): the anim golden's
+      # WHOLE-SEQUENCE digest -- sha256 of the concatenation of
+      # all 48 numbered frame files in order -- must match the
+      # recorded digest at FORGE3D_THREADS=1, and the
+      # FORGE3D_THREADS=8 render must digest identically.  This
+      # catches a change in any frame, pinned or not.
+      - name: G3e - Anim golden sequence digest (threads 1 vs 8)
+        run: |
+          bin/f3dc build examples/anim-golden.f3d
+          test -f build/anim-golden.timeline.json
+          work1="$(mktemp -d)"
+          work8="$(mktemp -d)"
+          cp build/anim-golden.timeline.json build/anim-golden-stage.json build/anim-golden-leap.json "$work1/"
+          cp build/anim-golden.timeline.json build/anim-golden-stage.json build/anim-golden-leap.json "$work8/"
+          (cd "$work1" && FORGE3D_THREADS=1 "$GITHUB_WORKSPACE/bin/engine3d" anim-golden.timeline.json)
+          (cd "$work8" && FORGE3D_THREADS=8 "$GITHUB_WORKSPACE/bin/engine3d" anim-golden.timeline.json)
+          test "$(ls "$work1"/output_render_*.ppm | wc -l)" -eq 48
+          test "$(ls "$work8"/output_render_*.ppm | wc -l)" -eq 48
+          digest1="$(cat "$work1"/output_render_*.ppm | sha256sum | awk '{print $1}')"
+          digest8="$(cat "$work8"/output_render_*.ppm | sha256sum | awk '{print $1}')"
+          echo "anim-golden sequence digest: $digest1"
+          echo "anim-golden digest threads=1: $digest1"
+          echo "anim-golden digest threads=8: $digest8"
+          {
+            echo "## G3e - anim golden sequence digest"
+            echo ""
+            echo "- sequence digest: $digest1"
+            echo "- FORGE3D_THREADS=1: $digest1"
+            echo "- FORGE3D_THREADS=8: $digest8"
+          } >> "$GITHUB_STEP_SUMMARY"
+          test "$digest1" = "$digest8"
+          test "$digest1" = "dd61c362ffdb1199156e37edd98684aefd6a2b29cb4046e511ceb3adb8562c44"
+
       # Determinism: the same .f3d compiled twice must emit identical
       # .scene bytes -- a drifting compiler breaks goldens and user
       # trust alike.

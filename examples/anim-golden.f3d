@@ -1,0 +1,51 @@
+# Forge3D example: anim golden film (Wave 3, gates G3d/G3e).
+# A two-scene, 48-frame film at 24 fps (2 s) at 320x240, authored
+# to pin the v3 film renderer end to end: resolved character
+# action tracks, a camera track, a dissolve transition, and
+# multi-figure frames.  Durations are fractional seconds chosen
+# so every span lands on an exact frame count at 24 fps:
+#   scene 1 "stage": 0.75 s walk+pan (18 f) + 0.417 s wave (10 f)
+#                    = 28 frames
+#   scene 2 "leap":  0.5 s jump (12 f) + 0.334 s smile (8 f)
+#                    = 20 frames, opening with a dissolve whose
+#                    0.333 s rounds to exactly 8 frames.
+# The film header declares 320x240 and each scene line repeats
+# `size 320 240`: the compiled scene spans carry their own size
+# (the film header size does not propagate to them), and the
+# engine sizes its framebuffer from the span.
+# Pinned frame hashes + the whole-sequence digest live in
+# docs/V4-GOLDENS.md; CI gates G3d/G3e enforce them.
+# Build: bin/f3dc build examples/anim-golden.f3d
+# Render: bin/engine3d build/anim-golden.timeline.json
+
+film "Anim Golden" size 320 240 fps 24
+
+scene "stage" size 320 240 background white
+camera at 0 3 10 look 0 1 0
+plane ground gray at 0 -2 0 size 16
+cube bench red at 3 0 0 size 2
+place bench-front at 1 0 2
+character ada blue at -3 0 2 tall head round wears cap red
+
+together
+  ada walks to bench-front in 0.75 seconds ease smooth
+  camera pans to bench in 0.75 seconds ease smooth
+end
+ada waves for 0.417 seconds
+
+scene "leap" size 320 240 background white transition dissolve 0.333 seconds
+camera at 0 3 10 look 0 1 0
+plane ground gray at 0 -2 0 size 16
+character ada blue at -1 0 2 tall head round wears cap red
+character mira pink at 3 0 2 kid head round hair bun
+
+together
+  ada jumps for 0.5 seconds
+  mira waves for 0.5 seconds
+end
+together
+  ada smiles for 0.334 seconds
+  mira waves for 0.334 seconds
+end
+
+render "output_render.ppm"

@@ -122,6 +122,110 @@ Recorded at Wave 1 close (audit of the landed front-end):
 
 ## Per-wave log
 
+### Wave 3 — Engine evaluation + stickman plugin resolution + film mode (2026-11-26) ✅
+
+- Scope delivered: **Action resolution (compiler):** the stickman
+  plugin now publishes a rig-channel vocabulary (16 channels:
+  root.x/y/z, root.face, torso, head.pitch/yaw, arm.l/fore,
+  arm.r.upper/fore, leg.l.thigh/shin, leg.r.thigh/shin, face.expr)
+  and per-verb parametric templates; new `f3dc_anim_resolve.f90`
+  resolves all 20 stickman verbs (+ custom-action expansions,
+  which desugar already inline) to key lists in the Timeline IR —
+  resolved tracks emit `keys` and omit `resolved` (ADR-5: both
+  fields already existed in v1; not a format change). Core verbs
+  (spin/bob/…) on characters stay `resolved: false` honestly —
+  they are closed-form object verbs, evaluated by the engine's
+  anim path, not the plugin's key templates (carried, below).
+  IR characters gain an additive optional `identity` object
+  (head/hair/face/wears/holds — previously dropped by the
+  emitter). **`humanoid` plugin registered as a skeleton**
+  (rig record + channels + verbs + speaks; no templates, no
+  rig channels — its actions stay unresolved by design).
+  `docs/PLUGINS.md` documents the plugin model + vocabulary.
+  **Engine:** `src/char_figure.f90` — proportions (adult base
+  H0 = 1.83; tall/short/kid/height rules), 16-joint FK, and the
+  Approach-A figure mesh (capsules + disc head + face + hair +
+  wears accessories, BASIC unlit, yaw billboard; 828 tris
+  default, 1014 fully dressed, budget ≤ 1100).
+  `src/timeline_eval.f90` — film state (Timeline IR + per-span
+  scene loading + bindings), channel evaluation with trapezoid
+  blending (face.expr largest-weight-wins), camera-track
+  evaluation, dialogue span lookup, transition state; the IR
+  reader grew additive fields (plain `value` on keys — it was
+  being dropped — plus span transitions and character
+  proportions/identity). `src/main.f90`: the per-frame scene
+  body was extracted verbatim into `render_scene_frame`
+  (G3a/G3b/G3c pins reproduce exactly after the move), and
+  `engine3d <file>.timeline.json` now RENDERS the film
+  (spans in order, film-owned character objects get figure
+  meshes + evaluated root/camera; fade/dissolve transitions
+  blend two span renders post-render; slide/wipe fall back to
+  cut with a note; `--report` keeps the Wave 2 load-and-report
+  behaviour). Scene/Anim machinery is reused, not duplicated:
+  closed-form anims still apply to characters (anim_eval's
+  default case makes sentence verbs no-ops there, so nothing
+  double-animates). **JS mirror:** `f3d-keys.js` gained the
+  full ease registry (cubic-*, bezier, hold) + `evalTrackQ`
+  (key_eval_q mirror: slerp, scale3, fps); new
+  `runtime/f3d-timeline.js` evaluates IR channels/blending/
+  pose_keys/camera/FK/dialogue identically; shared
+  `tests/fixtures/timeline_vectors.json` (26 vectors, 6 kinds)
+  is asserted by BOTH engines. **Gates:** `examples/anim-golden.f3d`
+  (48 frames, 2 spans, dissolve, camera track, all 7 action
+  tracks resolved) + CI **G3d** (6 pinned frames, threads 1 = 8)
+  and **G3e** (48-frame sequence digest) + `docs/V4-GOLDENS.md`.
+  New Fortran tests: test_stickman_rig (35), test_timeline_eval
+  (24), test_camera_track (9), test_dialogue_timing (9),
+  test_timeline_vectors (145 assertions).
+- **Figure fix (same wave, before first CI):** the first Q5
+  render pass showed cap/eyes/bun/glasses missing. Root cause
+  (proven by bisection): the figure's single-sided flat parts
+  were wound (c, p0, p1) in the (right, up, fwd) billboard
+  triad, which is back-facing under both renderers' y-down
+  screen-space culling — only double-sided parts (head disc)
+  and capsules showed. `char_figure` now emits the
+  screen-facing winding for fans/bands/glasses, adds
+  shoulder/hip bars (arms/legs read as detached), raises the
+  cap dome above the eye line, and enlarges the eyes. G3d/G3e
+  re-pinned once, cause recorded in V4-GOLDENS.md. Two S8
+  suspicions were NOT bugs: `faces <character>` compiles and
+  resolves fine on a disk-backed scratch (the 0-byte outputs
+  were this VM's 512 MB /tmp tmpfs filling during parallel
+  work), and the "missing ground plane" is the known v3
+  near-plane debt — a size-16 plane reaches the camera and its
+  two triangles are dropped whole (no frustum clipping);
+  staging guidance: keep ground planes clear of the camera.
+- Gates: full suite PASS (native incl. anim 169/169 +
+  curated 72/323, compiler-js 244, e2e 65, fortran 47
+  programs, ir 64; golden SKIP by design); legacy golden
+  `28b6a81d…` verified unchanged (G3a reproduced exactly, plus
+  G3b/G3c pins); zero Python; CI verdict recorded in the wave
+  close report. Perf: `f3dc bench` on this throttled VM (median of 3): hello-cube 676 ms/frame, objects-100 475, textured-plane 481, shadowed 599 -- recorded for reference only: docs/bench/BASELINES.md still holds legacy-pipeline rows from a different method/machine load, and no v3 baseline rows exist yet to regress against (adding them is Wave 5 scope per ANIM-PLAN). The static render path is byte-identical to its pre-wave pins (G3a/G3b/G3c), so static per-frame work is unchanged in kind; Wave 3 code activates only for .timeline.json inputs.
+- Pin discipline: 9 IR fixtures + 31 anim corpus cases + 8
+  curated copies rebaked, every one proven confined to
+  `*.timeline.json` changes of the two allowed classes
+  (action tracks gaining keys / losing `resolved: false`;
+  characters gaining `identity`) — strip-proof: removing those
+  additions reproduces the old hashes byte-for-byte.
+  Host-sim assertions updated to the resolved reality; new
+  adversarial IR case `unresolved-action` keeps the unmapped
+  path covered. Property sweep ratchet: examples 16 → 17,
+  EX_XFAIL_MAX 4 → 5 (anim-golden is a two-scene film — the
+  documented class-3 structural class; hand-verified).
+- Carried forward: (i) core verbs on characters emit
+  `resolved: false` (closed-form domain; sampling them into
+  root keys is a library-wave concern, W7+); (ii) slide/wipe
+  transitions render as cut in the engine (fade/dissolve
+  implemented; Q6 metadata rule unchanged); (iii) speech
+  bubbles/subtitles do not render in engine film mode —
+  dialogue is IR data for the Wave 4 preview overlay + Wave 5
+  .srt; (iv) sit targets use a generic 0.5 seat height (the
+  resolver does not look up the named object's geometry);
+  (v) the humanoid plugin is a registry skeleton — no
+  templates, no engine figure (W19–24 depth); (vi) Q5 look
+  judgement is the user's, from
+  `~/workspace/your_files/forge3d-wave3-stickman-renders.zip`.
+
 ### Wave 2 — Timeline IR v1 + ADR-5 + plugin registry + contract FREEZE (2026-11-26) ✅
 
 - Scope delivered: **Timeline IR emission** (`f3dc_emit_timeline.f90`):
