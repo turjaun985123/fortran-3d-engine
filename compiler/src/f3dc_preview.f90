@@ -71,14 +71,34 @@
 ! resets/marks it and pv_compile_now marks the emit stage.  See
 ! the timing note on pv_compile_pipeline for the stage-mapping
 ! approximations.
+!
+! v4 Wave 4 (ANIM-PLAN S4.4): preview playback.  pv_compile_now
+! also captures the Timeline IR JSON for the current source
+! (pv_capture_timeline, mirroring do_build's tl_reset /
+! tl_add_scene / tl_finalize sequence) into p_timeline, served
+! verbatim by the new GET /__timeline route; a scene with no
+! timeline serves a well-formed empty document there, never a
+! 404, so the page can poll it like /__status.  The page's 600 ms
+! poll now hits /__status (a superset of /__version: same version
+! and ok fields, plus diagnostics) and renders those diagnostics
+! into a collapsible drawer.  The toolbar gains transport
+! controls (play/pause, scrub slider, "t / duration . frame N"
+! readout) wired to the viewer api the runtime publishes as
+! window.F3DViewer (api.seek / api.play / api.pause /
+! api.timeline / api.frame / api.time), a subtitle overlay over
+! the viewer area, and action/dialogue lanes under the scrub
+! bar, all driven by the /__timeline document.  The playhead is
+! persisted in location.hash (#t=<seconds>) so an edit-save
+! reload resumes where the viewer left off.  The
+! watch/recompile machinery is unchanged.
 module f3dc_preview
   use, intrinsic :: iso_fortran_env, only: output_unit, int64, real64
   use, intrinsic :: iso_c_binding, only: c_char, c_int, c_int64_t, &
        c_ptr, c_funptr, c_funloc, c_f_pointer, c_associated, &
        c_null_char, c_null_ptr
   use f3dc_str, only: fmt_int, path_stem, path_dirname, &
-       path_extension, to_lower, str_replace, str_builder, &
-       sb_init, sb_add, sb_text, sb_len
+       path_basename, path_extension, to_lower, str_replace, &
+       str_builder, sb_init, sb_add, sb_text, sb_len
   use f3dc_dyn, only: dyn, dyn_null, dyn_copy, dyn_dict_get, &
        dyn_list_len, dyn_list_at, DYN_K_STR, DYN_K_DICT
   use f3dc_errors, only: error_bag_t, diagnostic_t, make_span, &
@@ -95,6 +115,8 @@ module f3dc_preview
   use f3dc_emit_html, only: emit_html, emit_html_runtime_js
   use f3dc_driver, only: driver_timing_reset, driver_timing_mark, &
        driver_timing_ms
+  use f3dc_emit_timeline, only: tl_reset, tl_add_scene, tl_finalize
+  use f3dc_val_timeline, only: timeline_fragment
   implicit none
   private
 
@@ -109,6 +131,18 @@ module f3dc_preview
   logical :: p_ok = .false.
   character(len=:), allocatable :: p_html
   logical :: p_has_html = .false.
+  ! v4 Wave 4: Timeline IR JSON captured by pv_capture_timeline
+  ! at each successful compile ("" when the scene is a still);
+  ! served verbatim by GET /__timeline.
+  character(len=:), allocatable :: p_timeline
+  ! Compiler version stamped into the timeline generator record,
+  ! mirroring f3dc_cli's VERSION parameter.
+  character(len=*), parameter :: PV_VERSION = "3.0.0"
+  ! Well-formed empty timeline served by /__timeline for stills.
+  character(len=*), parameter :: PV_EMPTY_TIMELINE = &
+       '{"format":"forge3d-timeline","ir_version":1,'// &
+       '"duration_frames":0,"dialogue":[],"tracks":[],'// &
+       '"markers":[],"characters":[]}'
   type(diagnostic_t), allocatable :: p_diags(:)
   integer :: p_ndiag = 0
   integer :: p_compile_count = 0
@@ -177,7 +211,10 @@ module f3dc_preview
 contains
 
   ! ------------------------------------------------------------------
-  ! preview.py _CLIENT_JS / _TOOLBAR, byte for byte.
+  ! preview.py _CLIENT_JS / _TOOLBAR, originally byte for byte;
+  ! v4 Wave 4 extends both (see the module header note): the poll
+  ! reads /__status, and the toolbar gains the transport bar,
+  ! subtitle overlay, lanes and diagnostics drawer below.
   ! ------------------------------------------------------------------
   function client_js() result(out)
     character(len=:), allocatable :: out
@@ -196,8 +233,44 @@ contains
       "    requestAnimationFrame(tick);"//NL// &
       "  }"//NL// &
       "  requestAnimationFrame(tick);"//NL// &
+      "  function esc(s) {"//NL// &
+      "    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');"//NL// &
+      "  }"//NL// &
+      "  var drawer = document.getElementById('f3d-diags');"//NL// &
+      "  var dcount = document.getElementById('f3d-diag-count');"//NL// &
+      "  var dlist = document.getElementById('f3d-diag-list');"//NL// &
+      "  var dtoggle = document.getElementById('f3d-diag-toggle');"//NL// &
+      "  var dopen = false;"//NL// &
+      "  function renderDiags(ds) {"//NL// &
+      "    if (!drawer) return;"//NL// &
+      "    ds = ds || [];"//NL// &
+      "    if (dcount) {"//NL// &
+      "      dcount.textContent = ds.length ? String(ds.length) : '';"//NL// &
+      "      dcount.style.display = ds.length ? '' : 'none';"//NL// &
+      "    }"//NL// &
+      "    if (!ds.length) dopen = false;"//NL// &
+      "    drawer.style.display = dopen ? 'block' : 'none';"//NL// &
+      "    if (dtoggle) dtoggle.textContent = dopen ? 'diagnostics (hide)' : 'diagnostics';"//NL// &
+      "    if (!dlist) return;"//NL// &
+      "    var h = '';"//NL// &
+      "    for (var i = 0; i < ds.length; i++) {"//NL// &
+      "      var d = ds[i], loc = '';"//NL// &
+      "      if (d.line != null) loc = (d.file ? d.file : '') + ':' + d.line + (d.col != null ? ':' + d.col : '');"//NL// &
+      "      h += '<div style=""padding:3px 0;border-top:1px solid #2a2a3a"">'"//NL// &
+      "        + '<strong>' + esc(d.code) + '</strong> ' + esc(d.severity)"//NL// &
+      "        + (loc ? ' ' + esc(loc) : '') + ' - ' + esc(d.message)"//NL// &
+      "        + (d.help ? '<br><span style=""color:#9ca3af"">help: ' + esc(d.help) + '</span>' : '')"//NL// &
+      "        + '</div>';"//NL// &
+      "    }"//NL// &
+      "    dlist.innerHTML = h || '<div style=""color:#9ca3af"">no diagnostics</div>';"//NL// &
+      "  }"//NL// &
+      "  if (dtoggle) dtoggle.addEventListener('click', function () {"//NL// &
+      "    dopen = !dopen;"//NL// &
+      "    if (drawer) drawer.style.display = dopen ? 'block' : 'none';"//NL// &
+      "    dtoggle.textContent = dopen ? 'diagnostics (hide)' : 'diagnostics';"//NL// &
+      "  });"//NL// &
       "  setInterval(function () {"//NL// &
-      "    fetch('/__version', {cache: 'no-store'}).then(function (r) { return r.json(); })"//NL// &
+      "    fetch('/__status', {cache: 'no-store'}).then(function (r) { return r.json(); })"//NL// &
       "      .then(function (v) {"//NL// &
       "        if (v.version !== seen) { location.reload(); return; }"//NL// &
       "        if (pill) {"//NL// &
@@ -206,11 +279,236 @@ contains
       " ERROR';"//NL// &
       "          pill.style.color = v.ok ? '#4ade80' : '#f87171';"//NL// &
       "        }"//NL// &
+      "        renderDiags(v.diagnostics);"//NL// &
       "      }).catch(function () {"//NL// &
       "        if (pill) { pill.textContent = '"//achar(226)// &
       achar(151)//achar(143)//" OFFLINE'; pill.style.color = '#f87171'; }"//NL// &
       "      });"//NL// &
       "  }, 600);"//NL// &
+      "  var playBtn = document.getElementById('f3d-play');"//NL// &
+      "  var scrub = document.getElementById('f3d-scrub');"//NL// &
+      "  var readout = document.getElementById('f3d-readout');"//NL// &
+      "  var subEl = document.getElementById('f3d-subtitle');"//NL// &
+      "  var lanesEl = document.getElementById('f3d-lanes');"//NL// &
+      "  var tl = null, charsById = {}, hashTimer = 0, hashRestored = false;"//NL// &
+      "  var pvCaptured = null;"//NL// &
+      "  if (window.F3D) {"//NL// &
+      "    var pvCreate = window.F3D.create, pvAuto = window.F3D.auto;"//NL// &
+      "    if (typeof pvCreate === 'function') window.F3D.create = function (el, s) { var r = pvCreate(el,"// &
+      " s); if (r) pvCaptured = r; return r; };"//NL// &
+      "    if (typeof pvAuto === 'function') window.F3D.auto = function (s) { var r = pvAuto(s); if (r)"// &
+      " pvCaptured = r; return r; };"//NL// &
+      "  }"//NL// &
+      "  function api() {"//NL// &
+      "    if (window.F3DViewer) return window.F3DViewer;"//NL// &
+      "    if (window.F3D && window.F3D.viewer) return window.F3D.viewer;"//NL// &
+      "    if (window.F3D_API) return window.F3D_API;"//NL// &
+      "    if (pvCaptured) return pvCaptured;"//NL// &
+      "    var ve = document.querySelector('f3d-view');"//NL// &
+      "    if (ve && ve._p) return ve._p;"//NL// &
+      "    return null;"//NL// &
+      "  }"//NL// &
+      "  function fpsRate() {"//NL// &
+      "    if (tl && tl.fps && tl.fps.num) return tl.fps.num / (tl.fps.den || 1);"//NL// &
+      "    var a = api();"//NL// &
+      "    if (a && a.timeline && a.timeline.fps && a.timeline.fps.num) return a.timeline.fps.num /"// &
+      " (a.timeline.fps.den || 1);"//NL// &
+      "    return 24;"//NL// &
+      "  }"//NL// &
+      "  function durationFrames() {"//NL// &
+      "    if (tl && tl.duration_frames) return tl.duration_frames;"//NL// &
+      "    var a = api();"//NL// &
+      "    if (a && a.timeline && a.timeline.duration_frames) return a.timeline.duration_frames;"//NL// &
+      "    if (a && a.timeline && a.timeline.frames) return a.timeline.frames;"//NL// &
+      "    return 0;"//NL// &
+      "  }"//NL// &
+      "  function durationSec() {"//NL// &
+      "    var a = api();"//NL// &
+      "    if (a && a.timeline && a.timeline.duration) return a.timeline.duration;"//NL// &
+      "    var df = durationFrames();"//NL// &
+      "    return df ? df / fpsRate() : 0;"//NL// &
+      "  }"//NL// &
+      "  function curTime() {"//NL// &
+      "    var a = api();"//NL// &
+      "    if (a && typeof a.time === 'function') return a.time();"//NL// &
+      "    if (a && typeof a.time === 'number') return a.time;"//NL// &
+      "    return 0;"//NL// &
+      "  }"//NL// &
+      "  function curFrame() {"//NL// &
+      "    var a = api();"//NL// &
+      "    if (a && typeof a.frame === 'function') { var f = a.frame(); if (f != null) return f; }"//NL// &
+      "    return Math.round(curTime() * fpsRate());"//NL// &
+      "  }"//NL// &
+      "  function fmtT(t) { return (Math.round(t * 10) / 10).toFixed(1); }"//NL// &
+      "  function writeHash() {"//NL// &
+      "    try { history.replaceState(null, '', '#t=' + fmtT(curTime())); } catch (e) {}"//NL// &
+      "  }"//NL// &
+      "  function readHash() {"//NL// &
+      "    var m = /#t=([0-9]+(?:\.[0-9]+)?)/.exec(location.hash || '');"//NL// &
+      "    return m ? parseFloat(m[1]) : null;"//NL// &
+      "  }"//NL// &
+      "  function seekFrame(f) {"//NL// &
+      "    var a = api(); if (!a || typeof a.seek !== 'function') return;"//NL// &
+      "    var r = fpsRate();"//NL// &
+      "    pvSeekGuard = true;"//NL// &
+      "    a.seek(r ? f / r : 0);"//NL// &
+      "    writeHash();"//NL// &
+      "    updateTransport();"//NL// &
+      "  }"//NL// &
+      "  function charColor(id) {"//NL// &
+      "    var c = charsById[id];"//NL// &
+      "    if (c && c.color && c.color.length >= 3) return 'rgb(' + c.color[0] + ',' + c.color[1] + ',' +"// &
+      " c.color[2] + ')';"//NL// &
+      "    return '#e5e7eb';"//NL// &
+      "  }"//NL// &
+      "  function charName(id) {"//NL// &
+      "    var c = charsById[id];"//NL// &
+      "    if (c && c.voice && c.voice.speaker) return c.voice.speaker;"//NL// &
+      "    if (c && c.name) return c.name;"//NL// &
+      "    return id || '';"//NL// &
+      "  }"//NL// &
+      "  function buildLanes() {"//NL// &
+      "    if (!lanesEl) return;"//NL// &
+      "    lanesEl.innerHTML = '';"//NL// &
+      "    var df = durationFrames();"//NL// &
+      "    if (!tl || !df) return;"//NL// &
+      "    function lane(label) {"//NL// &
+      "      var row = document.createElement('div');"//NL// &
+      "      row.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:2px';"//NL// &
+      "      var lab = document.createElement('span');"//NL// &
+      "      lab.style.cssText = 'flex:0 0 90px;color:#9ca3af;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';"//NL// &
+      "      lab.textContent = label;"//NL// &
+      "      var track = document.createElement('div');"//NL// &
+      "      track.style.cssText = 'position:relative;flex:1;height:14px;background:#17171f;border-radius:3px';"//NL// &
+      "      row.appendChild(lab); row.appendChild(track);"//NL// &
+      "      lanesEl.appendChild(row);"//NL// &
+      "      return track;"//NL// &
+      "    }"//NL// &
+      "    function span(track, s, e, text, color, title) {"//NL// &
+      "      var el = document.createElement('div');"//NL// &
+      "      el.style.cssText = 'position:absolute;top:2px;height:10px;border-radius:2px;overflow:hidden;"// &
+      "font-size:9px;line-height:10px;color:#0d0d14;padding:0 2px;cursor:pointer;background:' + color;"//NL// &
+      "      el.style.left = (100 * s / df) + '%';"//NL// &
+      "      el.style.width = Math.max(0.7, 100 * (e - s) / df) + '%';"//NL// &
+      "      el.textContent = text; el.title = title || text;"//NL// &
+      "      el.addEventListener('click', function () { seekFrame(s); });"//NL// &
+      "      track.appendChild(el);"//NL// &
+      "    }"//NL// &
+      "    var byChar = {}, i, tr, nm;"//NL// &
+      "    var tracks = tl.tracks || [];"//NL// &
+      "    for (i = 0; i < tracks.length; i++) {"//NL// &
+      "      tr = tracks[i];"//NL// &
+      "      if (tr.start_frame == null || tr.end_frame == null) continue;"//NL// &
+      "      nm = tr.character ? charName(tr.character) : (tr.target || tr.kind || 'track');"//NL// &
+      "      if (!byChar[nm]) byChar[nm] = lane(nm);"//NL// &
+      "      span(byChar[nm], tr.start_frame, tr.end_frame, tr.action || tr.verb || tr.kind || '',"//NL// &
+      "        tr.character ? charColor(tr.character) : '#93c5fd',"//NL// &
+      "        (tr.action || tr.verb || tr.kind || '') + ' @ frame ' + tr.start_frame);"//NL// &
+      "    }"//NL// &
+      "    var dl = tl.dialogue || [];"//NL// &
+      "    if (dl.length) {"//NL// &
+      "      var dt = lane('dialogue');"//NL// &
+      "      for (i = 0; i < dl.length; i++) span(dt, dl[i].start_frame, dl[i].end_frame, dl[i].text || '',"// &
+      " charColor(dl[i].speaker), charName(dl[i].speaker) + ': ' + (dl[i].text || ''));"//NL// &
+      "    }"//NL// &
+      "    var mk = tl.markers || [];"//NL// &
+      "    if (mk.length) {"//NL// &
+      "      var mt = lane('markers');"//NL// &
+      "      for (i = 0; i < mk.length; i++) {"//NL// &
+      "        var tk = document.createElement('div');"//NL// &
+      "        tk.style.cssText = 'position:absolute;top:0;width:2px;height:14px;background:#fbbf24;cursor:pointer';"//NL// &
+      "        tk.style.left = (100 * mk[i].frame / df) + '%';"//NL// &
+      "        tk.title = (mk[i].name || 'marker') + ' @ frame ' + mk[i].frame;"//NL// &
+      "        (function (fr) { tk.addEventListener('click', function () { seekFrame(fr); }); })(mk[i].frame);"//NL// &
+      "        mt.appendChild(tk);"//NL// &
+      "      }"//NL// &
+      "    }"//NL// &
+      "  }"//NL// &
+      "  function setupScrub() {"//NL// &
+      "    if (!scrub) return;"//NL// &
+      "    var df = durationFrames();"//NL// &
+      "    if (df > 0) { scrub.disabled = false; scrub.min = '0'; scrub.max = String(df); scrub.step = '1'; }"//NL// &
+      "    else {"//NL// &
+      "      var d = durationSec();"//NL// &
+      "      if (d > 0) { scrub.disabled = false; scrub.min = '0'; scrub.max = String(Math.round(d * 100) /"// &
+      " 100); scrub.step = '0.01'; }"//NL// &
+      "      else { scrub.disabled = true; scrub.value = '0'; }"//NL// &
+      "    }"//NL// &
+      "    if (playBtn) playBtn.disabled = !api();"//NL// &
+      "  }"//NL// &
+      "  function restoreHash() {"//NL// &
+      "    if (hashRestored) return;"//NL// &
+      "    var t = readHash();"//NL// &
+      "    if (t == null) { hashRestored = true; return; }"//NL// &
+      "    var a = api();"//NL// &
+      "    if (a && typeof a.seek === 'function') { a.seek(t); hashRestored = true; updateTransport(); }"//NL// &
+      "  }"//NL// &
+      "  function loadTimeline() {"//NL// &
+      "    fetch('/__timeline', {cache: 'no-store'}).then(function (r) { return r.json(); })"//NL// &
+      "      .then(function (doc) {"//NL// &
+      "        tl = doc || null;"//NL// &
+      "        charsById = {};"//NL// &
+      "        var cs = (tl && tl.characters) || [];"//NL// &
+      "        for (var i = 0; i < cs.length; i++) charsById[cs[i].id] = cs[i];"//NL// &
+      "        buildLanes();"//NL// &
+      "        setupScrub();"//NL// &
+      "        restoreHash();"//NL// &
+      "        updateTransport();"//NL// &
+      "      }).catch(function () { tl = null; setupScrub(); });"//NL// &
+      "  }"//NL// &
+      "  function updateTransport() {"//NL// &
+      "    var df = durationFrames(), d = durationSec(), f = curFrame(), t = curTime();"//NL// &
+      "    if (scrub && document.activeElement !== scrub) {"//NL// &
+      "      if (df > 0) scrub.value = String(Math.max(0, Math.min(df, f)));"//NL// &
+      "      else if (d > 0) scrub.value = String(t);"//NL// &
+      "    }"//NL// &
+      "    if (readout) readout.textContent = fmtT(t) + ' / ' + fmtT(d) + ' \u00B7 frame ' + f;"//NL// &
+      "    if (subEl) {"//NL// &
+      "      var dl = (tl && tl.dialogue) || [], cur = null;"//NL// &
+      "      for (var i = 0; i < dl.length; i++) {"//NL// &
+      "        if (f >= dl[i].start_frame && f < dl[i].end_frame) { cur = dl[i]; break; }"//NL// &
+      "      }"//NL// &
+      "      if (cur) {"//NL// &
+      "        subEl.style.display = '';"//NL// &
+      "        subEl.innerHTML = '<span style=""color:' + charColor(cur.speaker) + '"">' +"// &
+      " esc(charName(cur.speaker)) + '</span>: ' + esc(cur.text);"//NL// &
+      "      } else { subEl.style.display = 'none'; subEl.textContent = ''; }"//NL// &
+      "    }"//NL// &
+      "  }"//NL// &
+      "  var pvPlaying = false, pvLastT = -1, pvSeekGuard = false;"//NL// &
+      "  function isPlaying(a) {"//NL// &
+      "    if (typeof a.playing === 'function') return !!a.playing();"//NL// &
+      "    if (typeof a.playing === 'boolean') return a.playing;"//NL// &
+      "    return pvPlaying;"//NL// &
+      "  }"//NL// &
+      "  if (playBtn) playBtn.addEventListener('click', function () {"//NL// &
+      "    var a = api(); if (!a) return;"//NL// &
+      "    if (isPlaying(a)) { if (a.pause) a.pause(); pvPlaying = false; playBtn.textContent = 'Play'; }"//NL// &
+      "    else { if (a.play) a.play(); pvPlaying = true; playBtn.textContent = 'Pause'; }"//NL// &
+      "  });"//NL// &
+      "  if (scrub) scrub.addEventListener('input', function () {"//NL// &
+      "    var a = api(); if (!a || typeof a.seek !== 'function') return;"//NL// &
+      "    if (durationFrames() > 0) seekFrame(parseFloat(scrub.value) || 0);"//NL// &
+      "    else { pvSeekGuard = true; a.seek(parseFloat(scrub.value) || 0); writeHash(); updateTransport(); }"//NL// &
+      "  });"//NL// &
+      "  setInterval(function () {"//NL// &
+      "    var a = api();"//NL// &
+      "    if (!hashRestored) restoreHash();"//NL// &
+      "    if (playBtn && a) {"//NL// &
+      "      var tt = curTime();"//NL// &
+      "      if (typeof a.playing !== 'function' && typeof a.playing !== 'boolean') {"//NL// &
+      "        if (pvLastT >= 0 && !pvSeekGuard) pvPlaying = Math.abs(tt - pvLastT) > 0.0005;"//NL// &
+      "      }"//NL// &
+      "      pvLastT = tt; pvSeekGuard = false;"//NL// &
+      "      playBtn.textContent = isPlaying(a) ? 'Pause' : 'Play';"//NL// &
+      "      playBtn.disabled = false;"//NL// &
+      "    }"//NL// &
+      "    updateTransport();"//NL// &
+      "    hashTimer += 250;"//NL// &
+      "    if (hashTimer >= 1000) { hashTimer = 0; if (a) writeHash(); }"//NL// &
+      "  }, 250);"//NL// &
+      "  loadTimeline();"//NL// &
+      "  restoreHash();"//NL// &
       "})();"//NL
   end function client_js
 
@@ -236,6 +534,24 @@ contains
       " scroll to zoom</span>"//NL// &
       "</div>"//NL// &
       '<div style="height:30px"></div>'//NL// &
+      '<div id="f3d-transport" style="position:fixed;left:0;right:0;bottom:0;z-index:9999;'//NL// &
+      '  background:rgba(13,13,20,.88);color:#e5e7eb;font:13px/1.4 system-ui,sans-serif;padding:6px 12px">'//NL// &
+      '  <div id="f3d-subtitle" style="display:none;text-align:center;font-size:16px;padding:2px 8px"></div>'//NL// &
+      '  <div style="display:flex;gap:10px;align-items:center">'//NL// &
+      '    <button id="f3d-play" type="button" disabled style="background:#1f2937;'// &
+      'color:#e5e7eb;border:1px solid #374151;border-radius:4px;padding:2px 10px;cursor:pointer">Play</button>'//NL// &
+      '    <input id="f3d-scrub" type="range" min="0" max="0" step="1" value="0" disabled style="flex:1">'//NL// &
+      '    <span id="f3d-readout" style="color:#9ca3af">0.0 / 0.0 frame 0</span>'//NL// &
+      '    <button id="f3d-diag-toggle" type="button" style="background:#1f2937;'// &
+      'color:#e5e7eb;border:1px solid #374151;border-radius:4px;padding:2px 10px;cursor:pointer">diagnostics</button>'//NL// &
+      '    <span id="f3d-diag-count" style="display:none;background:#7f1d1d;'// &
+      'color:#fecaca;border-radius:8px;padding:0 6px"></span>'//NL// &
+      "  </div>"//NL// &
+      '  <div id="f3d-diags" style="display:none;max-height:160px;overflow:auto;padding:4px 0">'//NL// &
+      '    <div id="f3d-diag-list"></div>'//NL// &
+      "  </div>"//NL// &
+      '  <div id="f3d-lanes"></div>'//NL// &
+      "</div>"//NL// &
       "<script>__CLIENT__</script>"//NL
   end function toolbar
 
@@ -595,6 +911,33 @@ contains
   end subroutine pv_html_text
 
   ! ------------------------------------------------------------------
+  ! v4 Wave 4: Timeline IR capture, mirroring do_build's timeline
+  ! sequence in f3dc_cli.f90 statement for statement: tl_reset,
+  ! one tl_add_scene with the compiled IR, the validator's
+  ! timeline_fragment() side channel and the scene JSON name
+  ! (stem//".json", do_build's names(2)), then tl_finalize with
+  ! the build stem, PV_VERSION (the cli's VERSION), the source
+  ! basename and the source path.  A finalize error (E201 in
+  ! do_build) cannot fail the preview compile here: it leaves
+  ! p_timeline empty, exactly like a still.  Multi-chunk sources
+  ! are the one divergence: the preview pipeline compiles the
+  ! file as a single scene (it has no chunk splitting), so one
+  ! scene is accumulated.
+  ! ------------------------------------------------------------------
+  subroutine pv_capture_timeline(ir)
+    type(dyn), intent(in) :: ir
+    character(len=:), allocatable :: tl_text, tl_err
+    logical :: tl_has
+    p_timeline = ""
+    call tl_reset()
+    call tl_add_scene(ir, timeline_fragment(), p_stem//".json")
+    call tl_finalize(p_stem, PV_VERSION, path_basename(p_path), &
+                     p_path, tl_text, tl_has, tl_err)
+    if (len(tl_err) > 0) return
+    if (tl_has) p_timeline = tl_text
+  end subroutine pv_capture_timeline
+
+  ! ------------------------------------------------------------------
   ! PreviewState.compile_now / snapshot / page (preview.py)
   ! ------------------------------------------------------------------
   subroutine pv_compile_now()
@@ -621,9 +964,12 @@ contains
        call pv_html_text(ir, p_html)
        call driver_timing_mark("emit")
        p_has_html = .true.
+       ! v4 Wave 4: capture the Timeline IR for /__timeline.
+       call pv_capture_timeline(ir)
     else
        p_has_html = .false.
        p_html = ""
+       p_timeline = ""
     end if
     p_compile_count = p_compile_count + 1
     p_version = p_version + 1
@@ -671,6 +1017,12 @@ contains
     call sb_add(sb, json_str(diag_str(d%why)))
     call sb_add(sb, ', "help": ')
     call sb_add(sb, json_str(diag_str(d%help)))
+    call sb_add(sb, ', "file": ')
+    if (d%has_span) then
+       call sb_add(sb, json_str(diag_str(d%span%source)))
+    else
+       call sb_add(sb, "null")
+    end if
     call sb_add(sb, ', "line": ')
     if (d%has_span) then
        call sb_add(sb, trim(fmt_int(int(d%span%line, int64))))
@@ -806,6 +1158,21 @@ contains
        status = 200
        ctype = "application/json"
        body = status_json()
+    case ("/__timeline")
+       ! v4 Wave 4: the captured Timeline IR verbatim; a still
+       ! (or a failed compile) serves the empty document, never
+       ! a 404 -- the page polls this like /__status.
+       status = 200
+       ctype = "application/json"
+       if (allocated(p_timeline)) then
+          if (len(p_timeline) > 0) then
+             body = p_timeline
+          else
+             body = PV_EMPTY_TIMELINE
+          end if
+       else
+          body = PV_EMPTY_TIMELINE
+       end if
     case default
        status = 404
        ctype = "text/plain"
@@ -944,6 +1311,7 @@ contains
     p_version = 0
     p_compile_count = 0
     p_ndiag = 0
+    p_timeline = ""
     p_ndeps = 0
     if (allocated(p_deps)) deallocate (p_deps)
     call pv_compile_now()
