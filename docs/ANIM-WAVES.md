@@ -122,6 +122,85 @@ Recorded at Wave 1 close (audit of the landed front-end):
 
 ## Per-wave log
 
+### Wave 4 — Preview playback (2026-11-26) ✅
+
+- Scope delivered (4 agents + coordinator integration): **Transport
+  runtime** (`runtime/f3d.js`): `api.seek(t)` (pure absolute
+  assignment — seek twice = identical frame; clamps to the timeline
+  duration when known), `api.time()`, `api.frame()` (round(t·fps),
+  the repo's nint rule), `api.timeline` (descriptor from
+  `scene.timeline` / `F3D_SCENE` sibling / `F3D_TIMELINE` global;
+  both the §4.4 shape and the IR shape accepted); `create()` now
+  publishes the player as `window.F3DViewer` so page chrome can
+  drive it; `f3d.d.ts` gained the new members. **Compiled viewer**
+  (`f3dc_emit_js.f90`/`f3dc_emit_html.f90`): when a scene carries a
+  timeline (the `.timeline.json` emission condition), the
+  `F3D_SCENE` blob gains a `"timeline"` descriptor
+  (`duration`/`duration_seconds`, `duration_frames`, `frames`,
+  `fps {num,den}` — frames normative, seconds derived) and
+  `runtime/f3d-timeline.js` is inlined after the WebGL2 sidecar so
+  the Wave-3 evaluator is the only timing implementation in the
+  page. No dep-list change was needed (`f3d-timeline.js` was
+  already in `RUNTIME_DEPS`). Non-timeline output is byte-identical
+  (proven by old-vs-new builds). **Preview server + page**
+  (`f3dc_preview.f90`): the preview compile now also captures the
+  Timeline IR via the same emit machinery `do_build` uses
+  (`tl_reset`/`tl_add_scene`/`tl_finalize` over
+  `timeline_fragment()`; byte-identical to `f3dc build`'s
+  `.timeline.json` for the same source, verified live); new route
+  `GET /__timeline` serves it verbatim, or the well-formed empty
+  document for stills — never 404; the 600 ms poll switched from
+  `/__version` to `/__status` (same version field drives the
+  reload; LIVE/ERROR pill unchanged); a collapsible **diagnostics
+  drawer** renders `/__status` diagnostics (code, severity,
+  file:line:col, message, help; `diag_json` gained one additive
+  `"file"` field); the page chrome gained a **transport bar**
+  (play/pause, frame-stepped scrub slider, `t / duration · frame N`
+  readout), a **subtitle overlay** (live cue at the current frame,
+  speaker coloured from the IR character colour), and **action
+  lanes** (per-character spans + dialogue lane + marker ticks,
+  click-to-seek); the playhead persists across the save-reload loop
+  via `location.hash` (`#t=`). Playback uses the Wave-3 JS
+  evaluator throughout — no second timing implementation.
+- Tests: **22 new playback checks** — `tests/compiler/
+  test_playback_js.js` (10: real-player seek determinism by pixel
+  hash, seek clamping, G3d-timestamp frame mapping, evaluator state
+  hashes pinned at all six G3d frames, timeline-vectors hash parity,
+  dialogue half-open liveness, per-scene descriptor 28+20=48) and
+  `tests/e2e/test_playback_e2e.sh` (12: live `f3dc preview` server —
+  `/__timeline` content/501/empty-doc, page transport/subtitle/
+  lanes/drawer ids, hash playhead, `/__status` poll, byte-identical
+  repeat GETs). Scrub parity is asserted at the evaluated-state
+  level (hashes at the G3d pinned timestamps + fixture vectors)
+  because no headless harness renders the film through the JS
+  stack; the native pixel pins remain CI gates G3d/G3e.
+- Pin discipline: the runtime/emitter changes drifted artifact
+  hashes in corpus (91), anim (35), examples (12), cli (2) cases.
+  Confinement was PROVEN before rebaking (old HEAD binary vs new
+  binary over every corpus/anim build case: artifact sets
+  identical; changed files only `*.html`/`*.js`; sample content
+  diffs show only the inlined transport runtime, the inlined
+  evaluator, and the `"timeline"` descriptor key). Rebake was
+  surgical (175 distinct hash values remapped consistently, no
+  capture-hash collisions, formatting preserved): 258 pin lines
+  across corpus/curated/examples/cli_battery.
+- Gates: full suite PASS (native incl. anim 169/169 + curated +
+  properties/fmt, compiler-js 254, e2e 77, fortran 47, ir 64;
+  golden SKIP by design); legacy golden `28b6a81d…` verified
+  unchanged by hand (G3a method); zero Python; CI verdict recorded
+  in the wave close report.
+- Carried forward: (i) **multi-scene films do not preview** — the
+  preview compiles a file as a single scene (pre-existing: it has
+  never done `do_build`'s chunk splitting), so a two-scene film
+  like `examples/anim-golden.f3d` gets the error page + the empty
+  `/__timeline` document; single-scene films preview fully.
+  Fixing this means chunk support in the preview pipeline — a
+  later wave's decision, not a silent change to the watch
+  machinery. (ii) The Play/Pause label infers state from time
+  advance (the runtime exposes no `playing` flag) — cosmetic.
+  (iii) Wave-3 carried items stand (core verbs `resolved: false`
+  by design; slide/wipe = cut in engine; sit seat height 0.5).
+
 ### Wave 3 — Engine evaluation + stickman plugin resolution + film mode (2026-11-26) ✅
 
 - Scope delivered: **Action resolution (compiler):** the stickman
