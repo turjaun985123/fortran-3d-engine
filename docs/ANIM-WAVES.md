@@ -161,6 +161,65 @@ Recorded at Wave 1 close (audit of the landed front-end):
 
 ## Per-wave log
 
+### Wave 5, second scope — Video export + .srt sidecar + v3 bench baselines (2026-11-26) ✅ — WAVE 5 COMPLETE
+
+- Scope delivered (3 agents X1–X3 + coordinator integration):
+  **Bench baselines** (`docs/bench/BASELINES.md`, pure append,
+  legacy rows untouched): first measured v3 rows on this VM —
+  640×480 hello-cube 444 ms/f, objects-100 265, textured-plane
+  201, shadowed 262; hello-cube 1080×1920 median 2137 ms/f
+  (3 one-frame runs 2137/1595/2209). **.srt sidecar** (X2):
+  `f3dc build` now writes `<stem>.srt` beside the
+  `.timeline.json` whenever the film has dialogue — serialised
+  from the same finalized dialogue list (absolute frames, one
+  whole-film file for multi-scene films), frame times converted
+  with exact int64 rational arithmetic (round-to-nearest, ties
+  up, no floating point), text byte-verbatim with no speaker
+  prefix; it is the manifest's conditional 8th output, with
+  stale-sidecar deletion mirroring the timeline's absence rule;
+  ffmpeg round-trips it byte-identically. **Video export** (X3):
+  the audit found film mode **ignored `--video` entirely** —
+  `engine3d film.timeline.json --video out.mp4` exited 0 with no
+  mp4 and no message (silent success-without-video). Fixed:
+  a shared `assemble_video` now serves scene + film modes; film
+  export assembles the film's frames at the film fps with
+  transitions already rendered in; ffmpeg-absent = exit 0,
+  frames kept, and a LOUD 3-line warning naming ffmpeg, the kept
+  frames, and the exact assembly command; ffmpeg-failing =
+  frames kept + note (Phase-8 design); frame WRITE failures =
+  clean `error: failed to write …` + exit 1 (an iostat pre-flight
+  probe replaced a Fortran runtime crash on unwritable targets).
+  New `tests/e2e/test_export_e2e.sh` — **12/12 PASS**: exported
+  frame digest equals the plain-render digest and reproduces the
+  G3e pin (`dd61c362…`), dissolve midpoint frame byte-equal,
+  second export identical, %04d pattern smoke, absent/failing
+  ffmpeg paths, write-failure path.
+- Pin discipline: the `.srt` is an ADDITIVE artifact — proven by
+  full old/new sweeps before rebaking: across corpus + anim +
+  curated build cases the ONLY change is an added `scene.srt`
+  entry in 8 anim cases (87, 89, 159–161, 163–165) + 2 curated
+  anim copies (8, 9); every other artifact hash identical.
+  Rebake was surgical (10 entries inserted, formatting
+  preserved).
+- Also landed in this push: the **flang fix** for the
+  externalization scope — CI run `45819829970` was SUCCESS
+  (build-test/sanitize/debug green) but the optional flang job
+  failed on `plugin_rec()`'s empty structure constructor
+  (flang-18 rejects it for types with allocatable components);
+  replaced with an explicit `reset_plugin_rec`, verified by a
+  full local flang mirror (build + smoke green).
+- Gates: full suite PASS (native incl. anim 169/283 hashes +
+  curated 325 + properties/census, compiler-js 254, e2e 97,
+  fortran 47, ir 64; golden SKIP by design); legacy golden
+  `28b6a81d…` verified unchanged (G3a method); zero Python.
+  CI verdict recorded in the wave close report.
+- Carried forward: mid-write disk-full can still leave a partial
+  frame file the engine cannot detect (status-less shared
+  writers — documented engine limitation, pre-existing);
+  single-frame `--video` remains a no-op (pre-existing);
+  template load-time expression validation (from 5a) still
+  robustness-wave polish.
+
 ### Wave 5, first scope — Plugin externalization (user ruling) (2026-11-26) ✅
 
 - Scope delivered (6 agents: design E1, proof tests E2, package
