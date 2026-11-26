@@ -23,6 +23,11 @@
 ! the Wave-2 form -- "resolved": false and NO keys -- and hosts
 ! must report such spans as unmapped, never approximate.
 !
+! Wave 5 slice X2: tl_finalize also returns (via its optional
+! SRT_TEXT / HAS_SRT outputs) a SubRip sidecar serialised from
+! the same finalized dialogue list -- see build_srt.  The CLI
+! owns writing it as <stem>.srt beside the .timeline.json.
+!
 ! Serialisation is this module's own writer (not json_dumps):
 ! alphabetical object keys at every level, compact separators,
 ! and the TIMELINE-FORMAT float rule -- fmt_num_real (shortest
@@ -188,13 +193,20 @@ contains
   ! ERR is non-empty on a slug collision -- the caller reports it
   ! as a compile error and no file is written.
   ! ----------------------------------------------------------------
+  ! SRT_TEXT / HAS_SRT (Wave 5 slice X2, optional): the SubRip
+  ! sidecar serialised from the SAME finalized dialogue list the
+  ! timeline document carries (see build_srt below).  Optional so
+  ! existing callers are unchanged; the CLI passes both.
   subroutine tl_finalize(fallback_name, tool_version, source_base, &
-                         source_path, text, has_timeline, err)
+                         source_path, text, has_timeline, err, &
+                         srt_text, has_srt)
     character(*), intent(in) :: fallback_name, tool_version
     character(*), intent(in) :: source_base, source_path
     character(:), allocatable, intent(out) :: text
     logical, intent(out) :: has_timeline
     character(:), allocatable, intent(out) :: err
+    character(:), allocatable, intent(out), optional :: srt_text
+    logical, intent(out), optional :: has_srt
     type(dyn) :: doc, chars, spans, tracks, dlgs, gen, fpsd
     type(dyn) :: rec, frag, v
     integer :: ns, i, k
@@ -206,6 +218,8 @@ contains
     text = ""
     err = ""
     has_timeline = .false.
+    if (present(srt_text)) srt_text = ""
+    if (present(has_srt)) has_srt = .false.
     if (acc_scenes%kind /= DYN_K_LIST) return
     ns = dyn_list_len(acc_scenes)
     if (ns == 0) return
@@ -350,6 +364,18 @@ contains
       end do
     end block
 
+    ! ---- .srt sidecar (Wave 5 slice X2): from the finalized
+    ! dialogue list (ids assigned above, timeline order, absolute
+    ! frames), at the same fps rational as the document.  Empty
+    ! dialogue -> HAS_SRT stays .false. (absence is the signal,
+    ! exactly like the timeline itself).
+    if (present(srt_text) .and. present(has_srt)) then
+      if (dyn_list_len(dlgs) > 0) then
+        call build_srt(dlgs, fps_num, fps_den, srt_text)
+        has_srt = len(srt_text) > 0
+      end if
+    end if
+
     ! ---- sort tracks by (scene, kind, character/target, start)
     call sort_tracks(tracks)
 
@@ -388,6 +414,105 @@ contains
       text = sb_text(sb)
     end block
   end subroutine tl_finalize
+
+  ! ----------------------------------------------------------------
+  ! SubRip (.srt) sidecar (Wave 5 slice X2; ANIM-PLAN SS4.5 + D7)
+  !
+  ! Serialised from the finalized dialogue cues: sequential
+  ! indices from 1, cues in timeline order, absolute frames.
+  ! The cue text is the IR line VERBATIM (UTF-8 bytes pass
+  ! through untouched) with NO speaker prefix -- SubRip
+  ! convention keeps the plain line only.
+  !
+  ! Rounding rule (deterministic, exact rational arithmetic, no
+  ! floating point): for a frame F at fps NUM/DEN,
+  !   milliseconds = round(F * 1000 * DEN / NUM)
+  ! computed in int64 as (2*F*1000*DEN + NUM) / (2*NUM) with
+  ! integer (floor) division -- i.e. round-to-nearest, ties
+  ! (exactly half a millisecond) rounding UP.  Negative frames
+  ! (never emitted by build_scene, which guarantees
+  ! end_frame > start_frame >= 0) clamp to 0.
+  !
+  ! Shape: each block is "<index>\n<start> --> <end>\n<text>\n"
+  ! followed by one blank line, including after the last block
+  ! -- the canonical form players and ffmpeg's subtitles filter
+  ! accept.  No timestamps or generated content beyond the cues:
+  ! same dialogue + fps -> byte-identical .srt.
+  ! ----------------------------------------------------------------
+  subroutine build_srt(dlgs, fps_num, fps_den, srt_text)
+    type(dyn), intent(in) :: dlgs
+    integer(int64), intent(in) :: fps_num, fps_den
+    character(:), allocatable, intent(out) :: srt_text
+    type(str_builder) :: sb
+    type(dyn) :: d, v
+    integer :: j
+    integer(int64) :: sf, ef
+    call sb_init(sb)
+    do j = 1, dyn_list_len(dlgs)
+      d = dyn_list_at(dlgs, j)
+      v = dyn_dict_get(d, "start_frame")
+      if (v%kind == DYN_K_INT) then
+        sf = v%i
+      else
+        sf = 0_int64
+      end if
+      v = dyn_dict_get(d, "end_frame")
+      if (v%kind == DYN_K_INT) then
+        ef = v%i
+      else
+        ef = sf + 1_int64
+      end if
+      call sb_add(sb, trim(fmt_int(int(j, int64))))
+      call sb_add(sb, achar(10))
+      call sb_add(sb, srt_timestamp(sf, fps_num, fps_den))
+      call sb_add(sb, " --> ")
+      call sb_add(sb, srt_timestamp(ef, fps_num, fps_den))
+      call sb_add(sb, achar(10))
+      call sb_add(sb, dstr(d, "text", ""))
+      call sb_add(sb, achar(10))
+      call sb_add(sb, achar(10))
+    end do
+    srt_text = sb_text(sb)
+  end subroutine build_srt
+
+  !> Milliseconds of FRAME at fps NUM/DEN (see build_srt header
+  !! for the exact rounding rule).
+  integer(int64) function frame_ms(frame, fps_num, fps_den) &
+       result(ms)
+    integer(int64), intent(in) :: frame, fps_num, fps_den
+    integer(int64) :: num
+    if (frame <= 0_int64 .or. fps_num <= 0_int64) then
+      ms = 0_int64
+      return
+    end if
+    num = frame * 1000_int64 * fps_den
+    ms = (2_int64 * num + fps_num) / (2_int64 * fps_num)
+  end function frame_ms
+
+  !> Zero-padded field: at least WIDTH digits.
+  function pad_int(v, width) result(out)
+    integer(int64), intent(in) :: v
+    integer, intent(in) :: width
+    character(:), allocatable :: out
+    out = trim(fmt_int(v))
+    do while (len(out) < width)
+      out = "0" // out
+    end do
+  end function pad_int
+
+  !> "HH:MM:SS,mmm" for FRAME at fps NUM/DEN.  Hours are at
+  !! least two digits and grow past 99 when needed.
+  function srt_timestamp(frame, fps_num, fps_den) result(out)
+    integer(int64), intent(in) :: frame, fps_num, fps_den
+    character(:), allocatable :: out
+    integer(int64) :: ms, hh, mm, ss
+    ms = frame_ms(frame, fps_num, fps_den)
+    hh = ms / 3600000_int64
+    mm = mod(ms / 60000_int64, 60_int64)
+    ss = mod(ms / 1000_int64, 60_int64)
+    out = pad_int(hh, 2) // ":" // pad_int(mm, 2) // ":" // &
+          pad_int(ss, 2) // "," // pad_int(mod(ms, 1000_int64), 3)
+  end function srt_timestamp
 
   !> One Character record from a fragment character entry.
   function build_character(centry, cid) result(rec)

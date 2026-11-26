@@ -2798,7 +2798,7 @@ contains
     logical :: cache_hit, cacheable, cache_protected, manifestable
     type(error_bag_t) :: bag
     logical :: ok
-    character(len=256) :: names(7)
+    character(len=256) :: names(8)
     character(len=:), allocatable :: c_scene, c_json, c_legacy, &
          c_js, c_html, c_f90, content_k, root, target, summary
     integer :: k
@@ -2807,10 +2807,16 @@ contains
     character(len=:), allocatable :: tl_text, tl_err, tl_stem
     logical :: tl_made, tl_has
     integer :: n_out_names
+    ! ANIM Wave 5 slice X2: .srt sidecar state (see names(8)).
+    character(len=:), allocatable :: srt_text
+    logical :: srt_made, srt_has
+    integer :: cache_n_out
     ir = dyn_null()
     out_dir = ""
     stem = ""
     tl_made = .false.
+    srt_made = .false.
+    srt_has = .false.
     call multi_chunks(path, chunks, n_chunks, multi)
     if (multi) then
        call write_chunks(path, chunks, n_chunks, temps)
@@ -2835,7 +2841,8 @@ contains
        if (code == 0) then
           tl_stem = path_stem(path)
           call tl_finalize(tl_stem, VERSION, path_basename(path), &
-                           path, tl_text, tl_has, tl_err)
+                           path, tl_text, tl_has, tl_err, &
+                           srt_text, srt_has)
           if (len(tl_err) > 0) then
              call err_line("error E201: "//tl_err)
              code = 1
@@ -2854,6 +2861,22 @@ contains
              ! Absence = still: remove any stale timeline file.
              call delete_quiet(out_dir//"/"//tl_stem// &
                   ".timeline.json")
+          end if
+          ! Slice X2: ONE .srt for the whole film (the finalized
+          ! cues carry absolute frames), beside the timeline,
+          ! named after the same build stem.  No dialogue ->
+          ! no .srt: remove any stale sidecar.
+          if (srt_has) then
+             call write_file(out_dir//"/"//tl_stem//".srt", &
+                  srt_text, wok)
+             if (.not. wok) then
+                call err_line("error E502: cannot write output: "// &
+                     "i/o error")
+                code = 3
+                return
+             end if
+          else
+             call delete_quiet(out_dir//"/"//tl_stem//".srt")
           end if
        end if
        return
@@ -2891,6 +2914,10 @@ contains
     ! output -- present in the manifest's output set exactly when
     ! the recorded build emitted one (see the manifest write).
     names(7) = stem//".timeline.json"
+    ! Slice X2: the .srt sidecar is an EIGHTH, conditional output
+    ! -- present exactly when the recorded build emitted a
+    ! timeline AND that timeline's dialogue was non-empty.
+    names(8) = stem//".srt"
     if (cacheable) then
        ! The E502 protected-target refusal below must not be
        ! bypassed by a cache hit, so it is checked first here.
@@ -2912,16 +2939,35 @@ contains
           ! (whose presence the check then verifies like any
           ! other output).  Pre-B1 manifests have six names and
           ! keep hitting.
+          ! Slice X2: eight names when the recorded build also
+          ! emitted an .srt sidecar (timeline + non-empty
+          ! dialogue); its presence is verified the same way.
+          ! The three candidate sets are mutually exclusive (the
+          ! check demands the recorded set EQUAL the expected
+          ! one), so they are tried widest first.
+          cache_n_out = 0
           call driver_manifest_check(mpath, stem, out_dir, &
-                                     names(1:6), cache_hit)
-          if (cache_hit) then
-             ! Six-name hit: the recorded build was a still, so
-             ! a timeline file here could only be stale -- the
-             ! absence rule (no file = still) removes it.
-             call delete_quiet(out_dir//"/"//trim(names(7)))
-          else
+                                     names(1:8), cache_hit)
+          if (cache_hit) cache_n_out = 8
+          if (.not. cache_hit) then
              call driver_manifest_check(mpath, stem, out_dir, &
                                         names(1:7), cache_hit)
+             if (cache_hit) cache_n_out = 7
+          end if
+          if (.not. cache_hit) then
+             call driver_manifest_check(mpath, stem, out_dir, &
+                                        names(1:6), cache_hit)
+             if (cache_hit) cache_n_out = 6
+          end if
+          if (cache_hit) then
+             ! Conditional outputs the recorded build did NOT
+             ! emit could only be stale here -- the absence
+             ! rules (no timeline = still, no .srt = no
+             ! dialogue) remove them.
+             if (cache_n_out < 7) &
+                call delete_quiet(out_dir//"/"//trim(names(7)))
+             if (cache_n_out < 8) &
+                call delete_quiet(out_dir//"/"//trim(names(8)))
           end if
        end if
        if (cache_hit) then
@@ -2992,7 +3038,7 @@ contains
     n_out_names = 6
     if (.not. has_stem_override) then
        call tl_finalize(stem, VERSION, path_basename(path), path, &
-                        tl_text, tl_has, tl_err)
+                        tl_text, tl_has, tl_err, srt_text, srt_has)
        if (len(tl_err) > 0) then
           call err_line("error E201: "//tl_err)
           code = 1
@@ -3009,8 +3055,27 @@ contains
           end if
           tl_made = .true.
           n_out_names = 7
+          ! Slice X2: the .srt sidecar, beside the timeline in
+          ! the same output directory.  Non-empty dialogue ->
+          ! write it (an eighth manifest output); empty -> no
+          ! .srt, and any stale sidecar is removed.
+          if (srt_has) then
+             call write_file(out_dir//"/"//trim(names(8)), &
+                  srt_text, wok)
+             if (.not. wok) then
+                call err_line("error E502: cannot write output: "// &
+                     "i/o error")
+                code = 3
+                return
+             end if
+             srt_made = .true.
+             n_out_names = 8
+          else
+             call delete_quiet(out_dir//"/"//trim(names(8)))
+          end if
        else
           call delete_quiet(out_dir//"/"//trim(names(7)))
+          call delete_quiet(out_dir//"/"//trim(names(8)))
        end if
     end if
     ! v3.0 Phase 6 (Seat X): record the incremental manifest for
@@ -3040,6 +3105,8 @@ contains
           ! Slice B1: record six output names for a still, seven
           ! when this build emitted a timeline file, so a later
           ! cache check verifies the timeline's presence too.
+          ! Slice X2: eight when it also emitted an .srt, so the
+          ! sidecar's presence is verified the same way.
           call driver_manifest_write(mpath, stem, &
                                      names(1:n_out_names), &
                                      dep_paths, n_deps)
