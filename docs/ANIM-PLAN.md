@@ -1646,3 +1646,49 @@ becomes **one plugin**. Consequences:
   a plugin.** Standing order the same day: **"Don't stop until 50
   waves"** — Waves 1–6 per this plan, Waves 7–50 per
   `docs/ANIM-WAVES.md`.
+- 2026-11-26 — **PLUGIN EXTERNALIZATION (user ruling, after Waves
+  2–3): stickman must be a real EXTERNAL loadable plugin package,
+  NOT built-in** — a folder on disk with a manifest, loaded at run
+  time; the core keeps only the loader + registry, no character
+  data; stickman moves to `plugins/stickman/`, humanoid follows;
+  proof = the suite passes with stickman absent (clean "plugin not
+  found" diagnostic) and byte-identically with it present; hard
+  gate before the Wave 6 v4.0.0 release prep. Full text in
+  `docs/ANIM-WAVES.md` ("Plugin externalization — read second");
+  design of record in `docs/PLUGINS.md` (ADR-PLUGIN-1).
+- 2026-11-26 — **Wave 1 COMPLETE** (language + compiler front-end:
+  film mode, characters, cues, custom actions, camera moves,
+  dialogue, transitions as nodes, loops, `let`; E206–E213 /
+  W203–W204). Per-wave detail in `docs/ANIM-WAVES.md`.
+- 2026-11-26 — **Wave 2 COMPLETE** (Timeline IR v1 + ADR-5 +
+  plugin registry foundation; **contract FREEZE declared** at the
+  wave's close — additive-only from here; `docs/TIMELINE-FORMAT.md`
+  and `docs/ALLROUNDER-MATRIX.md` written; all six Wave-1
+  stickman-hardcoding flags resolved before the freeze).
+- 2026-11-26 — **Wave 3 COMPLETE** (engine film rendering,
+  stickman plugin action resolution to rig-channel keys, JS
+  evaluator mirror; golden film `examples/anim-golden.f3d` with
+  CI gates G3d/G3e and `docs/V4-GOLDENS.md`; humanoid registered
+  as a skeleton plugin).
+- 2026-11-26 — **Wave 4 COMPLETE** (preview playback: transport +
+  deterministic seek/scrub, `/__timeline`, subtitle overlay,
+  action lanes, diagnostics drawer, `#t=` hash playhead; CI run
+  `45805606686` SUCCESS after one concat-lint fix-forward).
+- 2026-11-26 — **Wave 5 COMPLETE** (first scope: plugin
+  externalization per the ruling above — stickman + humanoid as
+  external packages under `plugins/`, generic template
+  interpreter in core, new E214/W205, absent-plugin proof suite
+  8/8, byte-identical output with the package present; second
+  scope: film-mode video export with loud ffmpeg-absent
+  behaviour, `.srt` sidecar from the finalized dialogue, first
+  measured v3 bench baselines).
+- 2026-11-26 — **Wave 6 PREP (release docs slice):** manual
+  gained the film-mode chapter (§2.11) and the E206–E214 /
+  W203–W205 diagnostics rows; `CHANGELOG.md` gained the 4.0.0
+  entry with the honest limits (humanoid skeleton only,
+  slide/wipe = cut in the engine, core verbs on characters
+  `resolved: false`, no TTS); `docs/releases/v4.0.md` drafted
+  with its checklist — suite/CI + goldens marked verified at
+  prep HEAD `119c47e` (CI run `45828214576`, all 4 jobs green,
+  verified twice at job level), tag / Release / asset items
+  left unchecked: **they happen only on the user's nod.**

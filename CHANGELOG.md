@@ -2,6 +2,128 @@
 
 All notable changes to Forge3D. Dates are commit dates.
 
+## 4.0.0 — Animation Platform (2026-11-26)
+
+Status: Waves 1–5 complete and CI-green; Wave 6 verification +
+release prep in progress; the tag/Release await the maintainer's
+nod (see `docs/releases/v4.0.md`).
+
+The "Animation Platform" release: a `.f3d` file whose first
+statement is `film` becomes a story written in sentences —
+characters, actions, dialogue, camera moves, in written order —
+compiled to a frozen Timeline IR contract, rendered by the engine
+as flat 2D characters inside real 3D environments, previewed with
+transport/subtitle/lane playback, and exported to video with an
+`.srt` sidecar. Character rigs and action sets are **plugins**:
+external packages on disk, not core features — the stickman engine
+is the first plugin, not a built-in. Purely additive: every
+pre-4.0 program compiles and renders exactly as before, and the
+legacy golden is unchanged.
+
+### Added
+
+- **Film mode (Wave 1).** The `film` header (title, `size`,
+  `fps`, `tempo`), `character` and `place` setup lines, cues in
+  written order with `with` / `together` / `at <time>` / `wait`
+  sequencing, built-in and custom actions (an `action` block where
+  `it` is the actor, invoked with `does`), camera cues (`follows`,
+  `zooms in/out`, `pans`, `orbits`, `looks at`), dialogue
+  (`says`, with `bubble only` / `subtitle only` / `thinking`
+  styles), `caption` / `title` screen text, scene `transition`
+  props and the `fade out` closing cue, timeline `repeat N times`
+  blocks, and minimal `let` variables. New diagnostics
+  **E206–E213** and warnings **W203–W204** (append-only, in the
+  existing families).
+- **Timeline IR v1 + ADR-5 contract freeze (Wave 2).**
+  `f3dc build` emits `build/<name>.timeline.json`
+  (`"format": "forge3d-timeline"`, `ir_version: 1`) whenever a
+  source has animation authoring: canonical integer frames at a
+  rational fps, half-open spans, a cast table with plugin ids and
+  rig records, per-scene spans with bindings, action / pose_keys /
+  verb / camera / visibility tracks, dialogue cues and markers.
+  The spec is `docs/TIMELINE-FORMAT.md`; evolution from the
+  Wave 2 freeze is additive-only under ADR-5. The engine gained
+  a typed, exact-version IR reader. Also in Wave 2: the plugin
+  registry foundation and `docs/ALLROUNDER-MATRIX.md` (feature
+  coverage vs Blender, measured axes only).
+- **Engine film rendering + the stickman plugin (Wave 3).**
+  `engine3d <file>.timeline.json` renders a whole film: spans in
+  order, characters as procedurally generated figures
+  (`src/char_figure.f90` — proportions incl. `kid`, 16-joint FK,
+  capsule figure with head/face/hair/`wears` accessories),
+  channel evaluation with blending, camera tracks, and
+  fade/dissolve transition blending. The stickman plugin
+  resolves all 20 of its verbs to key lists on its 16 rig
+  channels at compile time. The JS runtime gained the matching
+  timeline evaluator, asserted against the engine over shared
+  test vectors. CI gates **G3d** (six pinned film frames) and
+  **G3e** (48-frame sequence digest) guard the golden film
+  `examples/anim-golden.f3d` (`docs/V4-GOLDENS.md`).
+- **Preview playback (Wave 4).** `f3dc preview` plays films:
+  a transport bar (play/pause, frame-stepped scrub, frame
+  readout) with deterministic seek, a `GET /__timeline` route
+  serving the preview's Timeline IR, a subtitle overlay (live
+  cue, speaker colour), per-character action lanes with
+  click-to-seek, a diagnostics drawer fed by `/__status`, and
+  the playhead persisted in the `#t=` URL hash.
+- **Plugin externalization (Wave 5, first scope).** Plugins are
+  now external packages: `plugins/<id>/plugin.json` (ADR-PLUGIN-1
+  in `docs/PLUGINS.md`), loaded at run time via `F3DC_PLUGIN_PATH`
+  (set-but-empty loads nothing) or the default
+  `[<repo_root>/plugins, ./plugins]` search list. The stickman
+  package carries its rig, channels, prop schemas, expression
+  codes and all 20 parametric templates as data; the core keeps
+  only the loader, the registry and one generic template
+  interpreter. New diagnostics **E214** (plugin not loaded) and
+  **W205** (plugin package skipped). Proof gate: with the
+  package absent, a stickman film fails cleanly with E214 while
+  non-film scenes still build; with it present, output is
+  byte-identical.
+- **Video export + `.srt` sidecar (Wave 5, second scope).**
+  Film-mode `--video` (and `render "name.mp4"` in film mode)
+  assembles the film's frames at the film fps with transitions
+  already rendered in; ffmpeg-absent is a loud warning with the
+  frames kept and exit 0, never a silent success. `f3dc build`
+  writes a `<stem>.srt` SubRip sidecar from the film's dialogue
+  (exact integer rational timing, byte-verbatim text). First
+  measured v3 rows added to `docs/bench/BASELINES.md`.
+
+### Changed
+
+- **Nothing pre-existing.** Film mode is opt-in by the `film`
+  first statement; all existing statements, defaults, error
+  codes and limits are unchanged, new diagnostics are
+  append-only, and the strict legacy golden sha256
+  `28b6a81dd052a740f3a395ea41b3e0dd37e02eeff585a56fa90e05ac7697cec1`
+  has never been re-baselined.
+
+### Known limits (honest)
+
+- **The `humanoid` plugin is a skeleton only** — rig record,
+  channels, verbs and the `speaks` capability, but no templates
+  and no rig channels: its actions stay unresolved by design.
+  Its depth is scheduled for Waves 19–24 of the programme in
+  `docs/ANIM-WAVES.md`.
+- **`slide` and `wipe` transitions render as a cut** in the
+  engine (with a note); `fade` and `dissolve` are real blends.
+  The transition variant (`fade black`, `slide left`) is not
+  carried in Timeline IR v1.
+- **Core verbs on characters are `resolved: false`** in the IR:
+  `spin` / `bob` / … are closed-form object verbs evaluated by
+  the engine's animation path, not resolved to rig-channel keys
+  by a plugin.
+- **No TTS or voice of any kind.** `says` is text, timing and
+  style only; the engine draws no speech bubbles or burned-in
+  subtitles — dialogue reaches the screen via the preview
+  subtitle overlay and files via the `.srt` sidecar. Captions
+  and titles have no Timeline IR v1 record (a recorded freeze
+  decision, not an omission).
+- **Multi-scene films do not preview** (the preview compiles a
+  single scene; two-scene films get the error page and the empty
+  `/__timeline` document). Single-scene films preview fully.
+- **`sit` uses a generic 0.5 seat height** — the resolver does
+  not look up the named object's geometry.
+
 ## 3.0.0 — Real Pipeline (2026-11-23)
 
 Status: code complete; the v3.0 wave was written in a no-test wave by user order and is UNTESTED pending the verification pass; the tag/Release await the maintainer's nod.

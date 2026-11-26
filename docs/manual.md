@@ -7,7 +7,7 @@ Compiler: `f3dc` — native (Fortran modules plus a clang C helper,
 sources in `compiler/`), built with `make -C compiler` and installed as
 `bin/f3dc` by `make f3dc`. Building it requires flang-18 (binary
 `flang-new-18`) and clang-18; the compiler itself has no Python
-dependency. Version: `f3dc 3.0.0`.
+dependency. Version: `f3dc 4.0.0`.
 
 Comments start with `#` or `//`. One statement per line. Names are
 identifiers you choose (`cube spinner red …` names the cube `spinner`).
@@ -411,6 +411,325 @@ frozen v2 renderer **bit-exact** — same input, byte-identical PPM —
 which is what the pinned v2 golden is checked against.
 
 
+### 2.11 Film mode: animation scripts (v4.0)
+
+A `.f3d` file whose **first statement** is `film` is a film: a story
+written in sentences — characters, actions, dialogue, camera moves —
+that play **in written order**. Everything in this section exists only
+in film mode; a file without the `film` header is parsed, desugared
+and rendered exactly as in §2.1–§2.10 (the 3-line contract of §1 is
+untouched). The design of record is `docs/ANIM-PLAN.md`; the compiled
+output contract is the Timeline IR (`docs/TIMELINE-FORMAT.md`).
+
+```f3d
+film "Saturday Market" size 1280 720 fps 24
+```
+
+- `film ["title"] [size W H] [fps n] [tempo n]` — `size`/`fps` are the
+  usual keywords; `fps` is the film's master frame rate. `tempo n`
+  sets beats per minute (default 60, so 1 beat = 1 second until
+  stated); durations may be written `N seconds` or `N beats`.
+- Inside a film, each `scene` line starts a **shot**. Setup lines are
+  the statements you already know (primitives, `group`, `import`,
+  `repeat`, lights, the opening `camera`), plus `character` and
+  `place`. Everything after the setup is **cues**.
+- `place name at vec3` names a spot so cues never need raw
+  coordinates: `lloyd walks to stall-front`.
+- `f3dc build` on a film also writes `build/<stem>.timeline.json`
+  (Timeline IR v1, frozen under ADR-5: integer frames at a rational
+  fps, half-open `[start_frame, end_frame)` spans) and, when the film
+  has dialogue, a `<stem>.srt` sidecar (§2.11, Export). A still —
+  no timeline — writes neither file. `bin/engine3d
+  build/<stem>.timeline.json` renders the film itself.
+
+#### Characters and the identity rule
+
+A character line has the same shape as a primitive line — keyword,
+name, colour, free-order props. The prop vocabulary is **not core**:
+it is declared by the character's plugin package (Plugins, below);
+for the shipped `stickman` package it is:
+
+```f3d
+character lloyd blue at -5 0 2 tall head round wears cap red
+character mira pink at 4 0 2 kid head round hair bun
+```
+
+| Prop | Meaning |
+|---|---|
+| `at vec3` | where they stand |
+| `tall` / `short` / `kid` / `height n` | proportions — `kid` is child proportions, not a scaled adult |
+| `head round\|square\|oval` | head style |
+| `hair <word>` / a hair colour | hair as rig-attached geometry |
+| `face happy\|sad\|determined\|surprised\|neutral` | starting expression (default `neutral`) |
+| `wears <item> [colour]` (repeatable) | clothing/accessory, attached to the rig |
+| `holds <name>` | an ordinary named object, held in the dominant hand |
+
+**Identity rule:** proportions, `head` and `wears` are *who the
+character is*. Cues may change `face`, position and pose only — there
+is no cue syntax for changing identity mid-film. Declare a character
+in each shot it appears in, restating the same identity (the shipped
+examples do exactly this). At render time the engine generates the
+figure procedurally from the pose — you never model body parts. A
+character outside a film is also legal: a static figure, targetable
+by the §2.8 verbs.
+
+#### Cues: written order is play order
+
+One grammar for characters, camera and objects alike:
+**`<who> <verb-phrase> [in|for <duration>] [ease <name>]`**.
+`in N seconds` = taking N seconds to get there; `for N seconds` =
+keep doing it for N seconds. Instant actions (`jumps`, `nods`)
+default to 1 second. Four modifiers, and only four, change the
+default "one after another":
+
+| Form | Reading |
+|---|---|
+| (default) | the cue starts when the previous cue ends |
+| `with <cue>` | starts **with** the previous cue; the pair ends when the longer cue ends |
+| `together` … `end` | all cues in the block start together; the block lasts as long as its longest cue |
+| `at <time> <cue>` | starts at an absolute time (`at 5 seconds …`, `at 0:05 …`), measured from the shot's start |
+| `wait N seconds` | hold everything for N seconds |
+
+Two resolved cues on the same character and the same channel (body
+motion) may not overlap — that is error `E207`; `with` is the
+explicit opt-in, and cross-channel overlap (walk + talk) is free.
+Easing is §2.8's vocabulary with two sentence adverbs: `slowly` ≡
+`ease out`, `gently` ≡ `ease cubic-in-out` (`f3dc fmt` prints the
+canonical form).
+
+#### Actions: built-in and custom
+
+The `stickman` package's verb set (canonical "-s" form; the base
+form — `walk`, `wave` — is accepted as an alias everywhere, and
+`f3dc fmt` prints the "-s" form):
+
+`walks to <place|character|vec3>`, `runs to …`, `walks in from
+left|right` (also `enters`), `exits left|right`, `waves [left
+hand|right hand|both hands]`, `sits on <object>`, `stands`, `jumps`,
+`falls`, `looks at <target>`, `faces <character|camera>`, `points at
+<target>`, `nods`, `shakes head`, `dances`, `sleeps`, `smiles`,
+`face <expression>`, `picks up <object>`, `gives <object> to
+<character>`, `taps foot`. Objects are cue subjects too, with the
+§2.8 core verbs: `bus moves to stop in 4 seconds ease out`.
+
+All 20 stickman verbs resolve at compile time to key lists on the
+plugin's 16 rig channels (`root.x/y/z`, `root.face`, `torso`,
+`head.pitch/yaw`, `arm.l/fore`, `arm.r.upper/fore`,
+`leg.l/thigh/shin`, `leg.r.thigh/shin`, `face.expr`) — the resolved
+keys, not the verb name, are the Timeline IR contract. The §2.8 core
+verbs (`spin`, `bob`, …) used **on a character** are *not* resolved
+to keys: their tracks are emitted with `resolved: false` and are
+evaluated by the engine's closed-form animation path instead.
+
+**Custom actions** are defined once, like a `group`; inside the
+block, **`it` is the actor**:
+
+```f3d
+action celebrate
+  it jumps
+  it waves both hands
+  it spins speed 360
+end
+
+rafi does celebrate for 2 seconds
+```
+
+Cues inside play in order. `does <action> for N seconds` time-scales
+the whole action to N seconds; without `for`, it takes the sum of
+its cues' durations. Actions may use other actions; recursion is
+error `E212`. Actions defined in an imported part file work through
+the existing `import … as …` mechanism, so a shared `actions.f3d`
+library is just a part file.
+
+#### Camera cues
+
+The shot's `camera at … look …` line is its opening framing; `look`
+may also name a character or place. After that, the camera is
+another cue subject:
+
+```f3d
+camera follows lloyd
+camera zooms in on stall in 2 seconds ease smooth
+camera zooms out in 1 second
+camera pans to door in 3 seconds
+camera orbits mira in 3 seconds
+camera looks at bench in 1 second
+```
+
+`follows <character>` lasts until the next camera cue or the shot's
+end; write it as a `with` cue to run it alongside an action. Camera
+moves compile to keys on the reserved pseudo-target `@camera` in
+the Timeline IR.
+
+#### Dialogue, captions, titles
+
+```f3d
+lloyd says "Good morning, Mira!" for 2 seconds
+mira says "The mangoes look fresh today!"
+caption "Meanwhile, across town…" for 3 seconds
+title "The Lost Key" for 3 seconds
+```
+
+- `<character> says "…"` — only characters speak (an object name is
+  error `E211`). The text is an ordinary `.f3d` string, byte-verbatim
+  in the IR, so Bengali (or any Unicode) dialogue needs no special
+  syntax. With no written duration, the compiler estimates reading
+  time (≈0.4 s/word, minimum 1.5 s) and says so — warning `W204`,
+  never silent. Trailing variants: `bubble only`, `subtitle only`,
+  `thinking` (thought bubble) are parsed and carried as the line's
+  style.
+- `caption "…"` is narrator text nobody speaks; `title "…"` is big
+  centred screen text. Both are screen-space, distinct from the
+  in-world `text` primitive (§2.2's Wave B features), and — by a
+  decision recorded at the IR freeze — **captions and titles have
+  no Timeline IR v1 record**: they live in the scene artifacts for
+  Forge3D's own preview/export paths, and hosts do not receive
+  them through the IR.
+- **No voice or TTS is implied by `says`** — dialogue is timing,
+  text and style only.
+- Honest rendering note: the native engine's film mode does **not**
+  draw speech bubbles or burned-in subtitles. Dialogue reaches the
+  screen as the preview's subtitle overlay (Preview playback,
+  below) and reaches files as the `.srt` sidecar (Export, below).
+
+#### Scenes and transitions
+
+In film mode the `scene` line gains one optional prop; the
+transition belongs to the shot it **opens** and overlays that
+shot's first cue (it does not add to the film's length):
+
+```f3d
+scene "market" background white transition fade 1 second
+scene "home" background black transition dissolve 1 second
+scene "park" transition cut
+```
+
+Values: `cut` (default), `fade`, `fade black`, `dissolve`, `slide
+left|right`, `wipe`. In the engine, `fade` and `dissolve` are
+rendered as post-render blends between the two shots; **`slide`
+and `wipe` render as a cut**, with a note. (The transition *variant*
+— `fade black`, `slide left` — is not carried in Timeline IR v1.)
+The closing cue `fade out in 1 second` is usable as a `with` cue
+over a film's final action.
+
+#### Repeat blocks and `let`
+
+The §2.5 prefix `repeat` (setup expansion) is untouched. Among
+cues, one block form repeats *time*:
+
+```f3d
+repeat 2 times
+  rafi taps foot for 1 second
+end
+```
+
+Variables are one deliberately minimal form — a named literal,
+scene-block scoped, immutable, defined before use (violations are
+`E213`):
+
+```f3d
+let wait-time be 3 seconds
+let hero-colour be blue
+rafi sits on bench for wait-time
+```
+
+Values are numbers, durations, colours or names. No arithmetic, no
+expressions.
+
+#### Plugins: external packages
+
+Character rigs, verb sets, prop schemas and capabilities are
+declared by **plugins — external packages on disk**, never compiled
+into the core. The core keeps only the loader, the registry and a
+generic template interpreter (`docs/PLUGINS.md` is the design of
+record, ADR-PLUGIN-1):
+
+```
+plugins/<id>/plugin.json
+```
+
+- Shipped packages: `plugins/stickman/` (the full verb set above,
+  16 rig channels, all 20 parametric templates as data) and
+  `plugins/humanoid/` — a **skeleton**: rig record, channels, verbs
+  and the `speaks` capability, but no templates and no rig channels,
+  so its actions stay unresolved by design.
+- Search list: if `F3DC_PLUGIN_PATH` is **set**, its
+  colon-separated entries, in order — the **empty string loads
+  nothing**. If it is **unset**: `[<repo_root>/plugins, ./plugins]`.
+  Nonexistent entries are skipped silently. The first package with
+  a given id wins; a duplicate is skipped with warning `W205`.
+- A malformed package (missing/unparseable `plugin.json`, directory
+  name ≠ manifest `id`, unsupported package `format`, a verb naming
+  a missing template, …) is skipped whole with one `W205` warning
+  naming the directory and the reason — never a crash, never a
+  partial registration.
+- A film whose character belongs to a plugin that is not loaded
+  fails cleanly with error `E214`, naming the character and, when
+  the character carries one, the plugin id. With the stickman
+  package present, output is byte-identical to the pre-external
+  compiler; with it absent, non-film scenes and characterless
+  films still build.
+
+#### Preview playback
+
+`f3dc preview <film.f3d>` (§3) plays a film, not just a still:
+
+- **Transport bar:** play/pause, a frame-stepped scrub slider, and
+  a `t / duration · frame N` readout. Playback uses the same JS
+  timeline evaluator as the compiled viewer — there is no second
+  timing implementation — and seeking is deterministic: the same
+  `t` always shows the same frame.
+- **`GET /__timeline`** serves the preview compile's Timeline IR
+  verbatim (byte-identical to `f3dc build`'s `.timeline.json` for
+  the same source), or a well-formed empty document for a still —
+  never 404. The page polls `/__status` (600 ms) for recompiles.
+- **Subtitle overlay:** the dialogue cue live at the current frame
+  (half-open: live iff `start_frame ≤ f < end_frame`), with the
+  speaker coloured from the IR character colour.
+- **Action lanes:** per-character action spans, a dialogue lane and
+  marker ticks under the transport; clicking a lane seeks.
+- **Diagnostics drawer:** a collapsible panel rendering the
+  `/__status` diagnostics (code, severity, `file:line:col`,
+  message, help).
+- **`#t=` hash:** the playhead persists across the save-reload loop
+  in the URL hash (`#t=<seconds>`), so a reload after an edit
+  resumes where you were.
+- One limit, stated plainly: **multi-scene films do not preview.**
+  The preview compiles a file as a single scene (it has never done
+  `build`'s chunk splitting), so a two-scene film gets the error
+  page plus the empty `/__timeline` document. Single-scene films
+  preview fully.
+
+#### Export: video and subtitles
+
+- `render "name.mp4"` — in **film mode only**, an `.mp4` render
+  name means "render the timeline and assemble video" through the
+  `--video`/ffmpeg path below. (Outside film mode an `.mp4` name
+  still writes PPM, as §2.9 says.)
+- `--video <file.mp4>` (§3) with a film assembles the film's frames
+  at the film fps, with transitions already rendered into the
+  frames. **ffmpeg-absent behaviour:** if `ffmpeg` is not on
+  `PATH`, the render still exits 0, the frame files are kept, no
+  video is written, and a loud 3-line warning names ffmpeg, the
+  kept frames and the exact assembly command. If ffmpeg runs and
+  fails, the frames are kept and a note is printed (the Phase-8
+  design). A frame *write* failure is a clean `error: failed to
+  write …` with exit 1. A single-frame `--video` remains a no-op.
+- **`.srt` sidecar:** `f3dc build` writes `<stem>.srt` beside the
+  `.timeline.json` whenever the film has dialogue — one whole-film
+  file, serialised from the same finalized dialogue list as the IR,
+  frame times converted with exact integer rational arithmetic,
+  text byte-verbatim with no speaker prefix. A film with no
+  dialogue writes no `.srt`, and a stale sidecar from an earlier
+  build is removed.
+
+Worked film examples: the three scripts of `docs/ANIM-PLAN.md`
+§1.10 ship as IR fixtures (`tests/ir/fixtures/saturday-market.f3d`,
+`the-bus-is-late.f3d`, `the-lost-key.f3d`), and
+`examples/anim-golden.f3d` is the pinned golden film (48 frames,
+two scenes, a dissolve, a camera track — `docs/V4-GOLDENS.md`).
+
+
 ## 3. CLI reference: `f3dc`
 
 ```
@@ -497,6 +816,15 @@ E4xx structure, E5xx I/O, E8xx security/limits, Wxxx warnings.
 | E203 | unknown primitive |
 | E204 | texture not in v1 |
 | E205 | reserved keyword |
+| E206 | unknown action |
+| E207 | overlapping actions |
+| E208 | timeline overrun |
+| E209 | unknown character |
+| E210 | camera follow target missing |
+| E211 | dialogue for undefined character |
+| E212 | custom-action recursion |
+| E213 | undefined / redefined variable |
+| E214 | plugin not loaded |
 | E301 | value out of range |
 | E302 | non-positive size |
 | E303 | fov range |
@@ -509,6 +837,9 @@ E4xx structure, E5xx I/O, E8xx security/limits, Wxxx warnings.
 | W101 | default injected |
 | W102 | statement replaced |
 | W201 | animation defaulted |
+| W203 | unused action |
+| W204 | dialogue duration estimated |
+| W205 | plugin package skipped |
 
 
 ## 5. The JavaScript viewer
@@ -537,7 +868,7 @@ path**. Embed it yourself:
   element; returns a player with `play()`, `pause()`, `setTime(t)`,
   `render(t?)`, and `destroy()`. Also exposed: `F3D.auto(scene)` (finds
   the first `<f3d-view>`/canvas and creates a player) and
-  `F3D.version` (`"3.0.0"`). TypeScript declarations: `runtime/f3d.d.ts`.
+  `F3D.version` (`"4.0.0"`). TypeScript declarations: `runtime/f3d.d.ts`.
 - Orbit controls are built in: drag to orbit, wheel to dolly, touch-drag
   on mobile — honouring the scene's `controls` line (§2.7). Shading is
   Lambert, matching the native renderer, and animation uses the same
