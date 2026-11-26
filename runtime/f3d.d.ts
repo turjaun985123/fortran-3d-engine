@@ -279,7 +279,13 @@ declare interface F3DKey {
   time: number;
   pos?: F3DVec3;
   rot?: F3DVec3;
-  scale?: number;
+  /** Euler degrees, storage form read by `evalTrackQ` when no `quat`. */
+  rot_deg?: F3DVec3;
+  /** Quaternion `[x, y, z, w]`; takes precedence over `rot`/`rot_deg`. */
+  quat?: [number, number, number, number];
+  scale?: number | F3DVec3;
+  /** Per-axis scale read by `evalTrackQ` (overrides `scale`). */
+  scale3?: F3DVec3;
   /** Ease named on a key drives the segment ENDING at that key. */
   ease?: string;
 }
@@ -290,6 +296,8 @@ declare interface F3DKeyTrack {
   duration?: number;
   /** 'once' | 'forever' | 'pingpong' (unknown modes act as 'once'). */
   loop?: string;
+  /** > 0: key times / duration are frame numbers at this rate. */
+  fps?: number;
   keys: F3DKey[];
   [key: string]: unknown;
 }
@@ -301,11 +309,90 @@ declare interface F3DPose {
   scale: number;
 }
 
+/** A quaternion pose from `evalTrackQ`: `{ pos, quat, scale3 }`. */
+declare interface F3DPoseQ {
+  pos: F3DVec3;
+  quat: [number, number, number, number];
+  scale3: F3DVec3;
+}
+
 /** runtime/f3d-keys.js — keyframe tracks + easing. */
 declare interface F3DKeysModule {
-  /** Ease normalised progress `p`: 'linear' | 'smooth' | 'in' | 'out'. */
+  /**
+   * Ease normalised progress `p`: 'linear' | 'smooth' | 'in' |
+   * 'out' | 'cubic-in' | 'cubic-out' | 'cubic-in-out' |
+   * 'bezier(x1,y1,x2,y2)' | 'hold' (unknown names act as 'linear').
+   */
   ease(name: string, p: number): number;
   evalTrack(track: F3DKeyTrack, t: number): F3DPose;
+  /** Phase 5 evaluator: quaternion slerp + per-axis scale + fps. */
+  evalTrackQ(track: F3DKeyTrack, t: number): F3DPoseQ;
+}
+
+/** A Timeline IR object (format "forge3d-timeline"). */
+declare interface F3DTimelineIR {
+  format?: string;
+  ir_version?: number;
+  fps?: { num: number; den: number };
+  duration_frames?: number;
+  characters?: Array<{ [key: string]: unknown }>;
+  tracks?: Array<{ [key: string]: unknown }>;
+  dialogue?: F3DDialogueCue[];
+  [key: string]: unknown;
+}
+
+/** One dialogue cue of a Timeline IR object (half-open span). */
+declare interface F3DDialogueCue {
+  id?: string;
+  scene?: string;
+  start_frame: number;
+  end_frame: number;
+  speaker?: string;
+  text?: string;
+  [key: string]: unknown;
+}
+
+/** A channel pose: `{ channel: value }` (degrees / units / name). */
+declare interface F3DChannelPose {
+  [channel: string]: number | string;
+}
+
+/** Stick-figure proportions (runtime/f3d-timeline.js). */
+declare interface F3DProportions {
+  thigh: number;
+  shin: number;
+  torso: number;
+  upper_arm: number;
+  fore_arm: number;
+  head_r: number;
+  line_r: number;
+  shoulder_half: number;
+  hip_half: number;
+  neck: number;
+}
+
+/** runtime/f3d-timeline.js — Timeline IR evaluation + figure FK. */
+declare interface F3DTimelineModule {
+  ease(name: string, p: number): number;
+  evalChannels(
+    timeline: F3DTimelineIR,
+    characterId: string,
+    frame: number,
+    restPose?: F3DChannelPose
+  ): F3DChannelPose;
+  evalPoseKeys(track: { [key: string]: unknown }, frame: number): F3DPoseQ;
+  evalCamera(
+    track: { [key: string]: unknown },
+    frame: number
+  ): { pos: F3DVec3; target: F3DVec3; fov: number };
+  figureJoints(
+    pose: F3DChannelPose,
+    proportionsWord?: string,
+    height?: number
+  ): { [joint: string]: [number, number] };
+  activeDialogue(timeline: F3DTimelineIR, frame: number): F3DDialogueCue[];
+  proportionsFor(word?: string): F3DProportions;
+  readonly CHANNELS: string[];
 }
 
 /**
@@ -601,6 +688,7 @@ declare interface F3DRuntime extends F3DCoreModule {
   env: F3DEnvModule;
   pbr: F3DPbrModule;
   keys: F3DKeysModule;
+  timeline: F3DTimelineModule;
   instanced: F3DInstancedModule;
   post: F3DPostModule;
   shader: F3DShaderModule;
@@ -633,6 +721,8 @@ declare interface F3DRuntime extends F3DCoreModule {
   F3DPBR: F3DPbrModule;
   /** @deprecated Use `F3D.keys` instead. */
   F3DKeys: F3DKeysModule;
+  /** @deprecated Use `F3D.timeline` instead. */
+  F3DTimeline: F3DTimelineModule;
   /** @deprecated Use `F3D.instanced` instead. */
   F3DInstanced: F3DInstancedModule;
   /** @deprecated Use `F3D.post` instead. */
@@ -684,6 +774,8 @@ interface Window {
   F3DPBR?: F3DPbrModule;
   /** @deprecated Use `F3D.keys` instead. */
   F3DKeys?: F3DKeysModule;
+  /** @deprecated Use `F3D.timeline` instead. */
+  F3DTimeline?: F3DTimelineModule;
   /** @deprecated Use `F3D.instanced` instead. */
   F3DInstanced?: F3DInstancedModule;
   /** @deprecated Use `F3D.post` instead. */
@@ -734,6 +826,7 @@ declare module "forge3d" {
   export const env: F3DEnvModule;
   export const pbr: F3DPbrModule;
   export const keys: F3DKeysModule;
+  export const timeline: F3DTimelineModule;
   export const instanced: F3DInstancedModule;
   export const post: F3DPostModule;
   export const shader: F3DShaderModule;
@@ -868,6 +961,34 @@ declare module "forge3d" {
   /* Keys (runtime/f3d-keys.js), flat. */
   export function ease(name: string, p: number): number;
   export function evalTrack(track: F3DKeyTrack, t: number): F3DPose;
+  export function evalTrackQ(track: F3DKeyTrack, t: number): F3DPoseQ;
+
+  /* Timeline (runtime/f3d-timeline.js), flat. */
+  export function evalChannels(
+    timeline: F3DTimelineIR,
+    characterId: string,
+    frame: number,
+    restPose?: F3DChannelPose
+  ): F3DChannelPose;
+  export function evalPoseKeys(
+    track: { [key: string]: unknown },
+    frame: number
+  ): F3DPoseQ;
+  export function evalCamera(
+    track: { [key: string]: unknown },
+    frame: number
+  ): { pos: F3DVec3; target: F3DVec3; fov: number };
+  export function figureJoints(
+    pose: F3DChannelPose,
+    proportionsWord?: string,
+    height?: number
+  ): { [joint: string]: [number, number] };
+  export function activeDialogue(
+    timeline: F3DTimelineIR,
+    frame: number
+  ): F3DDialogueCue[];
+  export function proportionsFor(word?: string): F3DProportions;
+  export const CHANNELS: string[];
 
   /* Instancing (runtime/f3d-instanced.js), flat. */
   export function add(

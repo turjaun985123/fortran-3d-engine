@@ -250,6 +250,87 @@ test('test_duration_fallback_and_nonpositive_duration', () => {
   checkTrack(flat, 1, refEval(flat, 1));
 });
 
+// ------------------------------------------------------------------
+// Wave 3 extensions: the Phase 5 ease names (cubic-*, bezier,
+// hold) and evalTrackQ (key_eval_q mirror: quat slerp, per-axis
+// scale, per-track fps). Added additively; the tests above are
+// unchanged.
+// ------------------------------------------------------------------
+
+test('test_exports_eval_track_q', () => {
+  needK();
+  assert.strictEqual(typeof K.evalTrackQ, 'function');
+});
+
+test('test_ease_cubic_and_hold_values', () => {
+  needK();
+  assert.ok(near(K.ease('cubic-in', 0.5), 0.125));
+  assert.ok(near(K.ease('cubic-out', 0.5), 0.875));
+  assert.ok(near(K.ease('cubic-in-out', 0.25), 0.0625));
+  assert.ok(near(K.ease('cubic-in-out', 0.75), 0.9375));
+  assert.strictEqual(K.ease('hold', 0.5), 0);
+  assert.strictEqual(K.ease('hold', 1), 0);
+});
+
+test('test_ease_bezier_identity_and_malformed', () => {
+  needK();
+  for (const p of [0.13, 0.37, 0.5, 0.91])
+    assert.ok(Math.abs(K.ease('bezier(0,0,1,1)', p) - p) <= 1e-6,
+      'bezier identity @ ' + p);
+  assert.ok(Math.abs(K.ease('bezier(0.25,0.1,0.25,1)', 0.5) -
+                     0.8024) <= 1e-3);
+  assert.ok(near(K.ease('bezier(1,2)', 0.3), 0.3)); // malformed
+});
+
+test('test_eval_track_q_slerp_midpoint', () => {
+  needK();
+  const track = { target: 'cube', duration: 2, loop: 'once',
+    keys: [{ time: 0, pos: [0, 0, 0], rot: [0, 0, 0], scale: 1,
+             ease: 'linear' },
+           { time: 2, pos: [4, 2, 0], rot: [0, 90, 0],
+             scale3: [2, 3, 4], ease: 'linear' }] };
+  const mid = K.evalTrackQ(track, 1);
+  assert.ok(near(mid.pos[0], 2) && near(mid.pos[1], 1));
+  assert.ok(near(mid.quat[1], Math.sin(Math.PI / 8)));
+  assert.ok(near(mid.quat[3], Math.cos(Math.PI / 8)));
+  assert.ok(near(mid.scale3[0], 1.5) && near(mid.scale3[1], 2) &&
+            near(mid.scale3[2], 2.5));
+});
+
+test('test_eval_track_q_slerp_shortest_path_wrap', () => {
+  needK();
+  // 350 -> 10 degrees about Y must pass through 0, not 180.
+  const track = { target: 'cube', duration: 2, loop: 'once',
+    keys: [{ time: 0, pos: [0, 0, 0], rot: [0, 350, 0], scale: 1,
+             ease: 'linear' },
+           { time: 2, pos: [0, 0, 0], rot: [0, 10, 0], scale: 1,
+             ease: 'linear' }] };
+  const mid = K.evalTrackQ(track, 1);
+  assert.ok(Math.abs(mid.quat[1]) <= 1e-9, 'quat y ' + mid.quat[1]);
+  assert.ok(near(Math.abs(mid.quat[3]), 1));
+});
+
+test('test_eval_track_q_fps_frames', () => {
+  needK();
+  // fps 24: key times are frames; t = 1 s -> frame 24 = midpoint.
+  const track = { target: 'cube', duration: 48, loop: 'once',
+    fps: 24,
+    keys: [{ time: 0, pos: [0, 0, 0], rot: [0, 0, 0], scale: 1,
+             ease: 'linear' },
+           { time: 48, pos: [4, 2, 0], rot: [0, 0, 0], scale: 2,
+             ease: 'linear' }] };
+  const mid = K.evalTrackQ(track, 1);
+  assert.ok(near(mid.pos[0], 2) && near(mid.pos[1], 1));
+  assert.ok(near(mid.scale3[0], 1.5));
+});
+
+test('test_eval_track_q_empty_is_identity', () => {
+  needK();
+  const out = K.evalTrackQ({ target: 'x', keys: [] }, 1);
+  assert.deepStrictEqual(out, { pos: [0, 0, 0], quat: [0, 0, 0, 1],
+    scale3: [1, 1, 1] });
+});
+
 (async () => {
   let failures = 0;
   for (const [name, fn] of tests) {

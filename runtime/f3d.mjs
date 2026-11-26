@@ -6,7 +6,7 @@
 //   import { create, worldTris } from "./f3d.mjs";  // flat core names
 //   import F3D from "./f3d.mjs";              // default = the namespace
 //
-// It aggregates the fifteen runtime modules, in dependency order
+// It aggregates the sixteen runtime modules, in dependency order
 // (the core first, then every sidecar -- the same order
 // tools/build_runtime.mjs concatenates for the classic bundle):
 //
@@ -19,6 +19,7 @@
 //   f3d-env.js      fog + tonemapping.
 //   f3d-pbr.js      PBR materials + point shading.
 //   f3d-keys.js     keyframe tracks + easing.
+//   f3d-timeline.js Timeline IR evaluation + figure FK.
 //   f3d-instanced.js  instanced meshes + 4x4 matrix helpers.
 //   f3d-post.js     post-processing filter chains.
 //   f3d-shader.js   RPN custom-shader expressions.
@@ -56,6 +57,7 @@ import * as geo from "./f3d-geo.js";
 import * as env from "./f3d-env.js";
 import * as pbr from "./f3d-pbr.js";
 import * as keys from "./f3d-keys.js";
+import * as timeline from "./f3d-timeline.js";
 import * as instanced from "./f3d-instanced.js";
 import * as post from "./f3d-post.js";
 import * as shader from "./f3d-shader.js";
@@ -75,6 +77,7 @@ export * from "./f3d-geo.js";
 export * from "./f3d-env.js";
 export * from "./f3d-pbr.js";
 export * from "./f3d-keys.js";
+export * from "./f3d-timeline.js";
 export * from "./f3d-instanced.js";
 export * from "./f3d-post.js";
 export * from "./f3d-shader.js";
@@ -95,6 +98,7 @@ export {
   env,
   pbr,
   keys,
+  timeline,
   instanced,
   post,
   shader,
@@ -129,6 +133,7 @@ export const F3D = {
   env: env,
   pbr: pbr,
   keys: keys,
+  timeline: timeline,
   instanced: instanced,
   post: post,
   shader: shader,
@@ -145,6 +150,7 @@ export const F3D = {
   F3DEnv: env,
   F3DPBR: pbr,
   F3DKeys: keys,
+  F3DTimeline: timeline,
   F3DInstanced: instanced,
   F3DPost: post,
   Forge3DShader: shader,

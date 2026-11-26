@@ -22,7 +22,7 @@
 //   in the total.
 //
 // CLASSIC BUNDLE (--bundle)
-//   Writes build/f3d.bundle.js: the fifteen modules concatenated
+//   Writes build/f3d.bundle.js: the sixteen modules concatenated
 //   in the aggregator's dependency order (MODULES below -- keep it
 //   in sync with runtime/f3d.mjs), each preceded by a banner
 //   comment naming its source file, so a plain <script> tag gets
@@ -63,7 +63,7 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-// The fifteen budgeted modules, in the aggregator's dependency
+// The sixteen budgeted modules, in the aggregator's dependency
 // order (runtime/f3d.mjs): the core first, then every sidecar.
 const MODULES = [
   "f3d.js",
@@ -71,6 +71,7 @@ const MODULES = [
   "f3d-env.js",
   "f3d-pbr.js",
   "f3d-keys.js",
+  "f3d-timeline.js",
   "f3d-instanced.js",
   "f3d-post.js",
   "f3d-shader.js",
