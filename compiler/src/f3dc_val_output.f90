@@ -133,8 +133,18 @@ contains
         if (pathv%kind /= DYN_K_NULL) then
           if (.not. in_words(path_ext_lower(py_str(pathv)), &
                RENDER_EXTS)) then
-            call verrn("E301", "a render can only be written " // &
-                 "to .ppm or .png, not " // py_repr(pathv), node)
+            ! ANIM Wave 1 (ANIM-PLAN SS1.9 rule 7): in FILM MODE
+            ! only, a .mp4 render name is accepted -- it means
+            ! "render the timeline and assemble video" through the
+            ! existing --video/ffmpeg output path the CLI already
+            ! has; the ir_output below stays the ordinary render
+            ! output carrying that path (Wave 5 owns the real
+            ! export changes).  Legacy mode keeps the E301.
+            if (.not. (path_ext_lower(py_str(pathv)) == ".mp4" &
+                 .and. program_is_film())) then
+              call verrn("E301", "a render can only be written " // &
+                   "to .ppm or .png, not " // py_repr(pathv), node)
+            end if
           end if
         end if
         call check_image_dim("render width", ow, has_ow, node)

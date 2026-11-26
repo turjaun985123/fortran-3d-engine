@@ -66,15 +66,18 @@ module f3dc_desugar
                       dyn_str, dyn_list, dyn_dict, dyn_copy, dyn_assign, &
                       dyn_dict_get, dyn_dict_set, dyn_dict_has, &
                       dyn_dict_len, dyn_dict_key_at, &
+                      dyn_dict_value_at, dyn_dict_remove, &
                       dyn_list_push, dyn_list_len, dyn_list_at, &
+                      dyn_list_set_at, &
                       DYN_K_NULL, DYN_K_BOOL, DYN_K_INT, DYN_K_REAL, &
                       DYN_K_STR, DYN_K_LIST, DYN_K_DICT
   use f3dc_str, only: char_list, char_list_append, char_list_len, &
-                      char_list_at, char_list_clear, fmt_int, to_lower, &
+                      char_list_at, char_list_clear, fmt_int, fmt_real, &
+                      to_lower, &
                       str_split, str_join, path_dirname, str_builder, &
                       sb_init, sb_add, sb_text, sb_len
   use f3dc_errors, only: error_bag_t, make_diagnostic, error_bag_add, &
-                         error_bag_error_count
+                         error_bag_error_count, did_you_mean
   use f3dc_parser, only: f3dc_parse
   use f3dc_ast, only: ast_program, ast_program_from_dyn, &
                       ast_program_to_dyn
@@ -105,6 +108,54 @@ module f3dc_desugar
     integer :: vals(256) = 0
     integer :: n = 0
   end type prim_counters
+
+  !> ANIM Wave 1 slice C (docs/ANIM-PLAN.md SS2.2): `let` bindings
+  !! for step 0.5a.  units(i) is the binding's duration unit
+  !! ("seconds" / "beats" / "" when the value carried no unit).
+  type :: let_tab
+    character(len=256) :: names(256)
+    type(dyn) :: vals(256)
+    character(len=32) :: units(256)
+    integer :: n = 0
+  end type let_tab
+
+  !> ANIM Wave 1 slice C: a name -> payload table for step 0.5b/c
+  !! definitions.  a(i) homes: character/place/object -> at vec3;
+  !! actiondef -> body cue list.  b(i) homes an actiondef's
+  !! declared duration (dyn_null when undeclared); bunit(i) its
+  !! unit.  cue-end tables home a dyn_real end time in a(i).
+  type :: def_tab
+    character(len=256) :: names(256)
+    type(dyn) :: a(256)
+    type(dyn) :: b(256)
+    character(len=32) :: bunit(256)
+    logical :: used(256) = .false.  !< actiondef use marks (W203)
+    integer :: n = 0
+  end type def_tab
+
+  !> ANIM Wave 1 slice C: per-program state for timeline
+  !! resolution (step 0.5c).  The scene-local tables and the
+  !! scene cursor reset at every SceneStmt; the camera state is
+  !! seeded from the shot's camera statement (or the desugar
+  !! defaults) and updated by every emitted camera move.
+  type :: tl_ctx
+    real(real64) :: tempo = 60.0_real64  !< film tempo, bpm
+    type(dyn) :: film_fps                !< film fps dyn or null
+    type(def_tab) :: chars               !< this scene's characters
+    type(def_tab) :: places              !< this scene's places
+    type(def_tab) :: objects             !< this scene's objects
+    real(real64) :: prev_start = 0.0_real64
+    real(real64) :: prev_end = 0.0_real64
+    logical :: has_prev = .false.
+    type(dyn) :: cam_pos                 !< vec3 dyn
+    type(dyn) :: cam_look                !< vec3 dyn
+    real(real64) :: cam_fov = 60.0_real64
+    integer(int64) :: budget = 0_int64   !< E820 expansion budget
+    logical :: budget_blown = .false.
+    integer :: next_group = 0  !< with-group id counter (E207)
+    real(real64) :: cam_last_t = -1.0_real64  !< last @camera key time
+    logical :: cam_has_key = .false.
+  end type tl_ctx
 
 contains
 
@@ -539,6 +590,45 @@ contains
     character(len=*), intent(in) :: name
     is_node = .false.
     if (stmt%kind /= DYN_K_DICT) return
+    ! ANIM wave (plan SS2.6): the new film/animation marker keys are
+    ! checked FIRST, before the legacy structural signatures -- a
+    ! cue node, say, also carries verb-adjacent keys and must never
+    ! be mistaken for a plain AnimStmt.
+    select case (name)
+    case ("FilmStmt")
+      is_node = dyn_dict_has(stmt, "film_def")
+      return
+    case ("CharacterStmt")
+      is_node = dyn_dict_has(stmt, "char_def")
+      return
+    case ("ActionDefStmt")
+      is_node = dyn_dict_has(stmt, "action_def")
+      return
+    case ("TimelineStmt")
+      is_node = dyn_dict_has(stmt, "timeline_def")
+      return
+    case ("CueStmt")
+      is_node = dyn_dict_has(stmt, "cue")
+      return
+    case ("CamMoveStmt")
+      is_node = dyn_dict_has(stmt, "cam_move")
+      return
+    case ("DialogueStmt")
+      is_node = dyn_dict_has(stmt, "say")
+      return
+    case ("TransitionStmt")
+      is_node = dyn_dict_has(stmt, "transition")
+      return
+    case ("LoopBlockStmt")
+      is_node = dyn_dict_has(stmt, "loop_block")
+      return
+    case ("LetStmt")
+      is_node = dyn_dict_has(stmt, "let_name")
+      return
+    case ("PlaceStmt")
+      is_node = dyn_dict_has(stmt, "place")
+      return
+    end select
     select case (name)
     case ("ObjectStmt")
       is_node = dyn_dict_has(stmt, "prim")
@@ -1854,6 +1944,12 @@ contains
     end block
     was_empty = (stmts%n == 0)
 
+    ! 0.5a (ANIM Wave 1, SS2.2): `let` substitution.  Runs before
+    ! import expansion so a variable can feed an import path; the
+    ! bindings are scene-block scoped, must precede use, and are
+    ! immutable (E213).  `let` nodes never survive this step.
+    call step_let_pass(stmts, bag)
+
     ! 0. Expand import statements (v2.0 P3), in source order, before
     ! group/repeat expansion: each import becomes a synthetic group
     ! node that step 1 expands like a hand-written group.
@@ -1899,6 +1995,22 @@ contains
         call arr_push(flat, stmts%items(k))
       end if
     end do
+
+    ! 0.5a (second run) + 0.5b/0.5c (ANIM Wave 1, SS2.2): the let
+    ! pass runs again on the flattened stream so bindings that
+    ! arrived inside imported parts (flattened by step 1-2 group
+    ! expansion) substitute too -- it is a no-op when no `let`
+    ! nodes remain.  Then definition collection (characters,
+    ! actiondefs, places) and timeline resolution rewrite every
+    ! timeline node into pre-existing shapes (AnimStmt, keys
+    ! header + key statements, resolved dialogue, transitions).
+    ! character / actiondef / timeline / cue / loopblock / let
+    ! nodes never survive, which is what makes this pass a no-op
+    ! on its own output when validate re-runs desugar (SS2.6
+    ! seam 4).  Non-film programs contain none of these nodes, so
+    ! their rewrites stay byte-identical.
+    call step_let_pass(flat, bag)
+    call step_timeline_pass(flat, bag, budget)
 
     ! Empty program: inject the demo cube.
     if (was_empty .and. .not. any_node(flat, "ObjectStmt")) then
@@ -2072,6 +2184,1519 @@ contains
     if (dyn_list_len(import_deps) > 0) &
       call dyn_dict_set(program_out, "_import_deps", import_deps)
   end subroutine desugar
+
+  ! ==================================================================
+  ! ANIM Wave 1 slice C -- steps 0.5a/0.5b/0.5c (SS2.2): let
+  ! substitution, definition collection, timeline resolution.
+  !
+  ! Node-shape decisions taken here (SS2.2 output contract):
+  !   - A character becomes a minimal named OBJECT in the parser's
+  !     ObjectStmt shape with prim "tris" and an empty "tris" list
+  !     in its props: it registers the character's name in the
+  !     object namespace (so anim / keys / cue targets resolve)
+  !     and carries no geometry at all, i.e. it is render-neutral.
+  !     Its props also carry character=.true. so Wave 3 rig
+  !     generation can find and replace these placeholders.
+  !     (A group-shaped placeholder was rejected: validate re-runs
+  !     desugar, and group expansion would erase it on pass 2.)
+  !     Character member statements (body children) expand through
+  !     the existing group machinery via a synthetic group named
+  !     after the character, exactly as SS2.2 step 0.5b prescribes.
+  !   - A `place` node is REMOVED from the stream after
+  !     registering name -> vec3 in the scene-local place table.
+  !     No pre-existing node shape represents a pure named point,
+  !     and every consumer of a place is a cue, which this pass
+  !     resolves to a vec3 (or a named object's position) before
+  !     anything downstream runs.  A marker object would pollute
+  !     the scene IR and the render for no consumer.
+  !   - A built-in-verb cue becomes a plain AnimStmt in the exact
+  !     parse_anim shape, PLUS two fields-bag (top-level) keys:
+  !     "start" (absolute seconds, dyn_real) and "channel"
+  !     ("body" for locomotion/gesture verbs, "face" for
+  !     smile/face).  The resolved duration rides the ordinary
+  !     "duration" keys (top level and props), in seconds.
+  !   - A cammove becomes a `keys` header + `key` statements in
+  !     the exact parse_keys_header / parse_key shapes for the
+  !     reserved pseudo-target "@camera"; the camera payload the
+  !     keyframe shape has no room for (look vec3, fov) rides as
+  !     extra top-level keys AND props-bag keys on each key node,
+  !     and a follow move's target name rides "follow" on the
+  !     header and keys -- data for Wave 3 to interpret.
+  !   - A dialogue node keeps its "say" marker and gains absolute
+  !     "start" / resolved "duration" (top level and props); when
+  !     the duration was estimated it also gains estimated=.true.
+  !   - Transition nodes (the `fade out` closing cue) and the
+  !     film node survive untouched; their durations still drive
+  !     the cursor (explicit, else 1 s for a transition).
+  !   - Nothing resolvable survives: character / actiondef /
+  !     timeline / cue / cammove / loopblock / let / place nodes
+  !     are all consumed, so a second desugar pass (validate's) is
+  !     a structural no-op on this pass's output (SS2.6 seam 4).
+  !
+  ! Diagnostics raised here: E213 (step 0.5a), E206 / E212 /
+  ! E820 (step 0.5c).  E207-E211 and W203/W204 belong to the
+  ! validator's timeline section (SS2.3/SS2.4) and are NOT raised
+  ! here; in particular dialogue estimation is stamped, not
+  ! warned about, in this pass.
+  ! ==================================================================
+
+  integer function let_find(tab, name)
+    type(let_tab), intent(in) :: tab
+    character(len=*), intent(in) :: name
+    integer :: k
+    let_find = 0
+    do k = 1, tab%n
+      if (trim(tab%names(k)) == name) then
+        let_find = k
+        return
+      end if
+    end do
+  end function let_find
+
+  subroutine let_add(tab, name, val, unit)
+    type(let_tab), intent(inout) :: tab
+    character(len=*), intent(in) :: name
+    type(dyn), intent(in) :: val
+    character(len=*), intent(in) :: unit
+    if (tab%n >= 256) return
+    tab%n = tab%n + 1
+    tab%names(tab%n) = name
+    tab%vals(tab%n) = dyn_copy(val)
+    tab%units(tab%n) = unit
+  end subroutine let_add
+
+  !> Deep copy of a let_tab (bare derived-type assignment would
+  !! alias the dyn values' allocatable components -- the same
+  !! trap dyn_copy exists for).
+  subroutine let_tab_copy(dst, src)
+    type(let_tab), intent(inout) :: dst
+    type(let_tab), intent(in) :: src
+    integer :: k
+    dst%n = src%n
+    do k = 1, src%n
+      dst%names(k) = src%names(k)
+      dst%vals(k) = dyn_copy(src%vals(k))
+      dst%units(k) = src%units(k)
+    end do
+  end subroutine let_tab_copy
+
+  integer function def_find(tab, name)
+    type(def_tab), intent(in) :: tab
+    character(len=*), intent(in) :: name
+    integer :: k
+    def_find = 0
+    do k = 1, tab%n
+      if (trim(tab%names(k)) == name) then
+        def_find = k
+        return
+      end if
+    end do
+  end function def_find
+
+  subroutine def_add(tab, name, a, b, bunit)
+    type(def_tab), intent(inout) :: tab
+    character(len=*), intent(in) :: name
+    type(dyn), intent(in) :: a
+    type(dyn), intent(in), optional :: b
+    character(len=*), intent(in), optional :: bunit
+    integer :: idx
+    idx = def_find(tab, name)
+    if (idx == 0) then
+      if (tab%n >= 256) return
+      tab%n = tab%n + 1
+      idx = tab%n
+      tab%names(idx) = name
+    end if
+    tab%a(idx) = dyn_copy(a)
+    if (present(b)) then
+      tab%b(idx) = dyn_copy(b)
+    else
+      tab%b(idx) = dyn_null()
+    end if
+    if (present(bunit)) then
+      tab%bunit(idx) = bunit
+    else
+      tab%bunit(idx) = ""
+    end if
+  end subroutine def_add
+
+  !> Step 0.5a substitution walk: replace `let` references in one
+  !! statement (recursing through props / body / children lists).
+  !! Only value slots substitute: duration / offset / count (a
+  !! string there is a let reference by construction -- the
+  !! parser keeps a bare name in those slots for exactly this
+  !! pass; an unbound one is E213 and the slot is nulled so a
+  !! second pass cannot raise twice) and, when the string names
+  !! a binding, import_path / at / pos / to / target (names that
+  !! are not bindings -- places, objects -- pass through).
+  recursive subroutine subst_walk(v, tab, bag)
+    type(dyn), intent(inout) :: v
+    type(let_tab), intent(in) :: tab
+    type(error_bag_t), intent(inout) :: bag
+    integer :: k, idx
+    character(len=:), allocatable :: key, sname
+    type(dyn) :: child
+    if (v%kind == DYN_K_DICT) then
+      do k = 1, dyn_dict_len(v)
+        key = dyn_dict_key_at(v, k)
+        child = dyn_dict_value_at(v, k)
+        if ((key == "duration" .or. key == "offset" .or. &
+             key == "count") .and. child%kind == DYN_K_STR) then
+          sname = str_of(child)
+          idx = let_find(tab, sname)
+          if (idx > 0) then
+            call dyn_dict_set(v, key, dyn_copy(tab%vals(idx)))
+            if (key == "duration" .and. &
+                len_trim(tab%units(idx)) > 0) &
+              call dyn_dict_set(v, "duration_unit", &
+                                dyn_str(trim(tab%units(idx))))
+            if (key == "offset" .and. &
+                len_trim(tab%units(idx)) > 0) &
+              call dyn_dict_set(v, "offset_unit", &
+                                dyn_str(trim(tab%units(idx))))
+          else
+            call emit_diag(bag, "E213", "error", &
+              "'" // sname // "' is used as a " // key // &
+              ", but no 'let " // sname // &
+              " be ...' line defines it before this point")
+            call dyn_dict_set(v, key, dyn_null())
+          end if
+        else if ((key == "import_path" .or. key == "at" .or. &
+                  key == "pos" .or. key == "to" .or. &
+                  key == "target") .and. &
+                 child%kind == DYN_K_STR) then
+          idx = let_find(tab, str_of(child))
+          if (idx > 0) &
+            call dyn_dict_set(v, key, dyn_copy(tab%vals(idx)))
+        else if (child%kind == DYN_K_DICT .or. &
+                 child%kind == DYN_K_LIST) then
+          call subst_walk(child, tab, bag)
+          call dyn_dict_set(v, key, child)
+        end if
+      end do
+    else if (v%kind == DYN_K_LIST) then
+      do k = 1, dyn_list_len(v)
+        child = dyn_list_at(v, k)
+        if (child%kind == DYN_K_DICT .or. &
+            child%kind == DYN_K_LIST) then
+          call subst_walk(child, tab, bag)
+          call dyn_list_set_at(v, k, child)
+        end if
+      end do
+    end if
+  end subroutine subst_walk
+
+  !> Step 0.5a -- let substitution (SS2.2).  Bindings are
+  !! scene-block scoped: bindings made before the first scene
+  !! statement are the file preamble and stay visible in every
+  !! scene; bindings made inside a scene are dropped when the
+  !! next scene begins.  A binding must precede its use and a
+  !! second binding of one name in one scope is E213.
+  subroutine step_let_pass(stmts, bag)
+    type(dyn_arr), intent(inout) :: stmts
+    type(error_bag_t), intent(inout) :: bag
+    type(dyn_arr) :: out
+    type(let_tab) :: active, globals
+    logical :: have_globals
+    integer :: k, idx
+    type(dyn) :: node, lval
+    character(len=:), allocatable :: lname, lunit
+    out%n = 0
+    out%cap = 0
+    have_globals = .false.
+    do k = 1, stmts%n
+      node = dyn_copy(stmts%items(k))
+      if (is_node(node, "SceneStmt")) then
+        if (.not. have_globals) then
+          call let_tab_copy(globals, active)
+          have_globals = .true.
+        else
+          call let_tab_copy(active, globals)
+        end if
+        call arr_push(out, node)
+        cycle
+      end if
+      if (is_node(node, "LetStmt")) then
+        lname = str_of(dyn_dict_get(node, "let_name"))
+        lval = dyn_dict_get(node, "value")
+        lunit = str_of(dyn_dict_get(node, "value_unit"))
+        if (lval%kind == DYN_K_STR) then
+          idx = let_find(active, str_of(lval))
+          if (idx > 0) then
+            lval = dyn_copy(active%vals(idx))
+            if (len_trim(active%units(idx)) > 0) &
+              lunit = trim(active%units(idx))
+          end if
+        end if
+        if (let_find(active, lname) > 0) then
+          call emit_diag(bag, "E213", "error", &
+            "'let " // lname // "' is defined twice; let names " &
+            // "are immutable -- give the second value its own name")
+        else
+          call let_add(active, lname, lval, lunit)
+        end if
+        cycle  ! the let node never survives
+      end if
+      call subst_walk(node, active, bag)
+      call arr_push(out, node)
+    end do
+    call move_alloc(out%items, stmts%items)
+    stmts%n = out%n
+    stmts%cap = out%cap
+    out%n = 0
+    out%cap = 0
+  end subroutine step_let_pass
+
+  !> An explicit duration on a cue-shaped node, in seconds:
+  !! the top-level "duration" (else the props one), converted
+  !! from beats via the film tempo when its unit says so.
+  subroutine dur_of_node(node, tempo, dur, has)
+    type(dyn), intent(in) :: node
+    real(real64), intent(in) :: tempo
+    real(real64), intent(out) :: dur
+    logical, intent(out) :: has
+    type(dyn) :: v, props, uv
+    dur = 0.0_real64
+    has = .false.
+    v = dyn_dict_get(node, "duration")
+    uv = dyn_dict_get(node, "duration_unit")
+    if (v%kind == DYN_K_NULL) then
+      call props_of(node, props)
+      v = dyn_dict_get(props, "duration")
+      uv = dyn_dict_get(props, "duration_unit")
+    else if (uv%kind == DYN_K_NULL) then
+      call props_of(node, props)
+      uv = dyn_dict_get(props, "duration_unit")
+    end if
+    if (.not. is_number(v)) return
+    dur = to_real64(v)
+    if (str_of(uv) == "beats") then
+      if (tempo > 0.0_real64) dur = dur * 60.0_real64 / tempo
+    end if
+    has = .true.
+  end subroutine dur_of_node
+
+  !> A cue's `at` / `after` offset field, in seconds (beats via
+  !! the film tempo); 0 when the field is null / absent.
+  function offset_seconds(node, tempo) result(r)
+    type(dyn), intent(in) :: node
+    real(real64), intent(in) :: tempo
+    real(real64) :: r
+    type(dyn) :: v, uv
+    r = 0.0_real64
+    v = dyn_dict_get(node, "offset")
+    if (.not. is_number(v)) return
+    r = to_real64(v)
+    uv = dyn_dict_get(node, "offset_unit")
+    if (str_of(uv) == "beats") then
+      if (tempo > 0.0_real64) r = r * 60.0_real64 / tempo
+    end if
+  end function offset_seconds
+
+  !> The start of one cue in its sequence's local frame, from
+  !! its timing fields against the sequence cursor (SS2.2 0.5c):
+  !! then -> end of previous; with -> start of previous; at T ->
+  !! T; after X -> end of the cue registered as X, plus offset.
+  subroutine tl_cue_start(node, tempo, ends, pstart, pend, phas, &
+                          start, bag, dry_bag)
+    type(dyn), intent(in) :: node
+    real(real64), intent(in) :: tempo
+    type(def_tab), intent(in) :: ends
+    real(real64), intent(in) :: pstart, pend
+    logical, intent(in) :: phas
+    real(real64), intent(out) :: start
+    type(error_bag_t), intent(inout) :: bag
+    logical, intent(in) :: dry_bag
+    character(len=:), allocatable :: timing, anchor
+    integer :: idx
+    timing = str_of(dyn_dict_get(node, "timing"))
+    if (timing == "with") then
+      start = 0.0_real64
+      if (phas) start = pstart
+    else if (timing == "at") then
+      start = offset_seconds(node, tempo)
+    else if (timing == "after") then
+      start = 0.0_real64
+      if (phas) start = pend
+      anchor = str_of(dyn_dict_get(node, "anchor"))
+      idx = def_find(ends, anchor)
+      if (idx > 0) then
+        start = to_real64(ends%a(idx)) + offset_seconds(node, tempo)
+      else if (.not. dry_bag) then
+        ! An `after` anchor is a reference to an earlier cue's
+        ! action in the same timeline (SS2.2 0.5c); an anchor no
+        ! prior cue registered is an unknown-action reference,
+        ! so it takes E206 -- the desugar unknown-action code --
+        ! rather than silently starting at the previous cue's
+        ! end.  The pend fallback above is kept only so the
+        ! (already failed) resolution can continue.
+        call emit_diag(bag, "E206", "error", &
+          "cue starts 'after " // anchor // "', but no earlier " &
+          // "cue in this timeline does '" // anchor // "'")
+      end if
+    else
+      start = 0.0_real64
+      if (phas) start = pend
+    end if
+  end subroutine tl_cue_start
+
+  !> Charge n resolved steps against the shared E820 expansion
+  !! budget (the repeat-placement mechanism, SS2.4): the first
+  !! overflow raises E820 once; later ones stay silent.
+  subroutine tl_spend(ctx, bag, n, dry_budget)
+    type(tl_ctx), intent(inout) :: ctx
+    type(error_bag_t), intent(inout) :: bag
+    integer(int64), intent(in) :: n
+    logical, intent(in) :: dry_budget
+    if (dry_budget) return
+    if (ctx%budget_blown) return
+    ctx%budget = ctx%budget - n
+    if (ctx%budget < 0_int64) then
+      ctx%budget_blown = .true.
+      call emit_diag(bag, "E820", "error", &
+        "timeline expansion would exceed the " // &
+        trim(fmt_int(MAX_PLACEMENTS)) // &
+        "-step expansion limit")
+    end if
+  end subroutine tl_spend
+
+  !> The built-in sentence verbs (SS1.3 canonical base forms)
+  !! plus the legacy ANIM_KINDS verbs, which are equally valid
+  !! cue actions.  `wait` is the timeline pause cue.
+  logical function tl_is_builtin(action)
+    character(len=*), intent(in) :: action
+    select case (action)
+    case ("walk", "run", "enter", "exit", "wave", "sit", "stand", &
+          "jump", "fall", "look", "face", "point", "nod", "shake", &
+          "dance", "sleep", "smile", "pick", "give", "tap", &
+          "spin", "move", "wait", "bob", "pulse", "orbit", &
+          "turn", "grow")
+      tl_is_builtin = .true.
+    case default
+      tl_is_builtin = .false.
+    end select
+  end function tl_is_builtin
+
+  !> The channel a built-in verb animates (SS2.4 E207 channels):
+  !! face for the expression verbs, body for everything else.
+  function tl_channel(action) result(ch)
+    character(len=*), intent(in) :: action
+    character(len=:), allocatable :: ch
+    if (action == "smile" .or. action == "face") then
+      ch = "face"
+    else
+      ch = "body"
+    end if
+  end function tl_channel
+
+  !> Word count of a dialogue line for the duration estimate
+  !! (SS1.6: ~0.4 s/word).  Byte-wise on spaces/tabs, which is
+  !! exact for UTF-8 text (continuation bytes are never 0x20).
+  integer function tl_word_count(s)
+    character(len=*), intent(in) :: s
+    logical :: in_word
+    integer :: i
+    tl_word_count = 0
+    in_word = .false.
+    do i = 1, len(s)
+      if (s(i:i) == " " .or. s(i:i) == achar(9)) then
+        in_word = .false.
+      else if (.not. in_word) then
+        tl_word_count = tl_word_count + 1
+        in_word = .true.
+      end if
+    end do
+  end function tl_word_count
+
+  !> Resolve a name to a vec3 through the scene's place table,
+  !! then its object table (characters register in both).
+  subroutine tl_name_vec(ctx, name, vec, found)
+    type(tl_ctx), intent(in) :: ctx
+    character(len=*), intent(in) :: name
+    type(dyn), intent(out) :: vec
+    logical, intent(out) :: found
+    integer :: idx
+    found = .false.
+    vec = dyn_null()
+    idx = def_find(ctx%places, name)
+    if (idx > 0) then
+      vec = dyn_copy(ctx%places%a(idx))
+      found = vec%kind == DYN_K_LIST
+      return
+    end if
+    idx = def_find(ctx%objects, name)
+    if (idx > 0) then
+      vec = dyn_copy(ctx%objects%a(idx))
+      found = vec%kind == DYN_K_LIST
+    end if
+  end subroutine tl_name_vec
+
+  !> E206 with a did-you-mean over built-in verbs + defined
+  !! actions (Damerau-Levenshtein <= 2, via f3dc_errors).
+  subroutine tl_raise_e206(bag, action, acts)
+    type(error_bag_t), intent(inout) :: bag
+    character(len=*), intent(in) :: action
+    type(def_tab), intent(in) :: acts
+    type(char_list) :: cands
+    character(len=:), allocatable :: guess, msg
+    logical :: found
+    integer :: k
+    character(8), parameter :: BLTIN(27) = [character(8) :: &
+      "walk", "run", "enter", "exit", "wave", "sit", "stand", &
+      "jump", "fall", "look", "face", "point", "nod", "shake", &
+      "dance", "sleep", "smile", "pick", "give", "tap", "spin", &
+      "move", "wait", "bob", "pulse", "orbit", "turn"]
+    do k = 1, size(BLTIN)
+      call char_list_append(cands, trim(BLTIN(k)))
+    end do
+    call char_list_append(cands, "grow")
+    do k = 1, acts%n
+      call char_list_append(cands, trim(acts%names(k)))
+    end do
+    call did_you_mean(action, cands, guess, found)
+    msg = "timeline uses action '" // action // &
+          "', but no action is called that"
+    if (found) msg = msg // "; did you mean '" // guess // "'?"
+    call emit_diag(bag, "E206", "error", msg)
+  end subroutine tl_raise_e206
+
+  !> E212 with the expansion chain, as import cycles report
+  !! theirs under E504 (SS2.4).
+  subroutine tl_raise_e212(bag, action, stack)
+    type(error_bag_t), intent(inout) :: bag
+    character(len=*), intent(in) :: action
+    type(char_list), intent(in) :: stack
+    type(str_builder) :: sb
+    integer :: k
+    call sb_init(sb)
+    do k = 1, char_list_len(stack)
+      if (k > 1) call sb_add(sb, " -> ")
+      call sb_add(sb, char_list_at(stack, k))
+    end do
+    if (sb_len(sb) > 0) call sb_add(sb, " -> ")
+    call sb_add(sb, action)
+    call emit_diag(bag, "E212", "error", &
+      "action '" // action // "' uses itself: " // sb_text(sb))
+  end subroutine tl_raise_e212
+  !> Any node this pass must touch?  The quick exit keeps
+  !! non-film programs on the exact pre-ANIM path.
+  logical function tl_has_work(flat)
+    type(dyn_arr), intent(in) :: flat
+    integer :: k
+    type(dyn) :: node
+    tl_has_work = .false.
+    do k = 1, flat%n
+      node = dyn_copy(flat%items(k))
+      if (is_node(node, "FilmStmt") .or. &
+          is_node(node, "CharacterStmt") .or. &
+          is_node(node, "ActionDefStmt") .or. &
+          is_node(node, "TimelineStmt") .or. &
+          is_node(node, "CueStmt") .or. &
+          is_node(node, "CamMoveStmt") .or. &
+          is_node(node, "DialogueStmt") .or. &
+          is_node(node, "TransitionStmt") .or. &
+          is_node(node, "LoopBlockStmt") .or. &
+          is_node(node, "LetStmt") .or. &
+          is_node(node, "PlaceStmt")) then
+        tl_has_work = .true.
+        return
+      end if
+    end do
+  end function tl_has_work
+
+  !> Reset the scene-local state at a shot boundary: definition
+  !! tables, the timeline cursor, and the camera state (seeded
+  !! with the desugar default camera until the shot's own camera
+  !! statement seeds it properly in tl_seed_camera).
+  subroutine tl_reset_scene(ctx)
+    type(tl_ctx), intent(inout) :: ctx
+    ctx%chars%n = 0
+    ctx%places%n = 0
+    ctx%objects%n = 0
+    ctx%prev_start = 0.0_real64
+    ctx%prev_end = 0.0_real64
+    ctx%has_prev = .false.
+    ctx%cam_pos = vec3_mixed(dyn_int(3_int64), &
+                             dyn_real(2.5_real64), dyn_int(4_int64))
+    ctx%cam_look = vec3_ints(0, 0, 0)
+    ctx%cam_fov = 60.0_real64
+    ctx%cam_last_t = -1.0_real64
+    ctx%cam_has_key = .false.
+  end subroutine tl_reset_scene
+
+  !> Register a plain object's name -> at position (cue
+  !! destinations resolve through this table).
+  subroutine tl_register_object(node, ctx)
+    type(dyn), intent(in) :: node
+    type(tl_ctx), intent(inout) :: ctx
+    type(dyn) :: nv, pv
+    logical :: nf, pf
+    call get_attr(node, "name", nv, nf)
+    if (.not. nf) return
+    if (nv%kind /= DYN_K_STR) return
+    if (.not. is_truthy(nv)) return
+    call get_attr(node, "pos", pv, pf)
+    if (.not. pf) pv = vec3_ints(0, 0, 0)
+    call def_add(ctx%objects, str_of(nv), pv)
+  end subroutine tl_register_object
+
+  !> Seed the camera state from the shot's camera statement:
+  !! pos (via the pos/position/at synonyms -- the parser node
+  !! homes the position under "at"), look (a vec3, or a character
+  !! / place name in film mode, resolved through the tables),
+  !! and fov (default 60).
+  subroutine tl_seed_camera(node, ctx)
+    type(dyn), intent(in) :: node
+    type(tl_ctx), intent(inout) :: ctx
+    type(dyn) :: v, vec
+    logical :: f, vf
+    call get_attr(node, "pos", v, f)
+    if (f .and. v%kind == DYN_K_LIST) ctx%cam_pos = dyn_copy(v)
+    v = dyn_dict_get(node, "target")
+    if (v%kind == DYN_K_LIST) then
+      ctx%cam_look = dyn_copy(v)
+    else if (v%kind == DYN_K_STR) then
+      call tl_name_vec(ctx, str_of(v), vec, vf)
+      if (vf) ctx%cam_look = dyn_copy(vec)
+    end if
+    v = dyn_dict_get(node, "fov")
+    if (is_number(v)) ctx%cam_fov = to_real64(v)
+  end subroutine tl_seed_camera
+
+  !> Step 0.5b for one character: register it (scene chars +
+  !! objects), emit the render-neutral placeholder object, and
+  !! expand any member statements through a synthetic group
+  !! named after the character (SS2.2 step 0.5b).
+  subroutine tl_emit_character(node, ctx, out)
+    type(dyn), intent(in) :: node
+    type(tl_ctx), intent(inout) :: ctx
+    type(dyn_arr), intent(inout) :: out
+    character(len=:), allocatable :: cname, key
+    type(dyn) :: props, at, ph, phprops, body, gprops, grp, lv
+    logical :: f
+    integer :: k
+    type(dyn_arr) :: sub
+    cname = str_of(dyn_dict_get(node, "name"))
+    call props_of(node, props)
+    at = dyn_dict_get(props, "at")
+    if (at%kind /= DYN_K_LIST) at = dyn_dict_get(props, "pos")
+    if (at%kind /= DYN_K_LIST) at = vec3_ints(0, 0, 0)
+    call def_add(ctx%chars, cname, at)
+    call def_add(ctx%objects, cname, at)
+    ! The placeholder: a parser-shaped ObjectStmt (prim "tris",
+    ! empty tris list in props = no geometry children).
+    phprops = dyn_dict()
+    call dyn_dict_set(phprops, "at", dyn_copy(at))
+    call dyn_dict_set(phprops, "pos", dyn_copy(at))
+    call dyn_dict_set(phprops, "tris", dyn_list())
+    call dyn_dict_set(phprops, "character", dyn_bool(.true.))
+    ph = dyn_dict()
+    call dyn_dict_set(ph, "prim", dyn_str("tris"))
+    call dyn_dict_set(ph, "name", dyn_str(cname))
+    call dyn_dict_set(ph, "color_raw", &
+                      dyn_copy(dyn_dict_get(node, "color_raw")))
+    call dyn_dict_set(ph, "props", dyn_copy(phprops))
+    call dyn_dict_set(ph, "span", &
+                      dyn_copy(dyn_dict_get(node, "span")))
+    call dyn_dict_set(ph, "primitive", dyn_str("tris"))
+    call dyn_dict_set(ph, "type", dyn_str("tris"))
+    call dyn_dict_set(ph, "kind", dyn_str("tris"))
+    call dyn_dict_set(ph, "colour", &
+                      dyn_copy(dyn_dict_get(node, "colour")))
+    call dyn_dict_set(ph, "color", &
+                      dyn_copy(dyn_dict_get(node, "color")))
+    call dyn_dict_set(ph, "colour_raw", &
+                      dyn_copy(dyn_dict_get(node, "color_raw")))
+    call dyn_dict_set(ph, "line", &
+                      dyn_copy(dyn_dict_get(node, "line")))
+    do k = 1, dyn_dict_len(phprops)
+      key = dyn_dict_key_at(phprops, k)
+      call dyn_dict_set(ph, key, dyn_dict_value_at(phprops, k))
+    end do
+    call arr_push(out, ph)
+    ! Member statements, if any: synthetic group machinery.
+    call get_attr(node, "children", body, f)
+    if (f .and. body%kind == DYN_K_LIST) then
+      if (dyn_list_len(body) > 0) then
+        gprops = dyn_dict()
+        if (dyn_dict_has(props, "at")) &
+          call dyn_dict_set(gprops, "at", &
+                            dyn_copy(dyn_dict_get(props, "at")))
+        lv = dyn_dict_get(node, "line")
+        grp = make_synth_group(cname, gprops, body, to_int64(lv))
+        sub%n = 0
+        sub%cap = 0
+        call expand_group(grp, sub)
+        do k = 1, sub%n
+          if (is_node(sub%items(k), "ObjectStmt")) &
+            call tl_register_object(sub%items(k), ctx)
+          call arr_push(out, sub%items(k))
+        end do
+      end if
+    end if
+  end subroutine tl_emit_character
+
+  !> Steps 0.5b + 0.5c (SS2.2): definition collection and
+  !! timeline resolution over the flattened statement stream.
+  subroutine step_timeline_pass(flat, bag, budget)
+    type(dyn_arr), intent(inout) :: flat
+    type(error_bag_t), intent(inout) :: bag
+    integer(int64), intent(inout) :: budget
+    type(tl_ctx) :: ctx
+    type(def_tab) :: acts
+    type(dyn_arr) :: out
+    integer :: k
+    type(dyn) :: node, v
+    logical :: f
+    if (.not. tl_has_work(flat)) return
+    ctx%budget = budget
+    ctx%film_fps = dyn_null()
+    ! The film node (first statement in film mode) supplies the
+    ! master fps and the tempo for beat conversion.
+    do k = 1, flat%n
+      if (is_node(flat%items(k), "FilmStmt")) then
+        node = dyn_copy(flat%items(k))
+        ctx%film_fps = dyn_copy(dyn_dict_get(node, "fps"))
+        v = dyn_dict_get(node, "tempo")
+        if (is_number(v)) then
+          if (to_real64(v) > 0.0_real64) ctx%tempo = to_real64(v)
+        end if
+        exit
+      end if
+    end do
+    ! 0.5b: hoist actiondefs (file scope, like imports).
+    do k = 1, flat%n
+      node = dyn_copy(flat%items(k))
+      if (is_node(node, "ActionDefStmt")) then
+        block
+          type(dyn) :: body, durv
+          call get_attr(node, "children", body, f)
+          if (.not. f) body = dyn_list()
+          durv = dyn_dict_get(node, "duration")
+          call def_add(acts, str_of(dyn_dict_get(node, "name")), &
+                       body, durv, &
+                       str_of(dyn_dict_get(node, "duration_unit")))
+        end block
+      end if
+    end do
+    call tl_reset_scene(ctx)
+    out%n = 0
+    out%cap = 0
+    do k = 1, flat%n
+      node = dyn_copy(flat%items(k))
+      if (is_node(node, "SceneStmt")) then
+        call tl_reset_scene(ctx)
+        call arr_push(out, node)
+      else if (is_node(node, "ActionDefStmt")) then
+        cycle  ! hoisted into the definition table; never survives
+      else if (is_node(node, "CharacterStmt")) then
+        call tl_emit_character(node, ctx, out)
+      else if (is_node(node, "PlaceStmt")) then
+        block
+          type(dyn) :: pv
+          logical :: pf
+          call get_attr(node, "pos", pv, pf)
+          if (pf) call def_add(ctx%places, &
+                               str_of(dyn_dict_get(node, "name")), &
+                               pv)
+        end block
+        ! place nodes are removed from the stream (see the
+        ! section header for the shape decision)
+      else if (is_node(node, "TimelineStmt")) then
+        block
+          type(dyn) :: kids
+          type(dyn_arr) :: karr
+          type(def_tab) :: ends
+          real(real64) :: ls, le, tot
+          logical :: lh
+          call get_attr(node, "children", kids, f)
+          karr%n = 0
+          karr%cap = 0
+          if (f .and. kids%kind == DYN_K_LIST) &
+            call arr_from_list(karr, kids)
+          ls = ctx%prev_start
+          le = ctx%prev_end
+          lh = ctx%has_prev
+          call tl_resolve_seq(karr, ctx, acts, bag, 0.0_real64, &
+                              1.0_real64, "", empty_stack(), &
+                              ends, ls, le, lh, out, &
+                              .false., .false., tot)
+          ctx%prev_start = ls
+          ctx%prev_end = le
+          ctx%has_prev = lh
+        end block
+      else if (is_node(node, "LetStmt")) then
+        cycle  ! unreachable (step 0.5a consumed them); never survive
+      else
+        if (is_node(node, "ObjectStmt")) &
+          call tl_register_object(node, ctx)
+        if (is_node(node, "CameraStmt")) &
+          call tl_seed_camera(node, ctx)
+        call arr_push(out, node)
+      end if
+    end do
+    ! W203 provenance: stamp the actiondefs no cue ever used on
+    ! the render output node (or the first resolved node when
+    ! the program has no output node yet) -- the validator
+    ! scans for this list and warns once per name.
+    if (acts%n > 0 .and. out%n > 0) then
+      block
+        type(dyn) :: lst, host
+        integer :: j, host_idx
+        lst = dyn_list()
+        do j = 1, acts%n
+          if (.not. acts%used(j)) &
+            call dyn_list_push(lst, dyn_str(trim(acts%names(j))))
+        end do
+        if (dyn_list_len(lst) > 0) then
+          host_idx = 0
+          do j = 1, out%n
+            if (is_node(out%items(j), "OutputStmt")) then
+              host_idx = j
+              exit
+            end if
+          end do
+          if (host_idx == 0) then
+            do j = 1, out%n
+              if (is_node(out%items(j), "AnimStmt") .or. &
+                  is_node(out%items(j), "DialogueStmt") .or. &
+                  is_node(out%items(j), "ObjectStmt") .or. &
+                  (dyn_dict_has(out%items(j), "target") .and. &
+                   dyn_dict_has(out%items(j), "loop") .and. &
+                   .not. dyn_dict_has(out%items(j), "time"))) then
+                host_idx = j
+                exit
+              end if
+            end do
+          end if
+          if (host_idx == 0) host_idx = 1
+          host = dyn_copy(out%items(host_idx))
+          call dyn_dict_set(host, "unused_actions", lst)
+          out%items(host_idx) = dyn_copy(host)
+        end if
+      end block
+    end if
+    budget = ctx%budget
+    call move_alloc(out%items, flat%items)
+    flat%n = out%n
+    flat%cap = out%cap
+    out%n = 0
+    out%cap = 0
+  end subroutine step_timeline_pass
+
+  !> An empty expansion stack (char_list value constructor).
+  function empty_stack() result(s)
+    type(char_list) :: s
+    s = char_list()
+  end function empty_stack
+  !> Record a resolved cue's end under its action name and its
+  !! target name, for later `after X` cues in the same sequence.
+  subroutine tl_register_end(node, ends, pend, retarget)
+    type(dyn), intent(in) :: node
+    type(def_tab), intent(inout) :: ends
+    real(real64), intent(in) :: pend
+    character(len=*), intent(in) :: retarget
+    character(len=:), allocatable :: nm
+    if (is_node(node, "CueStmt")) then
+      nm = str_of(dyn_dict_get(node, "action"))
+      if (len(nm) > 0) call def_add(ends, nm, dyn_real(pend))
+      nm = str_of(dyn_dict_get(node, "target"))
+      if (nm == "it" .and. len(retarget) > 0) nm = retarget
+      if (len(nm) > 0) call def_add(ends, nm, dyn_real(pend))
+    else if (is_node(node, "DialogueStmt")) then
+      nm = str_of(dyn_dict_get(node, "speaker"))
+      if (nm == "it" .and. len(retarget) > 0) nm = retarget
+      if (len(nm) > 0) call def_add(ends, nm, dyn_real(pend))
+    else if (is_node(node, "CamMoveStmt")) then
+      call def_add(ends, "camera", dyn_real(pend))
+    end if
+  end subroutine tl_register_end
+
+  !> Resolve one sequence of timeline children in source order
+  !! against one cursor.  The sequence lives in its own local
+  !! frame: a step's absolute start is start0 + local*scale and
+  !! its absolute duration is dspec*scale, where dspec (returned
+  !! per step by tl_emit_one) is the duration in the local frame.
+  !! total is the local end of the last step in written order.
+  !! dry_bag suppresses diagnostics and dry_budget suppresses
+  !! E820 charges (measuring passes over custom-action bodies).
+  recursive subroutine tl_resolve_seq(nodes, ctx, acts, bag, &
+                                      start0, scale, retarget, &
+                                      stack, ends, pstart, pend, &
+                                      phas, out, dry_bag, &
+                                      dry_budget, total)
+    type(dyn_arr), intent(in) :: nodes
+    type(tl_ctx), intent(inout) :: ctx
+    type(def_tab), intent(inout) :: acts
+    type(error_bag_t), intent(inout) :: bag
+    real(real64), intent(in) :: start0, scale
+    character(len=*), intent(in) :: retarget
+    type(char_list), intent(in) :: stack
+    type(def_tab), intent(inout) :: ends
+    real(real64), intent(inout) :: pstart, pend
+    logical, intent(inout) :: phas
+    type(dyn_arr), intent(inout) :: out
+    logical, intent(in) :: dry_bag, dry_budget
+    real(real64), intent(out) :: total
+    integer :: k, gid
+    type(dyn) :: node
+    real(real64) :: lstart, dspec, cend
+    character(len=:), allocatable :: timing_s
+    total = 0.0_real64
+    gid = 0
+    do k = 1, nodes%n
+      node = dyn_copy(nodes%items(k))
+      ! With-group provenance (validator E207): a cue plus its
+      ! `with`-joined followers share one group id; anything else
+      ! starts a fresh group.  Together-blocks splice their cues
+      ! in with timing "with", so they join the same way.
+      timing_s = str_of(dyn_dict_get(node, "timing"))
+      if (.not. (timing_s == "with" .and. gid > 0)) then
+        ctx%next_group = ctx%next_group + 1
+        gid = ctx%next_group
+      end if
+      call tl_cue_start(node, ctx%tempo, ends, pstart, pend, &
+                        phas, lstart, bag, dry_bag)
+      call tl_emit_one(node, ctx, acts, bag, &
+                       start0 + lstart * scale, scale, retarget, &
+                       stack, gid, out, dry_bag, dry_budget, dspec)
+      cend = lstart + dspec
+      if (cend > total) total = cend
+      ! The main-line cursor (pstart/pend) tracks the last
+      ! NON-`with` cue only: a `with` cue plays alongside the
+      ! previous cue and does not push the timeline forward
+      ! (SS1.10 Script A: waves start at the walk's end, 4,
+      ! not at the follow camera's end, 5).
+      if (timing_s /= "with") then
+        pstart = lstart
+        pend = cend
+        phas = .true.
+      end if
+      call tl_register_end(node, ends, cend, retarget)
+    end do
+  end subroutine tl_resolve_seq
+
+  !> Emit one timeline child, resolved.  dspec returns its
+  !! duration in the caller's (unscaled) frame.
+  recursive subroutine tl_emit_one(node, ctx, acts, bag, &
+                                   start_abs, scale, retarget, &
+                                   stack, gid, out, dry_bag, &
+                                   dry_budget, dspec)
+    type(dyn), intent(in) :: node
+    type(tl_ctx), intent(inout) :: ctx
+    type(def_tab), intent(inout) :: acts
+    type(error_bag_t), intent(inout) :: bag
+    real(real64), intent(in) :: start_abs, scale
+    character(len=*), intent(in) :: retarget
+    type(char_list), intent(in) :: stack
+    integer, intent(in) :: gid
+    type(dyn_arr), intent(inout) :: out
+    logical, intent(in) :: dry_bag, dry_budget
+    real(real64), intent(out) :: dspec
+    real(real64) :: expl
+    logical :: has_expl
+    dspec = 0.0_real64
+    if (is_node(node, "CueStmt")) then
+      call tl_emit_cue(node, ctx, acts, bag, start_abs, scale, &
+                       retarget, stack, gid, out, dry_bag, &
+                       dry_budget, dspec)
+    else if (is_node(node, "DialogueStmt")) then
+      call tl_emit_dialogue(node, ctx, bag, start_abs, scale, &
+                            retarget, out, dry_budget, dspec)
+    else if (is_node(node, "CamMoveStmt")) then
+      call tl_emit_cam(node, ctx, bag, start_abs, scale, out, &
+                       dry_budget, dspec)
+    else if (is_node(node, "LoopBlockStmt")) then
+      call tl_emit_loop(node, ctx, acts, bag, start_abs, scale, &
+                        retarget, stack, out, dry_bag, dry_budget, &
+                        dspec)
+    else if (is_node(node, "TransitionStmt")) then
+      ! Transitions survive untouched (SS2.2); only the cursor
+      ! consumes their duration (explicit, else 1 s).
+      call dur_of_node(node, ctx%tempo, expl, has_expl)
+      dspec = 1.0_real64
+      if (has_expl) dspec = expl
+      call tl_spend(ctx, bag, 1_int64, dry_budget)
+      call arr_push(out, node)
+    else
+      ! Not a timeline child shape: pass through untouched.
+      call arr_push(out, node)
+    end if
+  end subroutine tl_emit_one
+
+  !> One cue: the wait pause, a built-in verb, a custom-action
+  !! expansion, or E206.
+  recursive subroutine tl_emit_cue(node, ctx, acts, bag, &
+                                   start_abs, scale, retarget, &
+                                   stack, gid, out, dry_bag, &
+                                   dry_budget, dspec)
+    type(dyn), intent(in) :: node
+    type(tl_ctx), intent(inout) :: ctx
+    type(def_tab), intent(inout) :: acts
+    type(error_bag_t), intent(inout) :: bag
+    real(real64), intent(in) :: start_abs, scale
+    character(len=*), intent(in) :: retarget
+    type(char_list), intent(in) :: stack
+    integer, intent(in) :: gid
+    type(dyn_arr), intent(inout) :: out
+    logical, intent(in) :: dry_bag, dry_budget
+    real(real64), intent(out) :: dspec
+    character(len=:), allocatable :: action, target
+    type(dyn) :: tv
+    real(real64) :: expl, decl, nat, tt, eff, tot2
+    logical :: has_expl, has_decl
+    integer :: idx
+    action = str_of(dyn_dict_get(node, "action"))
+    tv = dyn_dict_get(node, "target")
+    target = str_of(tv)
+    if (target == "it" .and. len(retarget) > 0) target = retarget
+    if (tv%kind == DYN_K_NULL .and. len(retarget) > 0) &
+      target = retarget
+    call dur_of_node(node, ctx%tempo, expl, has_expl)
+    dspec = 5.0_real64
+    if (has_expl) dspec = expl
+    if (action == "wait") return  ! a pause: nothing is emitted
+    if (tl_is_builtin(action)) then
+      call tl_emit_anim(node, ctx, bag, target, action, &
+                        start_abs, dspec * scale, gid, out, &
+                        dry_budget)
+      return
+    end if
+    idx = def_find(acts, action)
+    if (idx == 0) then
+      if (.not. dry_bag) call tl_raise_e206(bag, action, acts)
+      return
+    end if
+    acts%used(idx) = .true.  ! W203 provenance
+    if (name_in(stack, action)) then
+      if (.not. dry_bag) call tl_raise_e212(bag, action, stack)
+      return
+    end if
+    ! Custom action: measure the body's natural duration with a
+    ! dry pass (no diagnostics, no budget, camera state saved
+    ! and restored), then emit for real, time-scaled when the
+    ! cue (or the definition) fixes the total duration.
+    block
+      type(dyn_arr) :: steps, tmp_out
+      type(char_list) :: stack2
+      type(def_tab) :: ends1, ends2
+      type(error_bag_t) :: scratch_bag
+      type(dyn) :: sv_pos, sv_look
+      real(real64) :: sv_fov, ls, le, sv_lastt
+      logical :: lh, sv_haskey
+      steps%n = 0
+      steps%cap = 0
+      if (acts%a(idx)%kind == DYN_K_LIST) &
+        call arr_from_list(steps, acts%a(idx))
+      stack2 = stack
+      call char_list_append(stack2, action)
+      sv_pos = dyn_copy(ctx%cam_pos)
+      sv_look = dyn_copy(ctx%cam_look)
+      sv_fov = ctx%cam_fov
+      sv_lastt = ctx%cam_last_t
+      sv_haskey = ctx%cam_has_key
+      tmp_out%n = 0
+      tmp_out%cap = 0
+      ls = 0.0_real64
+      le = 0.0_real64
+      lh = .false.
+      call tl_resolve_seq(steps, ctx, acts, scratch_bag, &
+                          0.0_real64, 1.0_real64, target, &
+                          stack2, ends1, ls, le, lh, tmp_out, &
+                          .true., .true., nat)
+      ctx%cam_pos = dyn_copy(sv_pos)
+      ctx%cam_look = dyn_copy(sv_look)
+      ctx%cam_fov = sv_fov
+      ctx%cam_last_t = sv_lastt
+      ctx%cam_has_key = sv_haskey
+      has_decl = .false.
+      decl = 0.0_real64
+      if (is_number(acts%b(idx))) then
+        decl = to_real64(acts%b(idx))
+        if (trim(acts%bunit(idx)) == "beats") then
+          if (ctx%tempo > 0.0_real64) &
+            decl = decl * 60.0_real64 / ctx%tempo
+        end if
+        has_decl = .true.
+      end if
+      if (has_expl) then
+        tt = expl
+      else if (has_decl) then
+        tt = decl
+      else
+        tt = nat
+      end if
+      eff = 1.0_real64
+      if (nat > 0.0_real64 .and. (has_expl .or. has_decl)) &
+        eff = tt / nat
+      ls = 0.0_real64
+      le = 0.0_real64
+      lh = .false.
+      call tl_resolve_seq(steps, ctx, acts, bag, start_abs, &
+                          scale * eff, target, stack2, ends2, &
+                          ls, le, lh, out, dry_bag, dry_budget, &
+                          tot2)
+      dspec = tt
+    end block
+  end subroutine tl_emit_cue
+
+  !> A loopblock: resolve the body once (relative to 0), then
+  !! re-emit it `count` times, each iteration shifted by the
+  !! iteration duration; every re-emitted node is charged to
+  !! the E820 budget.
+  recursive subroutine tl_emit_loop(node, ctx, acts, bag, &
+                                    start_abs, scale, retarget, &
+                                    stack, out, dry_bag, &
+                                    dry_budget, dspec)
+    type(dyn), intent(in) :: node
+    type(tl_ctx), intent(inout) :: ctx
+    type(def_tab), intent(inout) :: acts
+    type(error_bag_t), intent(inout) :: bag
+    real(real64), intent(in) :: start_abs, scale
+    character(len=*), intent(in) :: retarget
+    type(char_list), intent(in) :: stack
+    type(dyn_arr), intent(inout) :: out
+    logical, intent(in) :: dry_bag, dry_budget
+    real(real64), intent(out) :: dspec
+    type(dyn) :: body, cntv, clone, sv_pos, sv_look
+    type(dyn_arr) :: barr, tmp
+    type(def_tab) :: ends
+    real(real64) :: ls, le, iter_dur, sv_fov, sv_lastt
+    logical :: lh, f, sv_haskey
+    integer :: cnt, i, j
+    cntv = dyn_dict_get(node, "count")
+    cnt = 1
+    if (is_number(cntv)) cnt = int(to_int64(cntv))
+    if (cnt < 0) cnt = 0
+    call get_attr(node, "children", body, f)
+    barr%n = 0
+    barr%cap = 0
+    if (f .and. body%kind == DYN_K_LIST) &
+      call arr_from_list(barr, body)
+    sv_pos = dyn_copy(ctx%cam_pos)
+    sv_look = dyn_copy(ctx%cam_look)
+    sv_fov = ctx%cam_fov
+    sv_lastt = ctx%cam_last_t
+    sv_haskey = ctx%cam_has_key
+    ctx%cam_has_key = .false.  ! body resolves in a local frame
+    tmp%n = 0
+    tmp%cap = 0
+    ls = 0.0_real64
+    le = 0.0_real64
+    lh = .false.
+    call tl_resolve_seq(barr, ctx, acts, bag, 0.0_real64, &
+                        1.0_real64, retarget, stack, ends, ls, &
+                        le, lh, tmp, dry_bag, .true., iter_dur)
+    ctx%cam_pos = dyn_copy(sv_pos)
+    ctx%cam_look = dyn_copy(sv_look)
+    ctx%cam_fov = sv_fov
+    ctx%cam_last_t = sv_lastt
+    ctx%cam_has_key = sv_haskey
+    dspec = iter_dur * real(cnt, real64)
+    do i = 0, cnt - 1
+      do j = 1, tmp%n
+        clone = dyn_copy(tmp%items(j))
+        call tl_shift_node(clone, &
+                           start_abs + real(i, real64) * &
+                           iter_dur * scale, scale)
+        call tl_spend(ctx, bag, 1_int64, dry_budget)
+        call arr_push(out, clone)
+      end do
+    end do
+  end subroutine tl_emit_loop
+
+  !> Shift a resolved node (from a loopblock's relative pass)
+  !! into place: absolute = base + local*scale for its start /
+  !! key-time fields; durations scale without the base shift.
+  subroutine tl_shift_node(node, base, scale)
+    type(dyn), intent(inout) :: node
+    real(real64), intent(in) :: base, scale
+    type(dyn) :: v, props
+    if (dyn_dict_has(node, "start")) then
+      v = dyn_dict_get(node, "start")
+      if (is_number(v)) &
+        call dyn_dict_set(node, "start", &
+                          dyn_real(base + to_real64(v) * scale))
+      v = dyn_dict_get(node, "duration")
+      if (is_number(v)) &
+        call dyn_dict_set(node, "duration", &
+                          dyn_real(to_real64(v) * scale))
+      call props_of(node, props)
+      v = dyn_dict_get(props, "duration")
+      if (is_number(v)) then
+        call dyn_dict_set(props, "duration", &
+                          dyn_real(to_real64(v) * scale))
+        call set_props(node, props)
+      end if
+    else if (dyn_dict_has(node, "time")) then
+      v = dyn_dict_get(node, "time")
+      if (is_number(v)) then
+        call dyn_dict_set(node, "time", &
+                          dyn_real(base + to_real64(v) * scale))
+        call props_of(node, props)
+        call dyn_dict_set(props, "time", &
+                          dyn_real(base + to_real64(v) * scale))
+        call set_props(node, props)
+      end if
+    else if (dyn_dict_has(node, "loop") .and. &
+             dyn_dict_has(node, "target")) then
+      v = dyn_dict_get(node, "duration")
+      if (is_number(v)) then
+        call dyn_dict_set(node, "duration", &
+                          dyn_real(base + to_real64(v) * scale))
+        call props_of(node, props)
+        call dyn_dict_set(props, "duration", &
+                          dyn_real(base + to_real64(v) * scale))
+        call set_props(node, props)
+      end if
+    end if
+  end subroutine tl_shift_node
+  !> Resolve one cue destination prop ("to" / "on" / "target")
+  !! to a position where the anim shape needs one: a place name
+  !! is replaced by its vec3 (the name kept under "<key>_name");
+  !! a character / object name stays, with its position added
+  !! under "<key>_pos".  Unknown names pass through for the
+  !! validator's name checks.
+  subroutine tl_resolve_dest(props, key, ctx)
+    type(dyn), intent(inout) :: props
+    character(len=*), intent(in) :: key
+    type(tl_ctx), intent(in) :: ctx
+    type(dyn) :: v
+    character(len=:), allocatable :: nm
+    integer :: idx
+    v = dyn_dict_get(props, key)
+    if (v%kind /= DYN_K_STR) return
+    nm = str_of(v)
+    idx = def_find(ctx%places, nm)
+    if (idx > 0) then
+      call dyn_dict_set(props, key, dyn_copy(ctx%places%a(idx)))
+      call dyn_dict_set(props, key // "_name", dyn_str(nm))
+      return
+    end if
+    idx = def_find(ctx%objects, nm)
+    if (idx > 0) &
+      call dyn_dict_set(props, key // "_pos", &
+                        dyn_copy(ctx%objects%a(idx)))
+  end subroutine tl_resolve_dest
+
+  !> A built-in-verb cue -> a plain AnimStmt in the exact
+  !! parse_anim shape, plus the fields-bag keys "start" and
+  !! "channel"; the resolved duration rides the ordinary
+  !! duration keys (props and top level), in absolute seconds.
+  subroutine tl_emit_anim(node, ctx, bag, target, action, &
+                          start_abs, dur_abs, gid, out, dry_budget)
+    type(dyn), intent(in) :: node
+    type(tl_ctx), intent(inout) :: ctx
+    type(error_bag_t), intent(inout) :: bag
+    character(len=*), intent(in) :: target, action
+    real(real64), intent(in) :: start_abs, dur_abs
+    integer, intent(in) :: gid
+    type(dyn_arr), intent(inout) :: out
+    logical, intent(in) :: dry_budget
+    type(dyn) :: props, n
+    character(len=:), allocatable :: timing_s
+    call props_of(node, props)
+    call dyn_dict_set(props, "duration", dyn_real(dur_abs))
+    call dyn_dict_remove(props, "duration_unit")
+    call tl_resolve_dest(props, "to", ctx)
+    call tl_resolve_dest(props, "on", ctx)
+    call tl_resolve_dest(props, "target", ctx)
+    n = dyn_dict()
+    call dyn_dict_set(n, "kind", dyn_str(action))
+    if (len(target) > 0) then
+      call dyn_dict_set(n, "target", dyn_str(target))
+    else
+      call dyn_dict_set(n, "target", dyn_null())
+    end if
+    call dyn_dict_set(n, "props", dyn_copy(props))
+    call dyn_dict_set(n, "span", &
+                      dyn_copy(dyn_dict_get(node, "span")))
+    call dyn_dict_set(n, "verb", dyn_str(action))
+    call dyn_dict_set(n, "motion", dyn_str(action))
+    call dyn_dict_set(n, "action", dyn_str(action))
+    call dyn_dict_set(n, "line", &
+                      dyn_copy(dyn_dict_get(node, "line")))
+    call dyn_dict_set(n, "axis", dyn_dict_get(props, "axis"))
+    call dyn_dict_set(n, "speed", dyn_dict_get(props, "speed"))
+    call dyn_dict_set(n, "duration", dyn_dict_get(props, &
+                                                  "duration"))
+    call dyn_dict_set(n, "fps", dyn_dict_get(props, "fps"))
+    call dyn_dict_set(n, "ease", dyn_dict_get(props, "ease"))
+    call dyn_dict_set(n, "loop", dyn_dict_get(props, "loop"))
+    call dyn_dict_set(n, "start", dyn_real(start_abs))
+    call dyn_dict_set(n, "channel", dyn_str(tl_channel(action)))
+    ! Provenance for the validator (E207): the with-group id
+    ! shared by a cue and its `with`-joined followers, plus the
+    ! original timing word as the fallback signal.
+    call dyn_dict_set(n, "with_group", dyn_int(int(gid, int64)))
+    timing_s = str_of(dyn_dict_get(node, "timing"))
+    if (len(timing_s) == 0) timing_s = "then"
+    call dyn_dict_set(n, "timing", dyn_str(timing_s))
+    call tl_spend(ctx, bag, 1_int64, dry_budget)
+    call arr_push(out, n)
+  end subroutine tl_emit_anim
+
+  !> A dialogue cue -> the resolved dialogue node: the "say"
+  !! marker retained, absolute start and resolved duration
+  !! stamped (top level and props); an estimated duration
+  !! (SS1.6: ~0.4 s/word, minimum 1.5 s) is stamped
+  !! estimated=.true. for the validator's W204 to surface.
+  subroutine tl_emit_dialogue(node, ctx, bag, start_abs, scale, &
+                              retarget, out, dry_budget, dspec)
+    type(dyn), intent(in) :: node
+    type(tl_ctx), intent(inout) :: ctx
+    type(error_bag_t), intent(inout) :: bag
+    real(real64), intent(in) :: start_abs, scale
+    character(len=*), intent(in) :: retarget
+    type(dyn_arr), intent(inout) :: out
+    logical, intent(in) :: dry_budget
+    real(real64), intent(out) :: dspec
+    type(dyn) :: n, props
+    real(real64) :: expl
+    logical :: has_expl, estimated
+    character(len=:), allocatable :: speaker
+    n = dyn_copy(node)
+    speaker = str_of(dyn_dict_get(n, "speaker"))
+    if (speaker == "it" .and. len(retarget) > 0) then
+      call dyn_dict_set(n, "speaker", dyn_str(retarget))
+    end if
+    call dur_of_node(n, ctx%tempo, expl, has_expl)
+    estimated = .false.
+    if (has_expl) then
+      dspec = expl
+    else
+      dspec = max(1.5_real64, 0.4_real64 * &
+                  real(tl_word_count(str_of(dyn_dict_get(n, &
+                        "content"))), real64))
+      estimated = .true.
+    end if
+    call dyn_dict_set(n, "start", dyn_real(start_abs))
+    call dyn_dict_set(n, "duration", dyn_real(dspec * scale))
+    call dyn_dict_remove(n, "duration_unit")
+    call props_of(n, props)
+    call dyn_dict_set(props, "duration", dyn_real(dspec * scale))
+    call dyn_dict_remove(props, "duration_unit")
+    if (estimated) then
+      call dyn_dict_set(n, "estimated", dyn_bool(.true.))
+      call dyn_dict_set(props, "estimated", dyn_bool(.true.))
+    end if
+    call set_props(n, props)
+    call tl_spend(ctx, bag, 1_int64, dry_budget)
+    call arr_push(out, n)
+  end subroutine tl_emit_dialogue
+
+  !> One component of a vec3 dyn (0 when not a numeric list).
+  function tl_vec_at(v, i) result(r)
+    type(dyn), intent(in) :: v
+    integer, intent(in) :: i
+    real(real64) :: r
+    r = 0.0_real64
+    if (v%kind /= DYN_K_LIST) return
+    if (i < 1 .or. i > dyn_list_len(v)) return
+    r = to_real64(dyn_list_at(v, i))
+  end function tl_vec_at
+
+  !> One camera key in the exact parse_key shape for the
+  !! pseudo-target "@camera", with the look vec3 and fov riding
+  !! as extra top-level keys and props-bag keys (the payload
+  !! build_tracks' normalised keys have no room for; Wave 3
+  !! interprets them).
+  function tl_make_key(time, pos, look, fov, ease, has_ease, &
+                       src) result(n)
+    real(real64), intent(in) :: time, fov
+    type(dyn), intent(in) :: pos, look, ease, src
+    logical, intent(in) :: has_ease
+    type(dyn) :: n, props
+    props = dyn_dict()
+    call dyn_dict_set(props, "target", dyn_str("@camera"))
+    call dyn_dict_set(props, "time", dyn_real(time))
+    call dyn_dict_set(props, "pos", dyn_copy(pos))
+    call dyn_dict_set(props, "rot", dyn_null())
+    call dyn_dict_set(props, "scale", dyn_null())
+    if (has_ease) then
+      call dyn_dict_set(props, "ease", dyn_copy(ease))
+    else
+      call dyn_dict_set(props, "ease", dyn_null())
+    end if
+    call dyn_dict_set(props, "look", dyn_copy(look))
+    call dyn_dict_set(props, "fov", dyn_real(fov))
+    n = dyn_dict()
+    call dyn_dict_set(n, "target", dyn_str("@camera"))
+    call dyn_dict_set(n, "time", dyn_real(time))
+    call dyn_dict_set(n, "pos", dyn_copy(pos))
+    call dyn_dict_set(n, "rot", dyn_null())
+    call dyn_dict_set(n, "scale", dyn_null())
+    if (has_ease) then
+      call dyn_dict_set(n, "ease", dyn_copy(ease))
+    else
+      call dyn_dict_set(n, "ease", dyn_null())
+    end if
+    call dyn_dict_set(n, "look", dyn_copy(look))
+    call dyn_dict_set(n, "fov", dyn_real(fov))
+    call dyn_dict_set(n, "props", props)
+    call dyn_dict_set(n, "line", &
+                      dyn_copy(dyn_dict_get(src, "line")))
+    call dyn_dict_set(n, "span", &
+                      dyn_copy(dyn_dict_get(src, "span")))
+  end function tl_make_key
+
+  !> A cammove -> a `keys` header + `key` statements for
+  !! "@camera" with absolute times (SS2.2).  The from state is
+  !! the tracked camera state; the move computes the to state
+  !! (zoom: fov -/+ 20 clamped to [10, 120]; orbit: a full turn
+  !! about the target, with a midpoint key at 180 degrees;
+  !! follow: the look tracks the followed name's position, the
+  !! name itself riding "follow" on the header and the keys).
+  subroutine tl_emit_cam(node, ctx, bag, start_abs, scale, out, &
+                         dry_budget, dspec)
+    type(dyn), intent(in) :: node
+    type(tl_ctx), intent(inout) :: ctx
+    type(error_bag_t), intent(inout) :: bag
+    real(real64), intent(in) :: start_abs, scale
+    type(dyn_arr), intent(inout) :: out
+    logical, intent(in) :: dry_budget
+    real(real64), intent(out) :: dspec
+    character(len=:), allocatable :: move, follow_nm, tname
+    type(dyn) :: from_pos, from_look, to_pos, to_look, tlook
+    type(dyn) :: vec, ease_v, hdr, hprops, key
+    real(real64) :: fov_from, fov_to, dur_abs, end_abs, expl
+    logical :: has_expl, vf, has_ease
+    move = str_of(dyn_dict_get(node, "move"))
+    call dur_of_node(node, ctx%tempo, expl, has_expl)
+    dspec = 5.0_real64
+    if (has_expl) dspec = expl
+    dur_abs = dspec * scale
+    end_abs = start_abs + dur_abs
+    from_pos = dyn_copy(ctx%cam_pos)
+    from_look = dyn_copy(ctx%cam_look)
+    fov_from = ctx%cam_fov
+    to_pos = dyn_copy(from_pos)
+    to_look = dyn_copy(from_look)
+    fov_to = fov_from
+    follow_nm = str_of(dyn_dict_get(node, "follow"))
+    tname = str_of(dyn_dict_get(node, "target_name"))
+    tlook = dyn_dict_get(node, "to_look")
+    if (move == "follow") then
+      call tl_name_vec(ctx, follow_nm, vec, vf)
+      if (vf) to_look = dyn_copy(vec)
+    else if (move == "zoom_in" .or. move == "zoom_out") then
+      if (move == "zoom_in") then
+        fov_to = max(10.0_real64, fov_from - 20.0_real64)
+      else
+        fov_to = min(120.0_real64, fov_from + 20.0_real64)
+      end if
+      if (tlook%kind == DYN_K_LIST) then
+        to_look = dyn_copy(tlook)
+      else if (len(tname) > 0) then
+        call tl_name_vec(ctx, tname, vec, vf)
+        if (vf) to_look = dyn_copy(vec)
+      end if
+    else if (move == "pan" .or. move == "look" .or. &
+             move == "orbit") then
+      if (tlook%kind == DYN_K_LIST) then
+        to_look = dyn_copy(tlook)
+      else if (len(tname) > 0) then
+        call tl_name_vec(ctx, tname, vec, vf)
+        if (vf) to_look = dyn_copy(vec)
+      end if
+    end if
+    ease_v = dyn_dict_get(node, "ease")
+    has_ease = ease_v%kind == DYN_K_STR
+    if (.not. has_ease) then
+      block
+        type(dyn) :: pp
+        call props_of(node, pp)
+        ease_v = dyn_dict_get(pp, "ease")
+        has_ease = ease_v%kind == DYN_K_STR
+      end block
+    end if
+    if (.not. has_ease) then
+      ease_v = dyn_str("linear")
+      has_ease = .true.
+    end if
+    ! Header (parse_keys_header shape).
+    hprops = dyn_dict()
+    call dyn_dict_set(hprops, "duration", dyn_real(end_abs))
+    call dyn_dict_set(hprops, "loop", dyn_str("once"))
+    call dyn_dict_set(hprops, "target", dyn_str("@camera"))
+    if (ctx%film_fps%kind /= DYN_K_NULL) &
+      call dyn_dict_set(hprops, "fps", dyn_copy(ctx%film_fps))
+    call dyn_dict_set(hprops, "move", dyn_str(move))
+    if (move == "follow") &
+      call dyn_dict_set(hprops, "follow", dyn_str(follow_nm))
+    hdr = dyn_dict()
+    call dyn_dict_set(hdr, "target", dyn_str("@camera"))
+    if (ctx%film_fps%kind /= DYN_K_NULL) &
+      call dyn_dict_set(hdr, "fps", dyn_copy(ctx%film_fps))
+    call dyn_dict_set(hdr, "duration", dyn_real(end_abs))
+    call dyn_dict_set(hdr, "loop", dyn_str("once"))
+    if (move == "follow") &
+      call dyn_dict_set(hdr, "follow", dyn_str(follow_nm))
+    call dyn_dict_set(hdr, "props", hprops)
+    call dyn_dict_set(hdr, "line", &
+                      dyn_copy(dyn_dict_get(node, "line")))
+    call dyn_dict_set(hdr, "span", &
+                      dyn_copy(dyn_dict_get(node, "span")))
+    call tl_spend(ctx, bag, 1_int64, dry_budget)
+    call arr_push(out, hdr)
+    ! Keys: start state, (orbit midpoint), end state.  The start
+    ! key is skipped when the previous camera move's end key
+    ! already pins this exact time -- the from state IS that
+    ! key's state (camera state is continuous), and the merged
+    ! @camera track must keep strictly increasing times (E201).
+    if (.not. (ctx%cam_has_key .and. &
+               abs(start_abs - ctx%cam_last_t) < 1.0e-9_real64)) then
+      key = tl_make_key(start_abs, from_pos, from_look, fov_from, &
+                        dyn_null(), .false., node)
+      if (move == "follow") then
+        call dyn_dict_set(key, "follow", dyn_str(follow_nm))
+        block
+          type(dyn) :: kp
+          call props_of(key, kp)
+          call dyn_dict_set(kp, "follow", dyn_str(follow_nm))
+          call set_props(key, kp)
+        end block
+      end if
+      call tl_spend(ctx, bag, 1_int64, dry_budget)
+      call arr_push(out, key)
+    end if
+    if (move == "orbit") then
+      block
+        type(dyn) :: mid
+        mid = dyn_list()
+        call dyn_list_push(mid, dyn_real( &
+          2.0_real64 * tl_vec_at(to_look, 1) - &
+          tl_vec_at(from_pos, 1)))
+        call dyn_list_push(mid, dyn_real(tl_vec_at(from_pos, 2)))
+        call dyn_list_push(mid, dyn_real( &
+          2.0_real64 * tl_vec_at(to_look, 3) - &
+          tl_vec_at(from_pos, 3)))
+        key = tl_make_key((start_abs + end_abs) / 2.0_real64, &
+                          mid, to_look, fov_to, ease_v, &
+                          has_ease, node)
+        call tl_spend(ctx, bag, 1_int64, dry_budget)
+        call arr_push(out, key)
+      end block
+    end if
+    key = tl_make_key(end_abs, to_pos, to_look, fov_to, ease_v, &
+                      has_ease, node)
+    if (move == "follow") then
+      call dyn_dict_set(key, "follow", dyn_str(follow_nm))
+      block
+        type(dyn) :: kp
+        call props_of(key, kp)
+        call dyn_dict_set(kp, "follow", dyn_str(follow_nm))
+        call set_props(key, kp)
+      end block
+    end if
+    call tl_spend(ctx, bag, 1_int64, dry_budget)
+    call arr_push(out, key)
+    ctx%cam_pos = dyn_copy(to_pos)
+    ctx%cam_look = dyn_copy(to_look)
+    ctx%cam_fov = fov_to
+    ctx%cam_last_t = end_abs
+    ctx%cam_has_key = .true.
+  end subroutine tl_emit_cam
 
   ! ==================================================================
   ! Typed AST entry (v3.0 Phase 6 / C1)

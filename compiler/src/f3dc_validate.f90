@@ -101,6 +101,7 @@ module f3dc_validate
   use f3dc_val_object, only: val_sec_objects, walk_nodes
   use f3dc_val_anim, only: val_sec_anims
   use f3dc_val_output, only: val_sec_controls, val_sec_outputs
+  use f3dc_val_timeline, only: val_sec_timeline
   use f3dc_val_waveb, only: val_sec_waveb
   use f3dc_val_wavec, only: val_sec_wavec
   use f3dc_val_wavee, only: val_sec_wavee
@@ -138,6 +139,8 @@ contains
     vs%particles_nodes = dyn_list()
     vs%keys_header_nodes = dyn_list()
     vs%key_nodes = dyn_list()
+    vs%dialogue_nodes = dyn_list()
+    vs%has_film = .false.
     vs%filter_nodes = dyn_list()
     vs%instance_nodes = dyn_list()
     vs%shader_nodes = dyn_list()
@@ -186,6 +189,10 @@ contains
     call val_register("anims", val_sec_anims)
     call val_register("controls", val_sec_controls)
     call val_register("outputs", val_sec_outputs)
+    ! ANIM Wave 1 (ANIM-PLAN SS2.3): the timeline section runs
+    ! after "outputs" (it needs the render duration/fps only the
+    ! outputs section parses) and before "env".
+    call val_register("timeline", val_sec_timeline)
     call val_register("env", val_sec_env)
     call val_register("waveb", val_sec_waveb)
     call val_register("wavec", val_sec_wavec)

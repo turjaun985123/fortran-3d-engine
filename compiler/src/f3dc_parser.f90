@@ -154,6 +154,10 @@ module f3dc_parser
     type(err_rec), allocatable :: errs(:)
     integer :: syntax_errors = 0
     logical :: stopped = .false.
+    ! ANIM Wave 1 (slice B): film mode (ANIM-PLAN §1.1) -- set by
+    ! parse_program when the first statement is `film`; gates every
+    ! new film-mode starter so legacy files parse byte-identically.
+    logical :: film_mode = .false.
     logical :: le_set = .false.
     character(:), allocatable :: le_code, le_msg
   end type parser_state
@@ -1958,6 +1962,11 @@ contains
     logical :: hasw, hasw2, has_name, has_size, has_bg, dupf
     logical :: has_shading, hasid
     character(:), allocatable :: shading_val, d
+    ! ANIM Wave 1 (slice B): film-mode `transition` prop (§1.7).
+    character(:), allocatable :: trans_kind, trans_variant, &
+                                 trans_unit
+    type(dyn) :: trans_dur
+    logical :: has_trans, has_trans_variant, has_trans_dur
     has_stmt = .false.
     stmt = dyn_null()
     call lp_next(lp)  ! scene
@@ -1968,6 +1977,13 @@ contains
     has_size = .false.
     has_shading = .false.
     shading_val = ""
+    has_trans = .false.
+    has_trans_variant = .false.
+    has_trans_dur = .false.
+    trans_kind = ""
+    trans_variant = ""
+    trans_unit = ""
+    trans_dur = dyn_null()
     sw = 0_int64; sh = 0_int64
     nenv = 0
     seen%n = 0
@@ -2040,6 +2056,46 @@ contains
         call lp_colour(p, lp, bg)
         if (p%le_set) return
         has_bg = .true.
+      else if (hasw .and. w == "transition" .and. p%film_mode) then
+        ! ANIM-PLAN §1.7: the transition belongs to the shot this
+        ! scene opens.  Per the AST slice's integration note it is
+        ! emitted inside the scene node's PROPS bag only -- a
+        ! top-level "transition" key would make classify_stmt tag
+        ! the scene itself as a transition statement.
+        call lp_next(lp)
+        call lp_dup(p, seen, "transition")
+        if (p%le_set) return
+        call lp_ident(lp, s, hasid)
+        if (.not. hasid) then
+          call raise_line(p, "E103", "'transition' needs a kind: " &
+                          // "cut, fade, dissolve, slide or wipe")
+          return
+        end if
+        trans_kind = str_lower(s)
+        has_trans = .true.
+        if (trans_kind == "fade") then
+          call lp_peek_word(lp, w2, hasw2)
+          if (hasw2 .and. w2 == "black") then
+            call lp_next(lp)
+            trans_variant = "black"
+            has_trans_variant = .true.
+          end if
+        else if (trans_kind == "slide") then
+          call lp_peek_word(lp, w2, hasw2)
+          if (hasw2 .and. (w2 == "left" .or. w2 == "right")) then
+            call lp_next(lp)
+            trans_variant = w2
+            has_trans_variant = .true.
+          end if
+        end if
+        call lp_peek_word(lp, w2, hasw2)
+        if (hasw2 .and. (w2 == "in" .or. w2 == "for")) &
+          call lp_next(lp)
+        if (lp_peek_kind(lp) == K_NUMBER) then
+          call parse_duration(p, lp, trans_dur, trans_unit, &
+                              has_trans_dur)
+          if (p%le_set) return
+        end if
       else if (lp_peek_kind(lp) == K_STRING .and. .not. has_name) then
         call lp_next_text(lp, s)
         name = dyn_str(s)
@@ -2075,6 +2131,18 @@ contains
     end if
     if (has_shading) &
       call dset(props, "shading", dyn_str(shading_val))
+    if (has_trans) then
+      call dset(props, "transition", dyn_str(trans_kind))
+      if (has_trans_variant) &
+        call dset(props, "transition_variant", &
+                  dyn_str(trans_variant))
+      if (has_trans_dur) then
+        call dset(props, "transition_duration", dyn_copy(trans_dur))
+        if (len(trans_unit) > 0) &
+          call dset(props, "transition_duration_unit", &
+                    dyn_str(trans_unit))
+      end if
+    end if
     do i = 1, nenv
       call dset(props, trim(env_keys(i)), dyn_str(trim(env_vals(i))))
     end do
@@ -2141,7 +2209,7 @@ contains
     character(:), allocatable :: w, s
     type(dyn) :: props, node, v
     type(str_set) :: seen
-    logical :: hasw
+    logical :: hasw, hasid
     has_stmt = .false.
     stmt = dyn_null()
     call lp_next(lp)  ! camera
@@ -2153,6 +2221,20 @@ contains
         call lp_next(lp)
         call lp_dup(p, seen, w)
         if (p%le_set) return
+        if (w == "look" .and. p%film_mode) then
+          ! ANIM-PLAN §1.9 rule 4: in film mode `look` may name a
+          ! character or place instead of a vec3 (a widening of a
+          ! form legacy mode rejects in lp_vec3, so legacy files
+          ! are unaffected).  The name rides props "look" as a
+          ! string; node target/look pick it up below.
+          if (lp_peek_kind(lp) == K_WORD) then
+            call lp_ident(lp, s, hasid)
+            if (hasid) then
+              call dset(props, "look", dyn_str(s))
+              cycle
+            end if
+          end if
+        end if
         call lp_vec3(p, lp, v)
         if (p%le_set) return
         call dset(props, w, v)
@@ -2562,6 +2644,20 @@ contains
       call parse_import(p, lp, stmt, has_stmt)
       return
     end if
+    if (p%film_mode) then
+      ! ANIM Wave 1 (slice B): film-mode-only starters, intercepted
+      ! before the reserved-word rejection (`let` is RESERVED_ALL
+      ! in legacy mode and keeps raising E205 there -- §1.9 rule 5).
+      if (first == "let") then
+        call parse_let(p, lp, stmt, has_stmt)
+        return
+      end if
+      if (first == "film") then
+        call raise_line(p, "E103", "'film' must be the first " &
+                        // "statement in the file")
+        return
+      end if
+    end if
     if (in_list(first, RESERVED_ALL)) then
       if (in_list(first, RESERVED_SEC)) then
         code = "E820"
@@ -2577,6 +2673,12 @@ contains
       call parse_scene(p, lp, stmt, has_stmt)
     else if (first == "camera") then
       call parse_camera(p, lp, stmt, has_stmt)
+    else if (first == "character") then
+      ! ANIM Wave 1 (slice B): legal in and out of film mode
+      ! (ANIM-PLAN §1.9 rule 6).
+      call parse_character(p, lp, stmt, has_stmt)
+    else if (first == "place" .and. p%film_mode) then
+      call parse_place(p, lp, stmt, has_stmt)
     else if (first == "light") then
       call parse_light(p, lp, stmt, has_stmt)
     else if (first == "ring") then
@@ -2639,69 +2741,22 @@ contains
   end subroutine parse_statement
 
   ! Parser._parse_anim.
-  subroutine parse_anim(p, lp, stmt, has_stmt)
+  ! One iteration of parse_anim's property loop, factored out so
+  ! film-mode cue tails (parse_cue / parse_cammove) reuse exactly
+  ! the same anim-prop handling.  handled = .false. (and no error
+  ! raised) when the next token is not an anim prop; the caller
+  ! decides what that means.  A raised line error (p%le_set) always
+  ! wins, exactly as in the original inline loop.
+  subroutine anim_prop_one(p, lp, props, seen, handled)
     type(parser_state), intent(inout) :: p
     type(line_cur), intent(inout) :: lp
-    type(dyn), intent(out) :: stmt
-    logical, intent(out) :: has_stmt
-    character(:), allocatable :: first, s, w, w2, a
-    type(dyn) :: target, props, node, v
-    type(str_set) :: seen
-    logical :: hasw, hasw2, hasid, target_null
-    character(:), allocatable :: verb
-    has_stmt = .false.
-    stmt = dyn_null()
-    call lp_next_text(lp, s)
-    first = str_lower(s)
-    verb = ""
-    target = dyn_null()
-    target_null = .true.
-    if (first == "animate") then
-      call lp_peek_word(lp, w, hasw)
-      if (hasw .and. in_list(w, ANIM_VERBS)) then
-        call lp_next_text(lp, s)
-        verb = str_lower(s)
-        ! 'animate spin it ...': the target may follow the motion.
-        call lp_peek_word(lp, w2, hasw2)
-        if (hasw2 .and. .not. in_list(w2, ANIM_PROP_WORDS) &
-            .and. .not. in_list(w2, AXES) .and. w2 /= "loop" &
-            .and. w2 /= "once" .and. w2 /= "forever" &
-            .and. w2 /= "pingpong" .and. w2 /= "repeat") then
-          call lp_next_text(lp, s)
-          target = dyn_str(s)
-          target_null = .false.
-        end if
-      else if (hasw) then
-        call lp_next_text(lp, s)
-        target = dyn_str(s)
-        target_null = .false.
-        call lp_peek_word(lp, w2, hasw2)
-        if (hasw2 .and. in_list(w2, ANIM_VERBS)) then
-          call lp_next_text(lp, s)
-          verb = str_lower(s)
-        else
-          call raise_line(p, "E103", "'animate' needs a motion " &
-                          // "such as spin, bob, pulse or move")
-          return
-        end if
-      else
-        call raise_line(p, "E101", &
-                        "'animate' needs a target and a motion")
-        return
-      end if
-    else
-      verb = first
-      call lp_peek_word(lp, w, hasw)
-      if (hasw .and. .not. in_list(w, ANIM_PROP_WORDS) &
-          .and. .not. in_list(w, AXES)) then
-        call lp_next_text(lp, s)
-        target = dyn_str(s)
-        target_null = .false.
-      end if
-    end if
-    props = dyn_dict()
-    seen%n = 0
-    do while (.not. lp_at_end(lp))
+    type(dyn), intent(inout) :: props
+    type(str_set), intent(inout) :: seen
+    logical, intent(out) :: handled
+    character(:), allocatable :: s, w, w2, a
+    type(dyn) :: v
+    logical :: hasw, hasw2, hasid
+    handled = .false.
       call lp_peek_word(lp, w, hasw)
       if (hasw .and. w == "axis") then
         call lp_next(lp)
@@ -2778,6 +2833,77 @@ contains
         if (p%le_set) return
         call dset(props, "loop", dyn_str(s))
       else
+        return
+      end if
+      handled = .true.
+  end subroutine anim_prop_one
+
+  subroutine parse_anim(p, lp, stmt, has_stmt)
+    type(parser_state), intent(inout) :: p
+    type(line_cur), intent(inout) :: lp
+    type(dyn), intent(out) :: stmt
+    logical, intent(out) :: has_stmt
+    character(:), allocatable :: first, s, w, w2, a
+    type(dyn) :: target, props, node, v
+    type(str_set) :: seen
+    logical :: hasw, hasw2, hasid, target_null, handled
+    character(:), allocatable :: verb
+    has_stmt = .false.
+    stmt = dyn_null()
+    call lp_next_text(lp, s)
+    first = str_lower(s)
+    verb = ""
+    target = dyn_null()
+    target_null = .true.
+    if (first == "animate") then
+      call lp_peek_word(lp, w, hasw)
+      if (hasw .and. in_list(w, ANIM_VERBS)) then
+        call lp_next_text(lp, s)
+        verb = str_lower(s)
+        ! 'animate spin it ...': the target may follow the motion.
+        call lp_peek_word(lp, w2, hasw2)
+        if (hasw2 .and. .not. in_list(w2, ANIM_PROP_WORDS) &
+            .and. .not. in_list(w2, AXES) .and. w2 /= "loop" &
+            .and. w2 /= "once" .and. w2 /= "forever" &
+            .and. w2 /= "pingpong" .and. w2 /= "repeat") then
+          call lp_next_text(lp, s)
+          target = dyn_str(s)
+          target_null = .false.
+        end if
+      else if (hasw) then
+        call lp_next_text(lp, s)
+        target = dyn_str(s)
+        target_null = .false.
+        call lp_peek_word(lp, w2, hasw2)
+        if (hasw2 .and. in_list(w2, ANIM_VERBS)) then
+          call lp_next_text(lp, s)
+          verb = str_lower(s)
+        else
+          call raise_line(p, "E103", "'animate' needs a motion " &
+                          // "such as spin, bob, pulse or move")
+          return
+        end if
+      else
+        call raise_line(p, "E101", &
+                        "'animate' needs a target and a motion")
+        return
+      end if
+    else
+      verb = first
+      call lp_peek_word(lp, w, hasw)
+      if (hasw .and. .not. in_list(w, ANIM_PROP_WORDS) &
+          .and. .not. in_list(w, AXES)) then
+        call lp_next_text(lp, s)
+        target = dyn_str(s)
+        target_null = .false.
+      end if
+    end if
+    props = dyn_dict()
+    seen%n = 0
+    do while (.not. lp_at_end(lp))
+      call anim_prop_one(p, lp, props, seen, handled)
+      if (p%le_set) return
+      if (.not. handled) then
         call lp_peek_text(lp, s)
         call raise_line(p, "E103", "unexpected '" // s &
                         // "' in animation")
@@ -3975,6 +4101,1642 @@ contains
   end subroutine parse_output
 
   ! ==================================================================
+  ! ANIM Wave 1, slice B -- film mode (docs/ANIM-PLAN.md §1, §2.1).
+  !
+  ! All routines below are reachable only when parser_state%film_mode
+  ! is set (the file's first statement was `film`), except
+  ! parse_character, which §1.9 rule 6 also allows in legacy files.
+  ! Node shapes follow the §2.1 table: each new node carries its
+  ! unique marker key (film_def / char_def / action_def /
+  ! timeline_def / cue / cam_move / say / transition / loop_block /
+  ! let_name); payload lives in the props bag, the rest in fields.
+  ! Durations are a numeric dyn (or a dyn_str naming a `let` binding)
+  ! plus a "duration_unit" of "seconds"/"beats" when a unit word was
+  ! written.  Cue timing follows §2.1: timing at|then|after|with,
+  ! anchor (a cue/action name for `after`, else null), offset (the
+  ! absolute time for `at`, in seconds or offset_unit beats).
+  ! ==================================================================
+
+  logical function is_cam_verb(w)
+    character(*), intent(in) :: w
+    is_cam_verb = w == "follows" .or. w == "zooms" .or. &
+                  w == "pans" .or. w == "orbits" .or. &
+                  w == "looks"
+  end function is_cam_verb
+
+  ! Second-word starters that make a name-first line a cue (§1.3
+  ! verb list, canonical -s forms and base-form aliases).
+  logical function is_cue_verb(w)
+    character(*), intent(in) :: w
+    is_cue_verb = &
+      w == "walks" .or. w == "walk" .or. &
+      w == "runs" .or. w == "run" .or. &
+      w == "waves" .or. w == "wave" .or. &
+      w == "sits" .or. w == "sit" .or. &
+      w == "stands" .or. w == "stand" .or. &
+      w == "jumps" .or. w == "jump" .or. &
+      w == "falls" .or. w == "fall" .or. &
+      w == "looks" .or. w == "look" .or. &
+      w == "faces" .or. w == "face" .or. &
+      w == "points" .or. w == "point" .or. &
+      w == "nods" .or. w == "nod" .or. &
+      w == "shakes" .or. w == "shake" .or. &
+      w == "dances" .or. w == "dance" .or. &
+      w == "sleeps" .or. w == "sleep" .or. &
+      w == "smiles" .or. w == "smile" .or. &
+      w == "picks" .or. w == "pick" .or. &
+      w == "gives" .or. w == "give" .or. &
+      w == "taps" .or. w == "tap" .or. &
+      w == "spins" .or. w == "spin" .or. &
+      w == "moves" .or. w == "move" .or. &
+      w == "does" .or. w == "do" .or. &
+      w == "exits" .or. w == "exit"
+  end function is_cue_verb
+
+  logical function is_expression(w)
+    character(*), intent(in) :: w
+    is_expression = w == "happy" .or. w == "sad" .or. &
+                    w == "determined" .or. w == "surprised" .or. &
+                    w == "neutral"
+  end function is_expression
+
+  ! The normalised word at cursor offset k (1 = current token),
+  ! "" when that token is not a word.
+  function lp_word_at(lp, k) result(w)
+    type(line_cur), intent(in) :: lp
+    integer, intent(in) :: k
+    character(:), allocatable :: w
+    integer :: j
+    w = ""
+    j = lp%i + k - 1
+    if (j < 1 .or. j > size(lp%toks)) return
+    if (lp%toks(j)%kind /= K_WORD) return
+    if (.not. allocated(lp%toks(j)%text)) return
+    w = word_norm(lp%toks(j)%text)
+  end function lp_word_at
+
+  ! A duration (§1.4): `N seconds|beats` (singular forms too), a
+  ! bare number (seconds), or a bare name -- a `let` reference,
+  ! kept verbatim as a string for desugar's substitution step.
+  subroutine parse_duration(p, lp, val, unit, has)
+    type(parser_state), intent(inout) :: p
+    type(line_cur), intent(inout) :: lp
+    type(dyn), intent(out) :: val
+    character(:), allocatable, intent(out) :: unit
+    logical, intent(out) :: has
+    character(:), allocatable :: w, s
+    logical :: hasw, hasid
+    val = dyn_null()
+    unit = ""
+    has = .false.
+    if (lp_peek_kind(lp) == K_NUMBER) then
+      call lp_number(p, lp, "duration", val)
+      if (p%le_set) return
+      has = .true.
+      unit = "seconds"
+      call lp_peek_word(lp, w, hasw)
+      if (hasw .and. (w == "seconds" .or. w == "second")) then
+        call lp_next(lp)
+      else if (hasw .and. (w == "beats" .or. w == "beat")) then
+        call lp_next(lp)
+        unit = "beats"
+      end if
+      return
+    end if
+    if (lp_peek_kind(lp) == K_WORD) then
+      call lp_ident(lp, s, hasid)
+      if (hasid) then
+        val = dyn_str(s)
+        has = .true.
+      end if
+      return
+    end if
+    call lp_peek_text(lp, s)
+    call raise_line(p, "E102", "expected a duration like " &
+                    // "'2 seconds', got '" // s // "'")
+  end subroutine parse_duration
+
+  ! Shared timing fields (§2.1) on a cue-shaped node.
+  subroutine timing_fields(node, timing, anchor, has_anchor, &
+                           offset, has_offset, off_unit)
+    type(dyn), intent(inout) :: node
+    character(*), intent(in) :: timing, anchor, off_unit
+    logical, intent(in) :: has_anchor, has_offset
+    type(dyn), intent(in) :: offset
+    call dset(node, "timing", dyn_str(timing))
+    if (has_anchor) then
+      call dset(node, "anchor", dyn_str(anchor))
+    else
+      call dset(node, "anchor", dyn_null())
+    end if
+    if (has_offset) then
+      call dset(node, "offset", dyn_copy(offset))
+      if (len(off_unit) > 0) &
+        call dset(node, "offset_unit", dyn_str(off_unit))
+    else
+      call dset(node, "offset", dyn_null())
+    end if
+  end subroutine timing_fields
+
+  ! Shared duration fields on a cue-shaped node + its props bag.
+  subroutine duration_fields(node, props, dur, dur_unit, has_dur)
+    type(dyn), intent(inout) :: node, props
+    type(dyn), intent(in) :: dur
+    character(*), intent(in) :: dur_unit
+    logical, intent(in) :: has_dur
+    if (has_dur) then
+      call dset(node, "duration", dyn_copy(dur))
+      call dset(props, "duration", dyn_copy(dur))
+      if (len(dur_unit) > 0) then
+        call dset(node, "duration_unit", dyn_str(dur_unit))
+        call dset(props, "duration_unit", dyn_str(dur_unit))
+      end if
+    else
+      call dset(node, "duration", dyn_null())
+    end if
+  end subroutine duration_fields
+
+  ! The shared cue tail: [in|for <duration>], the adverb ease
+  ! aliases (§1.8), and the ordinary anim props via anim_prop_one
+  ! (parse_anim's prop loop, reused verbatim).
+  subroutine cue_tail(p, lp, props, seen, dur, dur_unit, has_dur)
+    type(parser_state), intent(inout) :: p
+    type(line_cur), intent(inout) :: lp
+    type(dyn), intent(inout) :: props
+    type(str_set), intent(inout) :: seen
+    type(dyn), intent(inout) :: dur
+    character(:), allocatable, intent(inout) :: dur_unit
+    logical, intent(inout) :: has_dur
+    character(:), allocatable :: w, s
+    logical :: hasw, handled
+    do while (.not. lp_at_end(lp))
+      call lp_peek_word(lp, w, hasw)
+      if (hasw .and. (w == "in" .or. w == "for")) then
+        call lp_next(lp)
+        call lp_dup(p, seen, "duration")
+        if (p%le_set) return
+        call parse_duration(p, lp, dur, dur_unit, has_dur)
+        if (p%le_set) return
+      else if (hasw .and. w == "slowly") then
+        call lp_next(lp)
+        call dset(props, "ease", dyn_str("out"))
+      else if (hasw .and. w == "gently") then
+        call lp_next(lp)
+        ! ANIM Wave 1 FIX: `gently` is the SS1.8 adverb alias for
+        ! the cubic-in-out curve, but the ease registry the
+        ! validator checks (EASES in f3dc_val_common) spells that
+        ! curve "ease-in-out" -- "cubic-in-out" is only the
+        ! keyframe-track spelling (f3dc_ext_keys) and is rejected
+        ! with E201 on an AnimStmt.  Emit the registered name.
+        call dset(props, "ease", dyn_str("ease-in-out"))
+      else
+        call anim_prop_one(p, lp, props, seen, handled)
+        if (p%le_set) return
+        if (.not. handled) then
+          call lp_peek_text(lp, s)
+          call raise_line(p, "E103", "unexpected '" // s &
+                          // "' in cue")
+          return
+        end if
+      end if
+    end do
+    if (.not. has_dur .and. dyn_dict_has(props, "duration")) then
+      ! The legacy anim-prop spelling (`duration 2`) was used.
+      call dyn_assign(dur, dget(props, "duration"))
+      has_dur = .true.
+      dur_unit = ""
+    end if
+  end subroutine cue_tail
+
+  ! A cue destination / target: a vec3 when numbers (or a
+  ! parenthesised triple) follow, else a bare name kept verbatim.
+  subroutine parse_dest(p, lp, props, key)
+    type(parser_state), intent(inout) :: p
+    type(line_cur), intent(inout) :: lp
+    type(dyn), intent(inout) :: props
+    character(*), intent(in) :: key
+    type(dyn) :: v
+    character(:), allocatable :: s
+    logical :: hasid
+    if (lp_peek_kind(lp) == K_NUMBER) then
+      call lp_vec3(p, lp, v)
+      if (p%le_set) return
+      call dset(props, key, v)
+      return
+    end if
+    call lp_peek_text(lp, s)
+    if (s == "(") then
+      call lp_vec3(p, lp, v)
+      if (p%le_set) return
+      call dset(props, key, v)
+      return
+    end if
+    call lp_ident(lp, s, hasid)
+    if (.not. hasid) then
+      call raise_line(p, "E103", "expected a place, a name or " &
+                      // "a position (3 numbers)")
+      return
+    end if
+    call dset(props, key, dyn_str(s))
+  end subroutine parse_dest
+
+  ! film "Title" size W H fps N [tempo N]  (§1.1)
+  subroutine parse_film(p, lp, stmt, has_stmt)
+    type(parser_state), intent(inout) :: p
+    type(line_cur), intent(inout) :: lp
+    type(dyn), intent(out) :: stmt
+    logical, intent(out) :: has_stmt
+    character(:), allocatable :: title, w, s
+    type(dyn) :: props, node, v
+    type(str_set) :: seen
+    integer(int64) :: sw, sh
+    logical :: hasw, has_size, has_fps, has_tempo
+    type(dyn) :: fpsv, tempov
+    has_stmt = .false.
+    stmt = dyn_null()
+    call lp_next(lp)  ! film
+    if (lp_peek_kind(lp) /= K_STRING) then
+      call raise_line(p, "E101", "'film' needs a quoted title, " &
+                      // 'like: film "Saturday Market" size 1280 ' &
+                      // "720 fps 24")
+      return
+    end if
+    call lp_next_text(lp, title)
+    has_size = .false.
+    has_fps = .false.
+    has_tempo = .false.
+    sw = 0_int64; sh = 0_int64
+    fpsv = dyn_null(); tempov = dyn_null()
+    seen%n = 0
+    do while (.not. lp_at_end(lp))
+      call lp_peek_word(lp, w, hasw)
+      if (hasw .and. w == "size") then
+        call lp_next(lp)
+        call lp_dup(p, seen, "size")
+        if (p%le_set) return
+        call lp_size(p, lp, sw, sh)
+        if (p%le_set) return
+        has_size = .true.
+      else if (hasw .and. w == "fps") then
+        call lp_next(lp)
+        call lp_dup(p, seen, "fps")
+        if (p%le_set) return
+        call lp_number(p, lp, "fps", v)
+        if (p%le_set) return
+        fpsv = dyn_int(dyn_to_int(v))
+        has_fps = .true.
+      else if (hasw .and. w == "tempo") then
+        call lp_next(lp)
+        call lp_dup(p, seen, "tempo")
+        if (p%le_set) return
+        call lp_number(p, lp, "tempo", tempov)
+        if (p%le_set) return
+        has_tempo = .true.
+      else
+        call lp_peek_text(lp, s)
+        call raise_line(p, "E103", "unexpected '" // s &
+                        // "' in film statement")
+        return
+      end if
+    end do
+    props = dyn_dict()
+    call dset(props, "title", dyn_str(title))
+    if (has_size) then
+      call dset(props, "size", pair_of(sw, sh))
+    else
+      call dset(props, "size", dyn_null())
+    end if
+    if (has_fps) then
+      call dset(props, "fps", dyn_copy(fpsv))
+    else
+      call dset(props, "fps", dyn_null())
+    end if
+    if (has_tempo) then
+      call dset(props, "tempo", dyn_copy(tempov))
+    else
+      call dset(props, "tempo", dyn_null())
+    end if
+    node = dyn_dict()
+    call dset(node, "film_def", dyn_bool(.true.))
+    call dset(node, "name", dyn_str(title))
+    call dset(node, "title", dyn_str(title))
+    if (has_size) then
+      call dset(node, "size", pair_of(sw, sh))
+      call dset(node, "width", dyn_int(sw))
+      call dset(node, "height", dyn_int(sh))
+    else
+      call dset(node, "size", dyn_null())
+      call dset(node, "width", dyn_null())
+      call dset(node, "height", dyn_null())
+    end if
+    if (has_fps) then
+      call dset(node, "fps", dyn_copy(fpsv))
+    else
+      call dset(node, "fps", dyn_null())
+    end if
+    if (has_tempo) then
+      call dset(node, "tempo", dyn_copy(tempov))
+    else
+      call dset(node, "tempo", dyn_null())
+    end if
+    call dset(node, "props", props)
+    call dset(node, "span", dyn_null())
+    call dset(node, "line", dyn_int(int(lp%no, int64)))
+    call dyn_assign(stmt, node)
+    has_stmt = .true.
+  end subroutine parse_film
+
+  ! character name colour [props...]  (§1.2; also legal outside
+  ! film mode, §1.9 rule 6).  Identity props ride the props bag;
+  ! `wears` accumulates a list of {item, colour} dicts.
+  subroutine parse_character(p, lp, stmt, has_stmt)
+    type(parser_state), intent(inout) :: p
+    type(line_cur), intent(inout) :: lp
+    type(dyn), intent(out) :: stmt
+    logical, intent(out) :: has_stmt
+    character(:), allocatable :: name, w, s, item
+    type(dyn) :: colour, props, node, v, wears, wdict, cval
+    type(str_set) :: seen
+    logical :: hasw, hasid, has_colour, has_wears
+    has_stmt = .false.
+    stmt = dyn_null()
+    call lp_next(lp)  ! character
+    call lp_ident(lp, name, hasid)
+    if (.not. hasid) then
+      call raise_line(p, "E101", "'character' needs a name, " &
+                      // "like: character lloyd blue at -5 0 2")
+      return
+    end if
+    colour = dyn_null()
+    has_colour = .false.
+    wears = dyn_list()
+    has_wears = .false.
+    props = dyn_dict()
+    seen%n = 0
+    do while (.not. lp_at_end(lp))
+      call lp_peek_word(lp, w, hasw)
+      if (hasw .and. w == "at") then
+        call lp_next(lp)
+        call lp_dup(p, seen, "at")
+        if (p%le_set) return
+        call lp_vec3(p, lp, v)
+        if (p%le_set) return
+        call dset(props, "at", dyn_copy(v))
+        call dset(props, "pos", v)
+      else if (hasw .and. (w == "tall" .or. w == "short" &
+               .or. w == "kid")) then
+        call lp_next(lp)
+        call lp_dup(p, seen, "proportions")
+        if (p%le_set) return
+        call dset(props, "proportions", dyn_str(w))
+      else if (hasw .and. w == "height") then
+        call lp_next(lp)
+        call lp_dup(p, seen, "height")
+        if (p%le_set) return
+        call lp_number(p, lp, "height", v)
+        if (p%le_set) return
+        call dset(props, "height", v)
+      else if (hasw .and. w == "head") then
+        call lp_next(lp)
+        call lp_dup(p, seen, "head")
+        if (p%le_set) return
+        call lp_ident(lp, s, hasid)
+        if (.not. hasid) then
+          call raise_line(p, "E103", "'head' needs round, square " &
+                          // "or oval")
+          return
+        end if
+        call dset(props, "head", dyn_str(str_lower(s)))
+      else if (hasw .and. w == "hair") then
+        call lp_next(lp)
+        call lp_dup(p, seen, "hair")
+        if (p%le_set) return
+        call lp_ident(lp, s, hasid)
+        if (.not. hasid) then
+          call raise_line(p, "E103", "'hair' needs a style or " &
+                          // "colour, like: hair bun")
+          return
+        end if
+        call dset(props, "hair", dyn_str(str_lower(s)))
+      else if (hasw .and. w == "face") then
+        call lp_next(lp)
+        call lp_dup(p, seen, "face")
+        if (p%le_set) return
+        call lp_ident(lp, s, hasid)
+        if (.not. hasid) then
+          call raise_line(p, "E103", "'face' needs an expression, " &
+                          // "like: face happy")
+          return
+        end if
+        call dset(props, "face", dyn_str(str_lower(s)))
+      else if (hasw .and. w == "wears") then
+        call lp_next(lp)
+        call lp_ident(lp, item, hasid)
+        if (.not. hasid) then
+          call raise_line(p, "E103", "'wears' needs an item, " &
+                          // "like: wears cap red")
+          return
+        end if
+        cval = dyn_null()
+        call lp_peek_word(lp, w, hasw)
+        if (lp_peek_kind(lp) == K_COLOR .or. (hasw &
+            .and. w == "rgb") .or. (hasw .and. &
+            in_list(w, COLOUR_WORDS))) then
+          call lp_colour(p, lp, cval)
+          if (p%le_set) return
+        end if
+        wdict = dyn_dict()
+        call dset(wdict, "item", dyn_str(str_lower(item)))
+        call dset(wdict, "colour", dyn_copy(cval))
+        call dyn_list_push(wears, wdict)
+        has_wears = .true.
+      else if (hasw .and. w == "holds") then
+        call lp_next(lp)
+        call lp_dup(p, seen, "holds")
+        if (p%le_set) return
+        call lp_ident(lp, s, hasid)
+        if (.not. hasid) then
+          call raise_line(p, "E103", "'holds' needs the name of " &
+                          // "the object held")
+          return
+        end if
+        call dset(props, "holds", dyn_str(s))
+      else if (lp_peek_kind(lp) == K_COLOR .or. (hasw &
+               .and. w == "rgb") .or. (hasw .and. &
+               in_list(w, COLOUR_WORDS))) then
+        call lp_dup(p, seen, "colour")
+        if (p%le_set) return
+        call lp_colour(p, lp, colour)
+        if (p%le_set) return
+        has_colour = .true.
+      else
+        call lp_peek_text(lp, s)
+        call raise_line(p, "E103", "unexpected '" // s &
+                        // "' in character statement")
+        return
+      end if
+    end do
+    if (has_wears) call dset(props, "wears", dyn_copy(wears))
+    call adopt_colour(props, colour, has_colour)
+    node = dyn_dict()
+    call dset(node, "char_def", dyn_bool(.true.))
+    call dset(node, "name", dyn_str(name))
+    call dset(node, "color_raw", colour_raw_str(colour, has_colour))
+    if (has_colour) then
+      call dset(node, "colour", dyn_copy(colour))
+      call dset(node, "color", dyn_copy(colour))
+    else
+      call dset(node, "colour", dyn_null())
+      call dset(node, "color", dyn_null())
+    end if
+    call dset(node, "props", props)
+    call dset(node, "body", dyn_list())
+    call dset(node, "span", dyn_null())
+    call dset(node, "line", dyn_int(int(lp%no, int64)))
+    call dyn_assign(stmt, node)
+    has_stmt = .true.
+  end subroutine parse_character
+
+  ! place name at vec3  (§1.1 setup line)
+  subroutine parse_place(p, lp, stmt, has_stmt)
+    type(parser_state), intent(inout) :: p
+    type(line_cur), intent(inout) :: lp
+    type(dyn), intent(out) :: stmt
+    logical, intent(out) :: has_stmt
+    character(:), allocatable :: name, w, s
+    type(dyn) :: props, node, v
+    logical :: hasw, hasid
+    has_stmt = .false.
+    stmt = dyn_null()
+    call lp_next(lp)  ! place
+    call lp_ident(lp, name, hasid)
+    if (.not. hasid) then
+      call raise_line(p, "E101", "'place' needs a name, like: " &
+                      // "place stall-front at 1 0 2")
+      return
+    end if
+    call lp_peek_word(lp, w, hasw)
+    if (.not. hasw .or. w /= "at") then
+      call raise_line(p, "E103", "'place " // name &
+                      // "' needs 'at', like: place " // name &
+                      // " at 1 0 2")
+      return
+    end if
+    call lp_next(lp)  ! at
+    call lp_vec3(p, lp, v)
+    if (p%le_set) return
+    if (.not. lp_at_end(lp)) then
+      call lp_peek_text(lp, s)
+      call raise_line(p, "E103", "unexpected '" // s &
+                      // "' in place statement")
+      return
+    end if
+    props = dyn_dict()
+    call dset(props, "at", dyn_copy(v))
+    call dset(props, "pos", dyn_copy(v))
+    node = dyn_dict()
+    call dset(node, "place", dyn_bool(.true.))
+    call dset(node, "name", dyn_str(name))
+    call dset(node, "at", dyn_copy(v))
+    call dset(node, "pos", dyn_copy(v))
+    call dset(node, "props", props)
+    call dset(node, "span", dyn_null())
+    call dset(node, "line", dyn_int(int(lp%no, int64)))
+    call dyn_assign(stmt, node)
+    has_stmt = .true.
+  end subroutine parse_place
+
+  ! let name be <literal>  (§1.8: number, duration, colour or name,
+  ! kept verbatim; no expressions in v1)
+  subroutine parse_let(p, lp, stmt, has_stmt)
+    type(parser_state), intent(inout) :: p
+    type(line_cur), intent(inout) :: lp
+    type(dyn), intent(out) :: stmt
+    logical, intent(out) :: has_stmt
+    character(:), allocatable :: name, w, s, unit
+    type(dyn) :: val, props, node
+    logical :: hasw, hasid, has
+    has_stmt = .false.
+    stmt = dyn_null()
+    call lp_next(lp)  ! let
+    call lp_ident(lp, name, hasid)
+    if (.not. hasid) then
+      call raise_line(p, "E101", "'let' needs a name, like: " &
+                      // "let wait-time be 3 seconds")
+      return
+    end if
+    call lp_peek_word(lp, w, hasw)
+    if (.not. hasw .or. w /= "be") then
+      call raise_line(p, "E103", "'let " // name &
+                      // "' needs 'be', like: let " // name &
+                      // " be 3 seconds")
+      return
+    end if
+    call lp_next(lp)  ! be
+    unit = ""
+    has = .false.
+    if (lp_peek_kind(lp) == K_NUMBER) then
+      call parse_duration(p, lp, val, unit, has)
+      if (p%le_set) return
+    else if (lp_peek_kind(lp) == K_COLOR) then
+      call lp_colour(p, lp, val)
+      if (p%le_set) return
+      has = .true.
+    else if (lp_peek_kind(lp) == K_STRING) then
+      call lp_next_text(lp, s)
+      val = dyn_str(s)
+      has = .true.
+    else if (lp_peek_kind(lp) == K_WORD) then
+      call lp_peek_word(lp, w, hasw)
+      if (hasw .and. (w == "rgb" .or. in_list(w, COLOUR_WORDS))) then
+        call lp_colour(p, lp, val)
+        if (p%le_set) return
+      else
+        call lp_next_text(lp, s)
+        val = dyn_str(s)
+      end if
+      has = .true.
+    else
+      call lp_peek_text(lp, s)
+      call raise_line(p, "E102", "'let " // name &
+                      // "' needs a value (a number, a duration, " &
+                      // "a colour or a name), got '" // s // "'")
+      return
+    end if
+    if (.not. lp_at_end(lp)) then
+      call lp_peek_text(lp, s)
+      call raise_line(p, "E103", "unexpected '" // s &
+                      // "' in let statement")
+      return
+    end if
+    props = dyn_dict()
+    call dset(props, "let_name", dyn_str(name))
+    call dset(props, "value", dyn_copy(val))
+    node = dyn_dict()
+    call dset(node, "let_name", dyn_str(name))
+    call dset(node, "value", dyn_copy(val))
+    if (len(unit) > 0) &
+      call dset(node, "value_unit", dyn_str(unit))
+    call dset(node, "props", props)
+    call dset(node, "span", dyn_null())
+    call dset(node, "line", dyn_int(int(lp%no, int64)))
+    call dyn_assign(stmt, node)
+    has_stmt = .true.
+  end subroutine parse_let
+
+  ! <who> <verb-phrase> [tail]  (§1.3).  The verb phrase maps to a
+  ! canonical base-form action name; arguments ride the props bag
+  ! (to / on / from / target / expression / hand / object /
+  ! give_to / direction), the anim-prop tail rides it too.
+  subroutine parse_cue(p, lp, timing, anchor, has_anchor, offset, &
+                       has_offset, off_unit, stmt, has_stmt)
+    type(parser_state), intent(inout) :: p
+    type(line_cur), intent(inout) :: lp
+    character(*), intent(in) :: timing, anchor, off_unit
+    logical, intent(in) :: has_anchor, has_offset
+    type(dyn), intent(in) :: offset
+    type(dyn), intent(out) :: stmt
+    logical, intent(out) :: has_stmt
+    character(:), allocatable :: actor, vtok, action_name, w, s
+    type(dyn) :: props, node, dur
+    character(:), allocatable :: dur_unit
+    type(str_set) :: seen
+    logical :: hasw, hasid, has_dur
+    has_stmt = .false.
+    stmt = dyn_null()
+    call lp_next_text(lp, actor)
+    call lp_peek_word(lp, vtok, hasw)
+    if (.not. hasw) then
+      call raise_line(p, "E103", "'" // actor &
+                      // "' needs an action, like: " // actor &
+                      // " waves for 2 seconds")
+      return
+    end if
+    props = dyn_dict()
+    seen%n = 0
+    dur = dyn_null()
+    dur_unit = ""
+    has_dur = .false.
+    ! Canonical action name from the verb token (base form; the
+    ! -s sentence form is the same action, §1.3).
+    action_name = vtok
+    if (vtok == "walks") action_name = "walk"
+    if (vtok == "runs") action_name = "run"
+    if (vtok == "waves") action_name = "wave"
+    if (vtok == "sits") action_name = "sit"
+    if (vtok == "stands") action_name = "stand"
+    if (vtok == "jumps") action_name = "jump"
+    if (vtok == "falls") action_name = "fall"
+    if (vtok == "looks") action_name = "look"
+    if (vtok == "faces") action_name = "face"
+    if (vtok == "points") action_name = "point"
+    if (vtok == "nods") action_name = "nod"
+    if (vtok == "shakes") action_name = "shake"
+    if (vtok == "dances") action_name = "dance"
+    if (vtok == "sleeps") action_name = "sleep"
+    if (vtok == "smiles") action_name = "smile"
+    if (vtok == "picks") action_name = "pick"
+    if (vtok == "gives") action_name = "give"
+    if (vtok == "taps") action_name = "tap"
+    if (vtok == "spins") action_name = "spin"
+    if (vtok == "moves") action_name = "move"
+    if (vtok == "exits") action_name = "exit"
+    if (vtok == "does") action_name = "do"
+    if (vtok == "walks" .or. vtok == "walk") then
+      call lp_next(lp)
+      call lp_peek_word(lp, w, hasw)
+      if (hasw .and. w == "to") then
+        call lp_next(lp)
+        call parse_dest(p, lp, props, "to")
+        if (p%le_set) return
+      else if (hasw .and. w == "in") then
+        call lp_next(lp)  ! in
+        call lp_peek_word(lp, w, hasw)
+        if (.not. hasw .or. w /= "from") then
+          call raise_line(p, "E103", "'walks in' needs 'from', " &
+                          // "like: walks in from left")
+          return
+        end if
+        call lp_next(lp)  ! from
+        call lp_ident(lp, s, hasid)
+        if (.not. hasid) then
+          call raise_line(p, "E103", "'walks in from' needs " &
+                          // "left or right")
+          return
+        end if
+        call dset(props, "from", dyn_str(str_lower(s)))
+        action_name = "enter"
+      else
+        call raise_line(p, "E103", "'walks' needs 'to' or " &
+                        // "'in from', like: walks to the door")
+        return
+      end if
+    else if (vtok == "runs" .or. vtok == "run" &
+             .or. vtok == "moves" .or. vtok == "move") then
+      call lp_next(lp)
+      call lp_peek_word(lp, w, hasw)
+      if (.not. hasw .or. w /= "to") then
+        call raise_line(p, "E103", "'" // vtok &
+                        // "' needs 'to', like: " // vtok &
+                        // " to the door")
+        return
+      end if
+      call lp_next(lp)
+      call parse_dest(p, lp, props, "to")
+      if (p%le_set) return
+    else if (vtok == "waves" .or. vtok == "wave") then
+      call lp_next(lp)
+      call lp_peek_word(lp, w, hasw)
+      if (hasw .and. (w == "left" .or. w == "right" &
+          .or. w == "both")) then
+        call lp_next(lp)
+        call dset(props, "hand", dyn_str(w))
+        call lp_peek_word(lp, w, hasw)
+        if (hasw .and. (w == "hand" .or. w == "hands")) &
+          call lp_next(lp)
+      end if
+    else if (vtok == "sits" .or. vtok == "sit") then
+      call lp_next(lp)
+      call lp_peek_word(lp, w, hasw)
+      if (hasw .and. w == "on") then
+        call lp_next(lp)
+        call lp_ident(lp, s, hasid)
+        if (.not. hasid) then
+          call raise_line(p, "E103", "'sits on' needs the name " &
+                          // "of the object, like: sits on bench")
+          return
+        end if
+        call dset(props, "on", dyn_str(s))
+      end if
+    else if (vtok == "stands" .or. vtok == "stand" &
+             .or. vtok == "jumps" .or. vtok == "jump" &
+             .or. vtok == "falls" .or. vtok == "fall" &
+             .or. vtok == "nods" .or. vtok == "nod" &
+             .or. vtok == "dances" .or. vtok == "dance" &
+             .or. vtok == "sleeps" .or. vtok == "sleep" &
+             .or. vtok == "smiles" .or. vtok == "smile" &
+             .or. vtok == "spins" .or. vtok == "spin") then
+      call lp_next(lp)
+    else if (vtok == "looks" .or. vtok == "look" &
+             .or. vtok == "points" .or. vtok == "point") then
+      call lp_next(lp)
+      call lp_peek_word(lp, w, hasw)
+      if (.not. hasw .or. w /= "at") then
+        call raise_line(p, "E103", "'" // vtok &
+                        // "' needs 'at', like: " // vtok &
+                        // " at lloyd")
+        return
+      end if
+      call lp_next(lp)
+      call parse_dest(p, lp, props, "target")
+      if (p%le_set) return
+    else if (vtok == "faces" .or. vtok == "face") then
+      call lp_next(lp)
+      call lp_peek_word(lp, w, hasw)
+      if (hasw .and. is_expression(w)) then
+        call lp_next(lp)
+        call dset(props, "expression", dyn_str(w))
+      else
+        call parse_dest(p, lp, props, "target")
+        if (p%le_set) return
+      end if
+    else if (vtok == "shakes" .or. vtok == "shake") then
+      call lp_next(lp)
+      call lp_peek_word(lp, w, hasw)
+      if (hasw .and. w == "head") call lp_next(lp)
+    else if (vtok == "picks" .or. vtok == "pick") then
+      call lp_next(lp)
+      call lp_peek_word(lp, w, hasw)
+      if (hasw .and. w == "up") call lp_next(lp)
+      call lp_ident(lp, s, hasid)
+      if (.not. hasid) then
+        call raise_line(p, "E103", "'picks up' needs the name " &
+                        // "of the object, like: picks up key")
+        return
+      end if
+      call dset(props, "object", dyn_str(s))
+    else if (vtok == "gives" .or. vtok == "give") then
+      call lp_next(lp)
+      call lp_ident(lp, s, hasid)
+      if (.not. hasid) then
+        call raise_line(p, "E103", "'gives' needs the name of " &
+                        // "the object, like: gives key to mira")
+        return
+      end if
+      call dset(props, "object", dyn_str(s))
+      call lp_peek_word(lp, w, hasw)
+      if (.not. hasw .or. w /= "to") then
+        call raise_line(p, "E103", "'gives' needs 'to', like: " &
+                        // "gives key to mira")
+        return
+      end if
+      call lp_next(lp)
+      call lp_ident(lp, s, hasid)
+      if (.not. hasid) then
+        call raise_line(p, "E103", "'gives ... to' needs a " &
+                        // "character name")
+        return
+      end if
+      call dset(props, "give_to", dyn_str(s))
+    else if (vtok == "taps" .or. vtok == "tap") then
+      call lp_next(lp)
+      call lp_peek_word(lp, w, hasw)
+      if (hasw .and. w == "foot") call lp_next(lp)
+    else if (vtok == "exits" .or. vtok == "exit") then
+      call lp_next(lp)
+      call lp_peek_word(lp, w, hasw)
+      if (hasw .and. (w == "left" .or. w == "right")) then
+        call lp_next(lp)
+        call dset(props, "direction", dyn_str(w))
+      end if
+    else if (vtok == "does" .or. vtok == "do") then
+      call lp_next(lp)
+      call lp_ident(lp, s, hasid)
+      if (.not. hasid) then
+        call raise_line(p, "E103", "'does' needs the name of a " &
+                        // "custom action, like: does celebrate")
+        return
+      end if
+      action_name = s
+    else
+      call raise_line(p, "E103", "unknown action word '" // vtok &
+                      // "' in cue")
+      return
+    end if
+    call cue_tail(p, lp, props, seen, dur, dur_unit, has_dur)
+    if (p%le_set) return
+    node = dyn_dict()
+    call dset(node, "cue", dyn_bool(.true.))
+    call dset(node, "target", dyn_str(actor))
+    call dset(node, "action", dyn_str(action_name))
+    call timing_fields(node, timing, anchor, has_anchor, offset, &
+                       has_offset, off_unit)
+    call duration_fields(node, props, dur, dur_unit, has_dur)
+    call dset(node, "ease", dget(props, "ease"))
+    call dset(node, "speed", dget(props, "speed"))
+    call dset(node, "axis", dget(props, "axis"))
+    call dset(node, "loop", dget(props, "loop"))
+    call dset(node, "fps", dget(props, "fps"))
+    call dset(node, "props", props)
+    call dset(node, "span", dyn_null())
+    call dset(node, "line", dyn_int(int(lp%no, int64)))
+    call dyn_assign(stmt, node)
+    has_stmt = .true.
+  end subroutine parse_cue
+
+  ! camera <move> [tail]  (§1.5).  Field vocabulary follows §2.1:
+  ! the followed name rides "follow" (never "target"); a vec3
+  ! destination rides "to_look".
+  subroutine parse_cammove(p, lp, timing, anchor, has_anchor, &
+                           offset, has_offset, off_unit, stmt, &
+                           has_stmt)
+    type(parser_state), intent(inout) :: p
+    type(line_cur), intent(inout) :: lp
+    character(*), intent(in) :: timing, anchor, off_unit
+    logical, intent(in) :: has_anchor, has_offset
+    type(dyn), intent(in) :: offset
+    type(dyn), intent(out) :: stmt
+    logical, intent(out) :: has_stmt
+    character(:), allocatable :: mv, w, s, move_name
+    type(dyn) :: props, node, dur, follow, target_name, to_look
+    character(:), allocatable :: dur_unit
+    type(str_set) :: seen
+    logical :: hasw, hasid, has_dur, has_follow, has_target, &
+               has_look
+    has_stmt = .false.
+    stmt = dyn_null()
+    call lp_next(lp)  ! camera
+    call lp_peek_word(lp, mv, hasw)
+    if (.not. hasw .or. .not. is_cam_verb(mv)) then
+      call lp_peek_text(lp, s)
+      call raise_line(p, "E103", "'camera' in a cue needs a " &
+                      // "move (follows, zooms, pans, orbits or " &
+                      // "looks), got '" // s // "'")
+      return
+    end if
+    props = dyn_dict()
+    seen%n = 0
+    dur = dyn_null()
+    dur_unit = ""
+    has_dur = .false.
+    follow = dyn_null();      has_follow = .false.
+    target_name = dyn_null(); has_target = .false.
+    to_look = dyn_null();     has_look = .false.
+    move_name = mv
+    if (mv == "follows") then
+      call lp_next(lp)
+      call lp_ident(lp, s, hasid)
+      if (.not. hasid) then
+        call raise_line(p, "E103", "'camera follows' needs a " &
+                        // "character name")
+        return
+      end if
+      follow = dyn_str(s)
+      has_follow = .true.
+      move_name = "follow"
+    else if (mv == "zooms") then
+      call lp_next(lp)
+      call lp_peek_word(lp, w, hasw)
+      if (hasw .and. w == "in") then
+        call lp_next(lp)
+        move_name = "zoom_in"
+      else if (hasw .and. w == "out") then
+        call lp_next(lp)
+        move_name = "zoom_out"
+      else
+        call raise_line(p, "E103", "'camera zooms' needs 'in' " &
+                        // "or 'out'")
+        return
+      end if
+      call lp_peek_word(lp, w, hasw)
+      if (hasw .and. w == "on") then
+        call lp_next(lp)
+        if (lp_peek_kind(lp) == K_NUMBER) then
+          call lp_vec3(p, lp, to_look)
+          if (p%le_set) return
+          has_look = .true.
+        else
+          call lp_ident(lp, s, hasid)
+          if (.not. hasid) then
+            call raise_line(p, "E103", "'zooms in on' needs a " &
+                            // "target name or position")
+            return
+          end if
+          target_name = dyn_str(s)
+          has_target = .true.
+        end if
+      end if
+    else if (mv == "pans") then
+      call lp_next(lp)
+      move_name = "pan"
+      call lp_peek_word(lp, w, hasw)
+      if (hasw .and. w == "to") call lp_next(lp)
+      if (lp_peek_kind(lp) == K_NUMBER) then
+        call lp_vec3(p, lp, to_look)
+        if (p%le_set) return
+        has_look = .true.
+      else
+        call lp_ident(lp, s, hasid)
+        if (.not. hasid) then
+          call raise_line(p, "E103", "'camera pans to' needs a " &
+                          // "target name or position")
+          return
+        end if
+        target_name = dyn_str(s)
+        has_target = .true.
+      end if
+    else if (mv == "orbits") then
+      call lp_next(lp)
+      move_name = "orbit"
+      if (lp_peek_kind(lp) == K_NUMBER) then
+        call lp_vec3(p, lp, to_look)
+        if (p%le_set) return
+        has_look = .true.
+      else
+        call lp_ident(lp, s, hasid)
+        if (.not. hasid) then
+          call raise_line(p, "E103", "'camera orbits' needs a " &
+                          // "character name")
+          return
+        end if
+        target_name = dyn_str(s)
+        has_target = .true.
+      end if
+    else  ! looks
+      call lp_next(lp)
+      move_name = "look"
+      call lp_peek_word(lp, w, hasw)
+      if (hasw .and. w == "at") call lp_next(lp)
+      if (lp_peek_kind(lp) == K_NUMBER) then
+        call lp_vec3(p, lp, to_look)
+        if (p%le_set) return
+        has_look = .true.
+      else
+        call lp_ident(lp, s, hasid)
+        if (.not. hasid) then
+          call raise_line(p, "E103", "'camera looks at' needs a " &
+                          // "target name or position")
+          return
+        end if
+        target_name = dyn_str(s)
+        has_target = .true.
+      end if
+    end if
+    call cue_tail(p, lp, props, seen, dur, dur_unit, has_dur)
+    if (p%le_set) return
+    call dset(props, "move", dyn_str(move_name))
+    if (has_follow) call dset(props, "follow", dyn_copy(follow))
+    if (has_target) &
+      call dset(props, "target_name", dyn_copy(target_name))
+    node = dyn_dict()
+    call dset(node, "cam_move", dyn_bool(.true.))
+    call dset(node, "move", dyn_str(move_name))
+    if (has_follow) then
+      call dset(node, "follow", dyn_copy(follow))
+    else
+      call dset(node, "follow", dyn_null())
+    end if
+    if (has_target) then
+      call dset(node, "target_name", dyn_copy(target_name))
+    else
+      call dset(node, "target_name", dyn_null())
+    end if
+    call dset(node, "from_pos", dyn_null())
+    call dset(node, "to_pos", dyn_null())
+    call dset(node, "from_look", dyn_null())
+    if (has_look) then
+      call dset(node, "to_look", dyn_copy(to_look))
+    else
+      call dset(node, "to_look", dyn_null())
+    end if
+    call dset(node, "fov_from", dyn_null())
+    call dset(node, "fov_to", dyn_null())
+    call timing_fields(node, timing, anchor, has_anchor, offset, &
+                       has_offset, off_unit)
+    call duration_fields(node, props, dur, dur_unit, has_dur)
+    call dset(node, "ease", dget(props, "ease"))
+    call dset(node, "props", props)
+    call dset(node, "span", dyn_null())
+    call dset(node, "line", dyn_int(int(lp%no, int64)))
+    call dyn_assign(stmt, node)
+    has_stmt = .true.
+  end subroutine parse_cammove
+
+  ! <speaker> says "..." / caption "..." / title "..."  (§1.6).
+  ! lp is positioned at the quoted string on entry.
+  subroutine parse_dialogue(p, lp, speaker, timing, anchor, &
+                            has_anchor, offset, has_offset, &
+                            off_unit, stmt, has_stmt)
+    type(parser_state), intent(inout) :: p
+    type(line_cur), intent(inout) :: lp
+    character(*), intent(in) :: speaker, timing, anchor, off_unit
+    logical, intent(in) :: has_anchor, has_offset
+    type(dyn), intent(in) :: offset
+    type(dyn), intent(out) :: stmt
+    logical, intent(out) :: has_stmt
+    character(:), allocatable :: content, w, s, style
+    type(dyn) :: props, node, dur
+    character(:), allocatable :: dur_unit
+    type(str_set) :: seen
+    logical :: hasw, has_dur, has_style
+    has_stmt = .false.
+    stmt = dyn_null()
+    if (lp_peek_kind(lp) /= K_STRING) then
+      call raise_line(p, "E101", "dialogue needs a quoted line, " &
+                      // 'like: ' // speaker // ' says "Hello!"')
+      return
+    end if
+    call lp_next_text(lp, content)
+    props = dyn_dict()
+    seen%n = 0
+    dur = dyn_null()
+    dur_unit = ""
+    has_dur = .false.
+    style = ""
+    has_style = .false.
+    do while (.not. lp_at_end(lp))
+      call lp_peek_word(lp, w, hasw)
+      if (hasw .and. (w == "for" .or. w == "in")) then
+        call lp_next(lp)
+        call lp_dup(p, seen, "duration")
+        if (p%le_set) return
+        call parse_duration(p, lp, dur, dur_unit, has_dur)
+        if (p%le_set) return
+      else if (hasw .and. w == "bubble") then
+        call lp_next(lp)
+        call lp_peek_word(lp, w, hasw)
+        if (hasw .and. w == "only") call lp_next(lp)
+        style = "bubble"
+        has_style = .true.
+      else if (hasw .and. w == "subtitle") then
+        call lp_next(lp)
+        call lp_peek_word(lp, w, hasw)
+        if (hasw .and. w == "only") call lp_next(lp)
+        style = "subtitle"
+        has_style = .true.
+      else if (hasw .and. w == "thinking") then
+        call lp_next(lp)
+        style = "thinking"
+        has_style = .true.
+      else
+        call lp_peek_text(lp, s)
+        call raise_line(p, "E103", "unexpected '" // s &
+                        // "' in dialogue")
+        return
+      end if
+    end do
+    if (has_style) then
+      call dset(props, "style", dyn_str(style))
+    else
+      call dset(props, "style", dyn_null())
+    end if
+    call dset(props, "voice", dyn_null())
+    node = dyn_dict()
+    call dset(node, "say", dyn_bool(.true.))
+    call dset(node, "speaker", dyn_str(speaker))
+    call dset(node, "content", dyn_str(content))
+    call timing_fields(node, timing, anchor, has_anchor, offset, &
+                       has_offset, off_unit)
+    call duration_fields(node, props, dur, dur_unit, has_dur)
+    call dset(node, "props", props)
+    call dset(node, "span", dyn_null())
+    call dset(node, "line", dyn_int(int(lp%no, int64)))
+    call dyn_assign(stmt, node)
+    has_stmt = .true.
+  end subroutine parse_dialogue
+
+  ! Dispatch for the part of a cue line after any `with` / `at
+  ! <time>` prefix has been consumed by parse_film_line.
+  subroutine cue_dispatch(p, lp, timing, anchor, has_anchor, &
+                          offset, has_offset, off_unit, stmt, &
+                          has_stmt)
+    type(parser_state), intent(inout) :: p
+    type(line_cur), intent(inout) :: lp
+    character(*), intent(in) :: timing, anchor, off_unit
+    logical, intent(in) :: has_anchor, has_offset
+    type(dyn), intent(in) :: offset
+    type(dyn), intent(out) :: stmt
+    logical, intent(out) :: has_stmt
+    character(:), allocatable :: w1, actor
+    type(dyn) :: props, node, dur
+    character(:), allocatable :: dur_unit
+    type(str_set) :: seen
+    logical :: hasid, has_dur
+    has_stmt = .false.
+    stmt = dyn_null()
+    w1 = lp_word_at(lp, 1)
+    if (w1 == "camera") then
+      if (.not. is_cam_verb(lp_word_at(lp, 2))) then
+        call raise_line(p, "E103", "'camera' in a cue needs a " &
+                        // "move (follows, zooms, pans, orbits " &
+                        // "or looks)")
+        return
+      end if
+      call parse_cammove(p, lp, timing, anchor, has_anchor, &
+                         offset, has_offset, off_unit, stmt, &
+                         has_stmt)
+      return
+    end if
+    if (w1 == "fade") then
+      ! The §1.7 closing cue: a standalone transition node riding
+      ! the timeline like any other cue.
+      call lp_next(lp)  ! fade
+      if (lp_word_at(lp, 1) /= "out") then
+        call raise_line(p, "E103", "'fade' in a cue must be " &
+                        // "'fade out', like: fade out in 1 second")
+        return
+      end if
+      call lp_next(lp)  ! out
+      props = dyn_dict()
+      seen%n = 0
+      dur = dyn_null()
+      dur_unit = ""
+      has_dur = .false.
+      call cue_tail(p, lp, props, seen, dur, dur_unit, has_dur)
+      if (p%le_set) return
+      node = dyn_dict()
+      call dset(node, "transition", dyn_str("fade_out"))
+      call dset(node, "kind", dyn_str("fade_out"))
+      call dset(node, "from_scene", dyn_null())
+      call dset(node, "to_scene", dyn_null())
+      call timing_fields(node, timing, anchor, has_anchor, &
+                         offset, has_offset, off_unit)
+      call duration_fields(node, props, dur, dur_unit, has_dur)
+      call dset(node, "props", props)
+      call dset(node, "span", dyn_null())
+      call dset(node, "line", dyn_int(int(lp%no, int64)))
+      call dyn_assign(stmt, node)
+      has_stmt = .true.
+      return
+    end if
+    if (w1 == "caption" .or. w1 == "title") then
+      call lp_next(lp)
+      call parse_dialogue(p, lp, w1, timing, anchor, has_anchor, &
+                          offset, has_offset, off_unit, stmt, &
+                          has_stmt)
+      return
+    end if
+    if (lp_word_at(lp, 2) == "says") then
+      call lp_ident(lp, actor, hasid)
+      call lp_next(lp)  ! says
+      call parse_dialogue(p, lp, actor, timing, anchor, &
+                          has_anchor, offset, has_offset, off_unit, &
+                          stmt, has_stmt)
+      return
+    end if
+    call parse_cue(p, lp, timing, anchor, has_anchor, offset, &
+                   has_offset, off_unit, stmt, has_stmt)
+  end subroutine cue_dispatch
+
+  ! One film-mode cue line (§1.4 sequencing forms): the `with` and
+  ! `at <time>` prefixes and the `wait` pause are peeled here;
+  ! everything else goes to cue_dispatch.
+  subroutine parse_film_line(p, crec, stmt, has_stmt)
+    type(parser_state), intent(inout) :: p
+    type(line_rec), intent(in) :: crec
+    type(dyn), intent(out) :: stmt
+    logical, intent(out) :: has_stmt
+    type(line_cur) :: lp
+    character(:), allocatable :: first, w, timing, anchor, &
+                                 off_unit
+    type(dyn) :: offset, props, node, dur, v1, v2
+    character(:), allocatable :: dur_unit
+    type(str_set) :: seen
+    logical :: hasw, has_anchor, has_offset, has_dur
+    has_stmt = .false.
+    stmt = dyn_null()
+    call make_cur(crec%toks, crec%no, lp)
+    timing = "then"
+    anchor = ""
+    has_anchor = .false.
+    offset = dyn_null()
+    has_offset = .false.
+    off_unit = ""
+    call lp_peek_word(lp, first, hasw)
+    if (.not. hasw) then
+      call raise_line(p, "E103", "expected a cue")
+      return
+    end if
+    if (first == "with") then
+      call lp_next(lp)
+      timing = "with"
+      call cue_dispatch(p, lp, timing, anchor, has_anchor, &
+                        offset, has_offset, off_unit, stmt, &
+                        has_stmt)
+      return
+    end if
+    if (first == "at") then
+      call lp_next(lp)
+      timing = "at"
+      call lp_number(p, lp, "time", v1)
+      if (p%le_set) return
+      if (lp_peek_kind(lp) == K_NUMBER) then
+        ! mm:ss form (the lexer split `0:05` at the colon).
+        call lp_number(p, lp, "time", v2)
+        if (p%le_set) return
+        offset = dyn_int(dyn_to_int(v1) * 60_int64 &
+                         + dyn_to_int(v2))
+      else
+        offset = dyn_copy(v1)
+        call lp_peek_word(lp, w, hasw)
+        if (hasw .and. (w == "seconds" .or. w == "second")) then
+          call lp_next(lp)
+        else if (hasw .and. (w == "beats" .or. w == "beat")) then
+          call lp_next(lp)
+          off_unit = "beats"
+        end if
+      end if
+      has_offset = .true.
+      call cue_dispatch(p, lp, timing, anchor, has_anchor, &
+                        offset, has_offset, off_unit, stmt, &
+                        has_stmt)
+      return
+    end if
+    if (first == "after") then
+      ! `after <action> <cue sentence>`: timing=after with the
+      ! anchor naming an earlier cue (by action, or by target --
+      ! desugar registers both); step 0.5c resolves the start to
+      ! that cue's end and raises E206 when no such cue exists.
+      call lp_next(lp)  ! after
+      timing = "after"
+      call lp_ident(lp, anchor, has_anchor)
+      if (.not. has_anchor) then
+        call raise_line(p, "E103", "'after' needs the name of " &
+                        // "an earlier action, like: after walk " &
+                        // "mira waves for 2 seconds")
+        return
+      end if
+      call cue_dispatch(p, lp, timing, anchor, has_anchor, &
+                        offset, has_offset, off_unit, stmt, &
+                        has_stmt)
+      return
+    end if
+    if (first == "wait") then
+      call lp_next(lp)
+      props = dyn_dict()
+      seen%n = 0
+      dur = dyn_null()
+      dur_unit = ""
+      has_dur = .false.
+      if (.not. lp_at_end(lp)) then
+        call parse_duration(p, lp, dur, dur_unit, has_dur)
+        if (p%le_set) return
+      end if
+      if (.not. lp_at_end(lp)) then
+        call lp_peek_text(lp, w)
+        call raise_line(p, "E103", "unexpected '" // w &
+                        // "' in wait cue")
+        return
+      end if
+      node = dyn_dict()
+      call dset(node, "cue", dyn_bool(.true.))
+      call dset(node, "target", dyn_null())
+      call dset(node, "action", dyn_str("wait"))
+      call timing_fields(node, timing, anchor, has_anchor, &
+                         offset, has_offset, off_unit)
+      call duration_fields(node, props, dur, dur_unit, has_dur)
+      call dset(node, "ease", dyn_null())
+      call dset(node, "props", props)
+      call dset(node, "span", dyn_null())
+      call dset(node, "line", dyn_int(int(lp%no, int64)))
+      call dyn_assign(stmt, node)
+      has_stmt = .true.
+      return
+    end if
+    call cue_dispatch(p, lp, timing, anchor, has_anchor, offset, &
+                      has_offset, off_unit, stmt, has_stmt)
+  end subroutine parse_film_line
+
+  ! Is this line a film-mode cue (§1.3–§1.6)?  Only consulted in
+  ! film mode, inside a shot; setup starters never match because
+  ! their second token is not a cue verb / `says`.
+  logical function is_cue_start(crec)
+    type(line_rec), intent(in) :: crec
+    character(:), allocatable :: t1, w2
+    integer :: n
+    is_cue_start = .false.
+    n = size(crec%toks)
+    if (n == 0) return
+    if (crec%toks(1)%kind /= K_WORD) return
+    if (.not. allocated(crec%toks(1)%text)) return
+    t1 = word_norm(crec%toks(1)%text)
+    if (t1 == "with" .or. t1 == "wait" .or. t1 == "caption" &
+        .or. t1 == "title") then
+      is_cue_start = .true.
+      return
+    end if
+    if (n < 2) return
+    if (t1 == "at") then
+      is_cue_start = crec%toks(2)%kind == K_NUMBER
+      return
+    end if
+    if (t1 == "after") then
+      ! `after <action> <cue sentence>` (SS1.4/SS2.2 timing form):
+      ! the anchor is a bare word; the rest must be a cue, which
+      ! parse_film_line / cue_dispatch validate.
+      is_cue_start = crec%toks(2)%kind == K_WORD
+      return
+    end if
+    if (crec%toks(2)%kind /= K_WORD) return
+    if (.not. allocated(crec%toks(2)%text)) return
+    w2 = word_norm(crec%toks(2)%text)
+    if (t1 == "fade") then
+      is_cue_start = w2 == "out"
+      return
+    end if
+    if (t1 == "camera") then
+      is_cue_start = is_cam_verb(w2)
+      return
+    end if
+    is_cue_start = w2 == "says" .or. is_cue_verb(w2)
+  end function is_cue_start
+
+  ! `repeat N times` -- the timeline block form (§1.8), distinct
+  ! from the legacy setup prefix `repeat N <prim> ...` (§1.9
+  ! rule 8).
+  logical function is_timeline_repeat(crec)
+    type(line_rec), intent(in) :: crec
+    is_timeline_repeat = .false.
+    if (size(crec%toks) < 3) return
+    if (crec%toks(1)%kind /= K_WORD) return
+    if (.not. allocated(crec%toks(1)%text)) return
+    if (word_norm(crec%toks(1)%text) /= "repeat") return
+    ! The count is a NUMBER literal or a WORD naming a `let`
+    ! binding (SS2.2 step 0.5a: variables can appear in counts);
+    ! a word count rides the node as a string and desugar's
+    ! subst_walk replaces it (E213 when unbound).
+    if (crec%toks(2)%kind /= K_NUMBER .and. &
+        crec%toks(2)%kind /= K_WORD) return
+    if (crec%toks(3)%kind /= K_WORD) return
+    if (.not. allocated(crec%toks(3)%text)) return
+    is_timeline_repeat = &
+      word_norm(crec%toks(3)%text) == "times"
+  end function is_timeline_repeat
+
+  ! Collect cue lines up to the matching `end` for an action /
+  ! together / repeat-times block (parse_group's child loop,
+  ! cue-flavoured).  Child line errors are reported here directly,
+  ! as parse_group reports its children's.
+  subroutine collect_cue_block(p, lines, nlines, idx, body, closed)
+    type(parser_state), intent(inout) :: p
+    type(line_rec), intent(in) :: lines(:)
+    integer, intent(in) :: nlines
+    integer, intent(inout) :: idx
+    type(dyn), intent(out) :: body
+    logical, intent(out) :: closed
+    type(line_rec) :: crec
+    type(dyn) :: cstmt
+    character(:), allocatable :: fw
+    logical :: chas
+    body = dyn_list()
+    closed = .false.
+    do while (idx <= nlines)
+      crec = lines(idx)
+      idx = idx + 1
+      if (size(crec%toks) == 0) cycle
+      if (allocated(crec%toks(1)%text)) then
+        fw = word_norm(crec%toks(1)%text)
+      else
+        fw = ""
+      end if
+      if (fw == "end") then
+        closed = .true.
+        return
+      end if
+      if (fw == "together") then
+        call parse_together_into(p, crec, lines, nlines, idx, body)
+        if (p%stopped) return
+        cycle
+      end if
+      if (fw == "repeat" .and. is_timeline_repeat(crec)) then
+        call parse_repeat_block(p, crec, lines, nlines, idx, &
+                                cstmt, chas)
+        if (p%stopped) return
+        if (p%le_set) then
+          call parser_error(p, p%le_code, p%le_msg, crec%no, &
+                            crec%toks(1)%col)
+          call clear_line_error(p)
+          if (p%stopped) return
+          cycle
+        end if
+        if (chas) call dyn_list_push(body, cstmt)
+        cycle
+      end if
+      call parse_film_line(p, crec, cstmt, chas)
+      if (p%le_set) then
+        call parser_error(p, p%le_code, p%le_msg, crec%no, &
+                          crec%toks(1)%col)
+        call clear_line_error(p)
+        if (p%stopped) return
+        cycle
+      end if
+      if (chas) call dyn_list_push(body, cstmt)
+    end do
+  end subroutine collect_cue_block
+
+  ! together ... end (§1.4): the block's cues are spliced into
+  ! the caller's list with timing=with on all but the first.
+  subroutine parse_together_into(p, header, lines, nlines, idx, &
+                                 body)
+    type(parser_state), intent(inout) :: p
+    type(line_rec), intent(in) :: header
+    type(line_rec), intent(in) :: lines(:)
+    integer, intent(in) :: nlines
+    integer, intent(inout) :: idx
+    type(dyn), intent(inout) :: body
+    type(dyn) :: tmp, elem
+    logical :: closed
+    integer :: k
+    call collect_cue_block(p, lines, nlines, idx, tmp, closed)
+    if (.not. closed) then
+      call parser_error(p, "E401", "'together' has no closing " &
+                        // "'end'", header%no, 0)
+    end if
+    do k = 1, dyn_list_len(tmp)
+      elem = dyn_list_at(tmp, k)
+      if (k > 1) call dyn_dict_set(elem, "timing", dyn_str("with"))
+      call dyn_list_push(body, elem)
+    end do
+  end subroutine parse_together_into
+
+  ! repeat N times ... end (§1.8) -> loopblock node.  Must not
+  ! carry obj/mode (it would classify as a RepeatStmt, §2.1).
+  subroutine parse_repeat_block(p, header, lines, nlines, idx, &
+                                stmt, has_stmt)
+    type(parser_state), intent(inout) :: p
+    type(line_rec), intent(in) :: header
+    type(line_rec), intent(in) :: lines(:)
+    integer, intent(in) :: nlines
+    integer, intent(inout) :: idx
+    type(dyn), intent(out) :: stmt
+    logical, intent(out) :: has_stmt
+    type(line_cur) :: lp
+    type(dyn) :: body, node, v, countv
+    character(:), allocatable :: w, s
+    integer(int64) :: count
+    logical :: hasw, closed, hasid
+    has_stmt = .false.
+    stmt = dyn_null()
+    call make_cur(header%toks, header%no, lp)
+    call lp_next(lp)  ! repeat
+    if (lp_peek_kind(lp) == K_WORD) then
+      ! `repeat n times` with n a `let` name: keep the name as a
+      ! string in the count slot; step 0.5a substitutes the
+      ! binding (or raises E213) before timeline resolution.
+      call lp_ident(lp, s, hasid)
+      if (.not. hasid) then
+        call raise_line(p, "E102", "expected a number or a " &
+                        // "'let' name for repeat count")
+        return
+      end if
+      countv = dyn_str(s)
+    else
+      call lp_number(p, lp, "repeat count", v)
+      if (p%le_set) return
+      count = dyn_to_int(v)
+      countv = dyn_int(count)
+    end if
+    call lp_peek_word(lp, w, hasw)
+    if (.not. hasw .or. w /= "times") then
+      call raise_line(p, "E103", "'repeat' block must be " &
+                      // "'repeat N times', like: repeat 2 times")
+      return
+    end if
+    call lp_next(lp)  ! times
+    if (.not. lp_at_end(lp)) then
+      call lp_peek_text(lp, s)
+      call raise_line(p, "E103", "unexpected '" // s &
+                      // "' in repeat block header")
+      return
+    end if
+    call collect_cue_block(p, lines, nlines, idx, body, closed)
+    if (.not. closed) then
+      call parser_error(p, "E401", "'repeat ... times' block " &
+                        // "has no closing 'end'", header%no, 0)
+      if (p%stopped) return
+    end if
+    node = dyn_dict()
+    call dset(node, "loop_block", dyn_bool(.true.))
+    call dset(node, "count", dyn_copy(countv))
+    call dset(node, "body", dyn_copy(body))
+    call dset(node, "props", dyn_dict())
+    call dset(node, "span", dyn_null())
+    call dset(node, "line", dyn_int(int(header%no, int64)))
+    call dyn_assign(stmt, node)
+    has_stmt = .true.
+  end subroutine parse_repeat_block
+
+  ! action name [for|in duration] ... end (§1.3).  Children are
+  ! cues with `it` as the actor; the optional header duration is
+  ! the declared duration (§2.1), null = sum of steps.
+  subroutine parse_action_block(p, header, lines, nlines, idx, &
+                                stmt, has_stmt)
+    type(parser_state), intent(inout) :: p
+    type(line_rec), intent(in) :: header
+    type(line_rec), intent(in) :: lines(:)
+    integer, intent(in) :: nlines
+    integer, intent(inout) :: idx
+    type(dyn), intent(out) :: stmt
+    logical, intent(out) :: has_stmt
+    type(line_cur) :: lp
+    character(:), allocatable :: name, w, s, dur_unit
+    type(dyn) :: body, node, props, dur
+    logical :: hasid, hasw, closed, has_dur
+    has_stmt = .false.
+    stmt = dyn_null()
+    call make_cur(header%toks, header%no, lp)
+    call lp_next(lp)  ! action
+    call lp_ident(lp, name, hasid)
+    if (.not. hasid) then
+      call raise_line(p, "E401", "'action' needs a name, like: " &
+                      // "action celebrate")
+      return
+    end if
+    dur = dyn_null()
+    dur_unit = ""
+    has_dur = .false.
+    call lp_peek_word(lp, w, hasw)
+    if (hasw .and. (w == "for" .or. w == "in")) then
+      call lp_next(lp)
+      call parse_duration(p, lp, dur, dur_unit, has_dur)
+      if (p%le_set) return
+    end if
+    if (.not. lp_at_end(lp)) then
+      call lp_peek_text(lp, s)
+      call raise_line(p, "E103", "unexpected '" // s &
+                      // "' in action header")
+      return
+    end if
+    call collect_cue_block(p, lines, nlines, idx, body, closed)
+    if (.not. closed) then
+      call parser_error(p, "E401", "action '" // name &
+                        // "' has no closing 'end'", header%no, 0)
+      if (p%stopped) return
+    end if
+    props = dyn_dict()
+    if (has_dur) then
+      call dset(props, "duration", dyn_copy(dur))
+      if (len(dur_unit) > 0) &
+        call dset(props, "duration_unit", dyn_str(dur_unit))
+    end if
+    node = dyn_dict()
+    call dset(node, "action_def", dyn_bool(.true.))
+    call dset(node, "name", dyn_str(name))
+    if (has_dur) then
+      call dset(node, "duration", dyn_copy(dur))
+      if (len(dur_unit) > 0) &
+        call dset(node, "duration_unit", dyn_str(dur_unit))
+    else
+      call dset(node, "duration", dyn_null())
+    end if
+    call dset(node, "body", dyn_copy(body))
+    call dset(node, "props", props)
+    call dset(node, "span", dyn_null())
+    call dset(node, "line", dyn_int(int(header%no, int64)))
+    call dyn_assign(stmt, node)
+    has_stmt = .true.
+  end subroutine parse_action_block
+
+  ! Wrap a shot's pending cue run in its implicit timeline node
+  ! (§2.1 -- authors never write it) and append it to stmts.
+  subroutine flush_timeline(stmts, pending, pending_line)
+    type(dyn), intent(inout) :: stmts, pending
+    integer, intent(inout) :: pending_line
+    type(dyn) :: node
+    if (dyn_list_len(pending) == 0) return
+    node = dyn_dict()
+    call dset(node, "timeline_def", dyn_bool(.true.))
+    call dset(node, "body", dyn_copy(pending))
+    call dset(node, "props", dyn_dict())
+    call dset(node, "span", dyn_null())
+    call dset(node, "line", dyn_int(int(pending_line, int64)))
+    call dyn_list_push(stmts, node)
+    call dyn_assign(pending, dyn_list())
+    pending_line = 0
+  end subroutine flush_timeline
+
+
+  ! ==================================================================
   ! Entry points: Parser.parse_program + parse()
   ! ==================================================================
 
@@ -3984,11 +5746,17 @@ contains
     integer, intent(in) :: nlines
     type(dyn), intent(out) :: program
     type(line_rec) :: crec
-    type(dyn) :: stmts, stmt, errs, e
+    type(line_cur) :: lp0
+    type(dyn) :: stmts, stmt, errs, e, pending, discard
     character(:), allocatable :: first
-    logical :: has
-    integer :: i, j
+    logical :: has, in_shot, seen_stmt, closed
+    integer :: i, j, pending_line
     stmts = dyn_list()
+    pending = dyn_list()
+    discard = dyn_list()
+    pending_line = 0
+    in_shot = .false.
+    seen_stmt = .false.
     i = 1
     do while (i <= nlines)
       crec = lines(i)
@@ -3999,7 +5767,141 @@ contains
       else
         first = ""
       end if
-      if (first == "group") then
+      if (p%film_mode) then
+        ! ---- film mode (ANIM-PLAN §1): block definitions, shot
+        ! cue runs (wrapped in an implicit timeline), and setup
+        ! statements.  A cue run ends at the next scene, the next
+        ! definition, or any setup/other statement.
+        if (first == "action") then
+          call flush_timeline(stmts, pending, pending_line)
+          call parse_action_block(p, crec, lines, nlines, i, &
+                                  stmt, has)
+          if (p%stopped) exit
+          if (p%le_set) then
+            call parser_error(p, p%le_code, p%le_msg, crec%no, &
+                              crec%toks(1)%col)
+            call clear_line_error(p)
+            if (p%stopped) exit
+            cycle
+          end if
+          if (has) call dyn_list_push(stmts, stmt)
+          cycle
+        end if
+        if (first == "together") then
+          if (.not. in_shot) then
+            call parser_error(p, "E103", "'together' is only " &
+                              // "allowed among the cues of a " &
+                              // "film shot", crec%no, &
+                              crec%toks(1)%col)
+            call collect_cue_block(p, lines, nlines, i, discard, &
+                                   closed)
+            if (p%stopped) exit
+            cycle
+          end if
+          if (dyn_list_len(pending) == 0) pending_line = crec%no
+          call parse_together_into(p, crec, lines, nlines, i, &
+                                   pending)
+          if (p%stopped) exit
+          cycle
+        end if
+        if (first == "repeat" .and. is_timeline_repeat(crec)) then
+          if (.not. in_shot) then
+            call parser_error(p, "E103", "'repeat N times' is " &
+                              // "only allowed among the cues " &
+                              // "of a film shot", crec%no, &
+                              crec%toks(1)%col)
+            call collect_cue_block(p, lines, nlines, i, discard, &
+                                   closed)
+            if (p%stopped) exit
+            cycle
+          end if
+          if (dyn_list_len(pending) == 0) pending_line = crec%no
+          call parse_repeat_block(p, crec, lines, nlines, i, &
+                                  stmt, has)
+          if (p%stopped) exit
+          if (p%le_set) then
+            call parser_error(p, p%le_code, p%le_msg, crec%no, &
+                              crec%toks(1)%col)
+            call clear_line_error(p)
+            if (p%stopped) exit
+            cycle
+          end if
+          if (has) call dyn_list_push(pending, stmt)
+          cycle
+        end if
+        if (first == "scene") then
+          call flush_timeline(stmts, pending, pending_line)
+          call parse_statement(p, crec%toks, crec%no, stmt, has)
+          if (p%le_set) then
+            call parser_error(p, p%le_code, p%le_msg, crec%no, &
+                              crec%toks(1)%col)
+            call clear_line_error(p)
+            if (p%stopped) exit
+            cycle
+          end if
+          if (has) then
+            call dyn_list_push(stmts, stmt)
+            in_shot = .true.
+          end if
+          cycle
+        end if
+        if (is_cue_start(crec)) then
+          if (dyn_list_len(pending) == 0) pending_line = crec%no
+          call parse_film_line(p, crec, stmt, has)
+          if (p%le_set) then
+            call parser_error(p, p%le_code, p%le_msg, crec%no, &
+                              crec%toks(1)%col)
+            call clear_line_error(p)
+            if (p%stopped) exit
+            cycle
+          end if
+          if (has) call dyn_list_push(pending, stmt)
+          cycle
+        end if
+        call flush_timeline(stmts, pending, pending_line)
+        if (first == "group") then
+          call parse_group(p, crec, lines, nlines, i, stmt, has)
+          if (p%stopped) exit
+          if (p%le_set) then
+            call parser_error(p, p%le_code, p%le_msg, crec%no, &
+                              crec%toks(1)%col)
+            call clear_line_error(p)
+            if (p%stopped) exit
+            cycle
+          end if
+          if (has) call dyn_list_push(stmts, stmt)
+        else if (first == "end") then
+          cycle  ! stray block close, ignored as in legacy mode
+        else
+          call parse_statement(p, crec%toks, crec%no, stmt, has)
+          if (p%le_set) then
+            call parser_error(p, p%le_code, p%le_msg, crec%no, &
+                              crec%toks(1)%col)
+            call clear_line_error(p)
+            if (p%stopped) exit
+            cycle
+          end if
+          if (has) call dyn_list_push(stmts, stmt)
+        end if
+        if (p%stopped) exit
+        cycle
+      end if
+      if (.not. seen_stmt .and. first == "film") then
+        ! §1.1: film mode is opt-in, by the first statement only.
+        call make_cur(crec%toks, crec%no, lp0)
+        call parse_film(p, lp0, stmt, has)
+        if (p%le_set) then
+          call parser_error(p, p%le_code, p%le_msg, crec%no, &
+                            crec%toks(1)%col)
+          call clear_line_error(p)
+          if (p%stopped) exit
+          cycle
+        end if
+        if (has) then
+          call dyn_list_push(stmts, stmt)
+          p%film_mode = .true.
+        end if
+      else if (first == "group") then
         call parse_group(p, crec, lines, nlines, i, stmt, has)
         if (p%stopped) exit
         if (p%le_set) then
@@ -4023,8 +5925,11 @@ contains
         end if
         if (has) call dyn_list_push(stmts, stmt)
       end if
+      seen_stmt = .true.
       if (p%stopped) exit
     end do
+    if (p%film_mode) &
+      call flush_timeline(stmts, pending, pending_line)
     errs = dyn_list()
     if (allocated(p%errs)) then
       do j = 1, size(p%errs)

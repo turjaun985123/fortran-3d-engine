@@ -18,6 +18,21 @@
 !       animation_3d); 'bezier(...)' cannot be written in the .f3d
 !       key grammar (the parser reads a bare ease identifier), so
 !       it is not accepted here.
+!       ANIM Wave 1 FIX (easing unification): validate_tracks also
+!       accepts the AnimStmt-registry spellings ease-in / ease-out
+!       / ease-in-out as aliases of the same curves (ANIM-PLAN
+!       SS1.8).  Unlike the AnimStmt registry (accept-only, see
+!       EASES in f3dc_val_common), this side canonicalises at the
+!       build_tracks boundary: normalise_key maps an ease-* alias
+!       to the cubic-* spelling (canon_track_ease), and
+!       track_lines applies the same map on emission, because the
+!       track evaluators switch on the name -- ease_value in
+!       src/animation.f90 (via keyframe_3d) knows cubic-* only and
+!       would silently fall back to linear for an ease-* name.
+!       cubic-* and every other previously valid name pass through
+!       unchanged, so previously valid tracks stay byte-identical;
+!       only previously rejected ease-* spellings are affected,
+!       and they are stored/emitted as their cubic-* equivalent.
 !       keys:    dyn list of raw key dicts
 !       tracks:  dyn dict out, {target: {"duration": real, "loop":
 !                str, "keys": [normalised key dicts sorted by time]}}
@@ -532,6 +547,25 @@ contains
     end select
   end function py_repr
 
+  !> ANIM Wave 1 FIX: map an AnimStmt-spelling ease alias to the
+  !! track evaluator's native cubic-* spelling (see header note).
+  !! Identity for every other name, including all previously
+  !! valid track ease names.
+  function canon_track_ease(name) result(out)
+    character(len=*), intent(in) :: name
+    character(len=:), allocatable :: out
+    select case (trim(name))
+    case ("ease-in")
+      out = "cubic-in"
+    case ("ease-out")
+      out = "cubic-out"
+    case ("ease-in-out")
+      out = "cubic-in-out"
+    case default
+      out = trim(name)
+    end select
+  end function canon_track_ease
+
   ! =================================================================
   ! Build (ext_keys.build_tracks)
   ! =================================================================
@@ -552,8 +586,9 @@ contains
       call vec3_default(dget(raw, "rot"), DEF_ROT, rv)
       call dyn_dict_set(key, "scale", dyn_real(num_default( &
                         dget(raw, "scale"), 1.0_real64)))
-      call dyn_dict_set(key, "ease", dyn_str(word_default( &
-                        dget(raw, "ease"), DEFAULT_EASE)))
+      call dyn_dict_set(key, "ease", dyn_str(canon_track_ease( &
+                        word_default(dget(raw, "ease"), &
+                        DEFAULT_EASE))))
     else
       call dyn_dict_set(key, "target", dyn_str(""))
       call dyn_dict_set(key, "time", dyn_real(0.0_real64))
@@ -854,12 +889,15 @@ contains
         if (.not. (easew == "linear" .or. easew == "smooth" .or. &
                    easew == "in" .or. easew == "out" .or. &
                    easew == "cubic-in" .or. easew == "cubic-out" .or. &
-                   easew == "cubic-in-out")) then
+                   easew == "cubic-in-out" .or. &
+                   easew == "ease-in" .or. easew == "ease-out" .or. &
+                   easew == "ease-in-out")) then
           call char_list_append(errors, "track " // repr_str(name) // &
                " has a key at time " // when_s // " with ease " // &
                py_repr(dget(key, "ease")) // &
                ": 'ease' must be one of linear, smooth, in, out, " // &
-               "cubic-in, cubic-out, cubic-in-out")
+               "cubic-in, cubic-out, cubic-in-out, ease-in, " // &
+               "ease-out, ease-in-out")
         end if
       end do
       if (has_dur .and. ieee_is_finite(duration) .and. &
@@ -924,7 +962,8 @@ contains
              fmt_g6(rv(1)) // " " // fmt_g6(rv(2)) // " " // &
              fmt_g6(rv(3)) // " " // &
              fmt_g6(num_default(dget(key, "scale"), 1.0_real64)) // &
-             " " // word_default(dget(key, "ease"), DEFAULT_EASE)
+             " " // canon_track_ease(word_default( &
+             dget(key, "ease"), DEFAULT_EASE))
       call char_list_append(lines, line)
     end do
   end subroutine track_lines

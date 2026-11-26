@@ -52,6 +52,13 @@ contains
           snode = dyn_list_at(vs%keys_header_nodes, k)
           sprops = props_of(snode)
           call vfield(snode, sprops, [character(12) :: "target"], v)
+          ! ANIM Wave 1 (ANIM-PLAN SS2.3): the "@camera" keys
+          ! header is the reserved camera pseudo-target emitted by
+          ! timeline desugar for camera moves.  It is exempt from
+          ! the object-name checks and is NOT built into the waveb
+          ! keys extension here; the timeline section owns it and
+          ! builds the "camera_track" scene extension from it.
+          if (v%kind == DYN_K_STR .and. v%s == "@camera") cycle
           if (v%kind == DYN_K_STR .and. len(v%s) > 0) then
             block
               type(dyn) :: hdr, dv
@@ -90,6 +97,11 @@ contains
                  "object it animates", snode)
             cycle
           end if
+          ! ANIM Wave 1: "@camera" keys belong to the timeline
+          ! section (see the header loop above); skip them here so
+          ! they neither fail the "no object is called that" check
+          ! nor land in the waveb keys extension.
+          if (v%s == "@camera") cycle
           if (.not. dyn_dict_has(vs%names, v%s)) then
             call verrn("E201", "key targets " // repr_str(v%s) // &
                  ", but no object is called that", snode)

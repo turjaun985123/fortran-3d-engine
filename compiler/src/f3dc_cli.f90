@@ -103,6 +103,10 @@ program f3dc
   ! _LAST in cli.py: state from the most recent compile_pipeline().
   type(dyn) :: last_program
   logical :: last_program_set = .false.
+  ! Dependencies dep_add had to drop because the dep array was
+  ! full (reset by collect_build_deps, read by do_build, which
+  ! reports the overflow with a named error -- never silently).
+  integer :: dep_overflow_count = 0
   character(len=:), allocatable :: last_path, last_text
 
   integer :: rc_main
@@ -1226,11 +1230,12 @@ contains
     vec_eq = .true.
   end function vec_eq
 
-  subroutine format_props(props, parts, excl1, excl2, excl3, excl4)
+  subroutine format_props(props, parts, excl1, excl2, excl3, excl4, &
+                          excl5, excl6, excl7, excl8)
     type(dyn), intent(in) :: props
     character(len=:), allocatable, intent(out) :: parts
     character(len=*), intent(in), optional :: excl1, excl2, &
-         excl3, excl4
+         excl3, excl4, excl5, excl6, excl7, excl8
     character(len=64) :: eff_keys(256)
     type(dyn) :: eff_vals(256)
     integer :: n_eff, i, k
@@ -1256,6 +1261,18 @@ contains
        end if
        if (present(excl4)) then
           if (key == excl4) cycle
+       end if
+       if (present(excl5)) then
+          if (key == excl5) cycle
+       end if
+       if (present(excl6)) then
+          if (key == excl6) cycle
+       end if
+       if (present(excl7)) then
+          if (key == excl7) cycle
+       end if
+       if (present(excl8)) then
+          if (key == excl8) cycle
        end if
        ! Alias map of cli.py: pos/position -> at, rot -> rotate,
        ! colour/color -> dropped.
@@ -1322,6 +1339,18 @@ contains
     else if ((key == "path" .or. key == "points" .or. &
               key == "shape") .and. value%kind == DYN_K_LIST) then
        piece = key//" "//fmt_points(value)
+    else if (key == "loop" .and. value%kind == DYN_K_STR .and. &
+             len(value%s) > 8) then
+       ! A counted loop is stored as "repeat(N)" (lp_loop_repeat),
+       ! which does not lex back; the surface form is 'repeat N'
+       ! (same conversion as fmt_loop_tail, for the generic
+       ! format_props path used by legacy AnimStmt).
+       if (value%s(1:7) == "repeat(" .and. &
+           value%s(len(value%s):len(value%s)) == ")") then
+          piece = key//" repeat "//value%s(8:len(value%s) - 1)
+       else
+          piece = key//" "//fmt_num(value)
+       end if
     else if (key == "emissive") then
        piece = key//" "//fmt_colour_val(value)
     else if (value%kind == DYN_K_LIST) then
@@ -1333,6 +1362,272 @@ contains
     parts = parts//piece
   end subroutine append_prop
 
+  ! ------------------------------------------------------------------
+  ! Animation-compiler statements (ANIM-PLAN SS1 / SS2.1): canonical
+  ! forms for the ten new kinds, recognised by their ONE marker key,
+  ! checked FIRST (before every older signature, exactly as
+  ! f3dc_ast's classify_stmt orders them -- a dialogue node's
+  ! "content" would otherwise read as a TextStmt).  Marker keys
+  ! never occur on a pre-animation node, so programs without the
+  ! new statements format byte-identically to before.
+  !
+  ! Canonicalisation (SS1): verbs print in the "-s" sentence form
+  ! (walk -> walks); the adverb aliases print canonical (slowly ->
+  ! ease out, gently -> ease ease-in-out); a cue tail prints in
+  ! the SS1.3 grammar order -- verb arguments, ordinary anim
+  ! props, [in|for <duration>], [ease <name>], [loop <mode>].
+  ! ------------------------------------------------------------------
+  function canon_ease(e) result(out)
+    character(len=*), intent(in) :: e
+    character(len=:), allocatable :: out
+    select case (trim(e))
+    case ("slowly")
+       out = "out"
+    case ("gently")
+       out = "ease-in-out"
+    case default
+       out = trim(e)
+    end select
+  end function canon_ease
+
+  ! SS1.3: the canonical verb form is the natural "-s" sentence
+  ! form; the base form is an accepted alias.  Only the first word
+  ! of a verb phrase is mapped ("pick up" -> "picks up"); a word
+  ! already in "-s" form, and any unknown word (a custom action
+  ! name), passes through verbatim.
+  function canon_verb_phrase(verb) result(out)
+    character(len=*), intent(in) :: verb
+    character(len=:), allocatable :: out, first, canon
+    integer :: sp
+    sp = index(trim(verb), " ")
+    if (sp == 0) then
+       first = trim(verb)
+    else
+       first = trim(verb(1:sp - 1))
+    end if
+    select case (first)
+    case ("walk");   canon = "walks"
+    case ("run");    canon = "runs"
+    case ("wave");   canon = "waves"
+    case ("sit");    canon = "sits"
+    case ("stand");  canon = "stands"
+    case ("jump");   canon = "jumps"
+    case ("fall");   canon = "falls"
+    case ("look");   canon = "looks"
+    case ("face");   canon = "faces"
+    case ("point");  canon = "points"
+    case ("nod");    canon = "nods"
+    case ("shake");  canon = "shakes"
+    case ("dance");  canon = "dances"
+    case ("sleep");  canon = "sleeps"
+    case ("smile");  canon = "smiles"
+    case ("pick");   canon = "picks"
+    case ("give");   canon = "gives"
+    case ("tap");    canon = "taps"
+    case ("spin");   canon = "spins"
+    case ("move");   canon = "moves"
+    case ("exit");   canon = "exits"
+    case ("do");     canon = "does"
+    case ("follow"); canon = "follows"
+    case ("zoom");   canon = "zooms"
+    case ("pan");    canon = "pans"
+    case ("orbit");  canon = "orbits"
+    case ("bob");    canon = "bobs"
+    case ("pulse");  canon = "pulses"
+    case ("turn");   canon = "turns"
+    case ("grow");   canon = "grows"
+    case ("say");    canon = "says"
+    case default;    canon = first
+    end select
+    if (sp == 0) then
+       out = canon
+    else
+       out = canon//trim(verb(sp:))
+    end if
+  end function canon_verb_phrase
+
+  ! "second" for a numeric 1, else "seconds" (SS1 writes
+  ! '1 second', '4 seconds').
+  function seconds_word(v) result(out)
+    type(dyn), intent(in) :: v
+    character(len=:), allocatable :: out
+    out = "seconds"
+    if (v%kind == DYN_K_INT) then
+       if (v%i == 1_int64) out = "second"
+    else if (v%kind == DYN_K_REAL) then
+       if (v%r == 1.0_real64) out = "second"
+    end if
+  end function seconds_word
+
+  ! The unit word for a duration value: "beat"/"beats" when the
+  ! unit field says beats, else "second"/"seconds" (singular for
+  ! a numeric 1 in both cases).
+  function dur_unit_word(v, unit) result(out)
+    type(dyn), intent(in) :: v
+    character(len=*), intent(in) :: unit
+    character(len=:), allocatable :: out
+    if (trim(unit) == "beats" .or. trim(unit) == "beat") then
+       if (seconds_word(v) == "second") then
+          out = "beat"
+       else
+          out = "beats"
+       end if
+    else
+       out = seconds_word(v)
+    end if
+  end function dur_unit_word
+
+  ! SS1.4 timing prefix: "with " / "at <time> " / "after <anchor> ";
+  ! the default ("then") prints nothing.
+  function fmt_timing_prefix(stmt) result(out)
+    type(dyn), intent(in) :: stmt
+    character(len=:), allocatable :: out
+    character(len=:), allocatable :: timing
+    type(dyn) :: a, o
+    out = ""
+    timing = dstr(stmt, "timing", "then")
+    select case (trim(timing))
+    case ("with")
+       out = "with "
+    case ("at")
+       o = dget(stmt, "offset")
+       if (o%kind == DYN_K_INT .or. o%kind == DYN_K_REAL) then
+          out = "at "//fmt_num(o)//" "// &
+                dur_unit_word(o, dstr(stmt, "offset_unit", ""))//" "
+       else
+          a = dget(stmt, "anchor")
+          if (a%kind == DYN_K_STR) out = "at "//a%s//" "
+       end if
+    case ("after")
+       a = dget(stmt, "anchor")
+       if (a%kind == DYN_K_STR) then
+          out = "after "//a%s//" "
+          o = dget(stmt, "offset")
+          if (o%kind == DYN_K_INT .or. o%kind == DYN_K_REAL) then
+             if (fmt_num(o) /= "0") &
+                out = "after "//a%s//" "//fmt_num(o)//" "// &
+                      seconds_word(o)//" "
+          end if
+       end if
+    end select
+  end function fmt_timing_prefix
+
+  ! The SS1.3 duration tail: " <prep> <duration>", where the
+  ! duration value is a number of seconds (a "duration_unit" of
+  ! "beats" prints beats, SS1.4), a verbatim string (a duration
+  ! phrase or a let-bound name, SS1.8), or absent (no tail).  An
+  ! explicit "duration_prep" field wins over the caller's default
+  ! preposition ("in" for movement / camera, "for" for sustained
+  ! actions and dialogue).
+  function fmt_duration_tail(stmt, prep_default) result(out)
+    type(dyn), intent(in) :: stmt
+    character(len=*), intent(in) :: prep_default
+    character(len=:), allocatable :: out, prep, unit
+    type(dyn) :: v
+    out = ""
+    v = dget(stmt, "duration")
+    if (v%kind == DYN_K_NULL) return
+    prep = dstr(stmt, "duration_prep", "")
+    if (len(prep) == 0) prep = prep_default
+    if (v%kind == DYN_K_STR) then
+       out = " "//prep//" "//trim(v%s)
+    else if (v%kind == DYN_K_INT .or. v%kind == DYN_K_REAL) then
+       unit = dstr(stmt, "duration_unit", "")
+       out = " "//prep//" "//fmt_num(v)//" "//dur_unit_word(v, unit)
+    end if
+  end function fmt_duration_tail
+
+  ! A duration with no preposition (" 3 seconds" / " wait-time"),
+  ! for the forms whose grammar takes the duration bare: the
+  ! `wait` cue and the `action` header.
+  function fmt_duration_bare(stmt) result(out)
+    type(dyn), intent(in) :: stmt
+    character(len=:), allocatable :: out, unit
+    type(dyn) :: v
+    out = ""
+    v = dget(stmt, "duration")
+    if (v%kind == DYN_K_STR) then
+       out = " "//trim(v%s)
+    else if (v%kind == DYN_K_INT .or. v%kind == DYN_K_REAL) then
+       unit = dstr(stmt, "duration_unit", "")
+       out = " "//fmt_num(v)//" "//dur_unit_word(v, unit)
+    end if
+  end function fmt_duration_bare
+
+  ! The ' loop <mode>' tail from a props bag.  The parser stores
+  ! a counted loop as the string "repeat(N)" (lp_loop_repeat),
+  ! which does NOT lex back -- the surface form is 'repeat N'.
+  ! The plain loop words (once / forever / pingpong) and a bare
+  ! "repeat" print verbatim.
+  function fmt_loop_tail(props) result(out)
+    type(dyn), intent(in) :: props
+    character(len=:), allocatable :: out
+    type(dyn) :: v
+    out = ""
+    v = dget(props, "loop")
+    if (v%kind /= DYN_K_STR) return
+    if (len(v%s) > 8) then
+       if (v%s(1:7) == "repeat(" .and. &
+           v%s(len(v%s):len(v%s)) == ")") then
+          out = " loop repeat "//v%s(8:len(v%s) - 1)
+          return
+       end if
+    end if
+    out = " loop "//v%s
+  end function fmt_loop_tail
+
+  ! A cue destination / target value in surface form: a bare name
+  ! or a space-joined vec3 (parse_dest accepts both back).
+  function fmt_dest(v) result(out)
+    type(dyn), intent(in) :: v
+    character(len=:), allocatable :: out
+    out = ""
+    if (v%kind == DYN_K_STR) then
+       out = v%s
+    else if (v%kind == DYN_K_LIST) then
+       out = fmt_vec(v)
+    else if (v%kind == DYN_K_INT .or. v%kind == DYN_K_REAL) then
+       out = fmt_num(v)
+    end if
+  end function fmt_dest
+
+  ! The props a named tail already consumed (ease / loop / style /
+  ! ...) are excluded via a ",key,key," list; the rest print in
+  ! insertion order through append_prop, as format_props does.
+  subroutine fmt_extra_props(props, excl_csv, parts)
+    type(dyn), intent(in) :: props
+    character(len=*), intent(in) :: excl_csv
+    character(len=:), allocatable, intent(out) :: parts
+    character(len=:), allocatable :: key
+    integer :: i
+    parts = ""
+    if (props%kind /= DYN_K_DICT) return
+    do i = 1, dyn_dict_len(props)
+       key = dyn_dict_key_at(props, i)
+       if (index(excl_csv, ","//trim(key)//",") > 0) cycle
+       call append_prop(parts, trim(key), &
+                        dyn_copy(dyn_dict_get(props, key)))
+    end do
+  end subroutine fmt_extra_props
+
+  ! A container's children (under "body" for the animation kinds,
+  ! else "children"), indented two spaces, plus the closing "end"
+  ! -- the GroupStmt printer's shape.
+  subroutine append_body_lines(stmt, out)
+    type(dyn), intent(in) :: stmt
+    character(len=:), allocatable, intent(inout) :: out
+    type(dyn) :: v
+    character(len=:), allocatable :: body_line
+    integer :: i
+    v = dget(stmt, "body")
+    if (dyn_list_len(v) == 0) v = dget(stmt, "children")
+    do i = 1, dyn_list_len(v)
+       call format_stmt(dyn_list_at(v, i), body_line)
+       out = out//achar(10)//"  "//body_line
+    end do
+    out = out//achar(10)//"end"
+  end subroutine append_body_lines
+
   recursive subroutine format_stmt(stmt, out)
     type(dyn), intent(in) :: stmt
     character(len=:), allocatable, intent(out) :: out
@@ -1341,7 +1636,16 @@ contains
     integer :: i
     out = ""
     props = dget(stmt, "props")
-    if (dhas(stmt, "prim")) then
+    if (dhas(stmt, "film_def") .or. dhas(stmt, "char_def") .or. &
+        dhas(stmt, "action_def") .or. &
+        dhas(stmt, "timeline_def") .or. dhas(stmt, "cue") .or. &
+        dhas(stmt, "cam_move") .or. dhas(stmt, "say") .or. &
+        dhas(stmt, "transition") .or. dhas(stmt, "loop_block") &
+        .or. dhas(stmt, "let_name") .or. dhas(stmt, "place")) then
+       ! Animation-compiler kinds (ANIM-PLAN SS2.1), marker-checked
+       ! first, in classify_stmt's order.
+       call format_anim_stmt(stmt, props, out)
+    else if (dhas(stmt, "prim")) then
        ! ObjectStmt
        parts = dstr(stmt, "prim", "cube")
        if (dnonnull(stmt, "name")) parts = parts//" "//dstr(stmt, "name", "")
@@ -1511,8 +1815,25 @@ contains
        if (v%kind /= DYN_K_NULL) &
           parts = parts//" bg "//fmt_colour_val(v)
        call format_props(props, body_line, "size", "background", &
-                         "colour", "color")
+                         "colour", "color", "transition", &
+                         "transition_variant", &
+                         "transition_duration", &
+                         "transition_duration_unit")
        if (len(body_line) > 0) parts = parts//" "//body_line
+       ! Film-mode transition prop (SS1.7): the parser homes it in
+       ! the props bag under internal key names; print the surface
+       ! clause 'transition <kind> [variant] [<dur> <unit>]'.
+       v = dget(props, "transition")
+       if (v%kind == DYN_K_STR) then
+          parts = parts//" transition "//v%s
+          v = dget(props, "transition_variant")
+          if (v%kind == DYN_K_STR) parts = parts//" "//v%s
+          v = dget(props, "transition_duration")
+          if (v%kind == DYN_K_INT .or. v%kind == DYN_K_REAL) &
+             parts = parts//" "//fmt_num(v)//" "// &
+                     dur_unit_word(v, &
+                        dstr(props, "transition_duration_unit", ""))
+       end if
        out = parts
     else if (dhas(stmt, "autorotate")) then
        ! ControlsStmt: "kind" holds the dataclass default
@@ -1652,6 +1973,389 @@ contains
     end if
   end subroutine format_stmt
 
+  ! Canonical forms for the ten animation-compiler kinds
+  ! (ANIM-PLAN SS1 / SS2.1).  Key homes are SS2.6's table, as
+  ! landed in f3dc_ast: payload in the props bag, everything else
+  ! in fields (read here as top-level dyn keys), children under
+  ! "body".  Every field read is guarded, so a partially populated
+  ! node still prints its recognisable head.
+  recursive subroutine format_anim_stmt(stmt, props, out)
+    type(dyn), intent(in) :: stmt, props
+    character(len=:), allocatable, intent(out) :: out
+    type(dyn) :: v, w
+    character(len=:), allocatable :: parts, body_line, act, sp
+    integer :: i
+    out = ""
+    if (dhas(stmt, "film_def")) then
+       ! FilmStmt: 'film "<title>" [size W H] [fps N] [tempo N]'
+       parts = "film"
+       body_line = dstr(stmt, "title", "")
+       if (len(body_line) == 0) body_line = dstr(stmt, "name", "")
+       if (len(body_line) > 0) parts = parts//" "//quote_str(body_line)
+       v = dget(stmt, "size")
+       if (v%kind == DYN_K_LIST) then
+          parts = parts//" size "//fmt_vec(v)
+       else if (v%kind == DYN_K_STR) then
+          parts = parts//" size "//v%s
+       else if (v%kind /= DYN_K_NULL) then
+          parts = parts//" size "//fmt_num(v)
+       end if
+       if (dnonnull(stmt, "fps")) &
+          parts = parts//" fps "//fmt_num(dget(stmt, "fps"))
+       if (dnonnull(stmt, "tempo")) &
+          parts = parts//" tempo "//fmt_num(dget(stmt, "tempo"))
+       out = parts
+    else if (dhas(stmt, "char_def")) then
+       ! CharacterStmt: 'character <name> [colour] [proportions]
+       ! [props]'; member statements (a non-empty body) print as
+       ! an indented block closed by "end", like a group.
+       parts = "character"
+       if (dnonnull(stmt, "name")) &
+          parts = parts//" "//dstr(stmt, "name", "")
+       v = dget(props, "colour")
+       if (v%kind == DYN_K_NULL) v = dget(props, "color")
+       if (v%kind /= DYN_K_NULL) &
+          parts = parts//" "//fmt_colour_val(v)
+       v = dget(props, "proportions")
+       if (v%kind == DYN_K_STR) then
+          ! 'tall' / 'short' / 'kid' print as the bare word.
+          parts = parts//" "//v%s
+       else if (v%kind == DYN_K_INT .or. v%kind == DYN_K_REAL) then
+          parts = parts//" height "//fmt_num(v)
+       end if
+       call format_props(props, body_line, "proportions", "wears")
+       if (len(body_line) > 0) parts = parts//" "//body_line
+       ! `wears` rides the props bag as a list of {item, colour}
+       ! dicts (SS1.2); print one 'wears <item> [colour]' clause
+       ! per entry, never the dict literal.
+       v = dget(props, "wears")
+       if (v%kind == DYN_K_LIST) then
+          do i = 1, dyn_list_len(v)
+             w = dyn_list_at(v, i)
+             if (w%kind /= DYN_K_DICT) cycle
+             parts = parts//" wears "//dstr(w, "item", "")
+             w = dget(w, "colour")
+             if (w%kind /= DYN_K_NULL) &
+                parts = parts//" "//fmt_colour_val(w)
+          end do
+       end if
+       out = parts
+       v = dget(stmt, "body")
+       if (dyn_list_len(v) == 0) v = dget(stmt, "children")
+       if (dyn_list_len(v) > 0) call append_body_lines(stmt, out)
+    else if (dhas(stmt, "action_def")) then
+       ! ActionDefStmt: 'action <name> [for <duration>]' + indented
+       ! cue body + "end"; the header duration is the declared
+       ! duration field (SS2.1), null = sum of the steps.
+       parts = "action"
+       if (dnonnull(stmt, "name")) &
+          parts = parts//" "//dstr(stmt, "name", "")
+       parts = parts//fmt_duration_tail(stmt, "for")
+       out = parts
+       call append_body_lines(stmt, out)
+    else if (dhas(stmt, "place")) then
+       ! PlaceStmt (SS1.1): 'place <name> at <vec3>' -- the name
+       ! and the position are fields, not props.
+       parts = "place"
+       if (dnonnull(stmt, "name")) &
+          parts = parts//" "//dstr(stmt, "name", "")
+       v = dget(stmt, "at")
+       if (v%kind == DYN_K_NULL) v = dget(props, "at")
+       if (v%kind /= DYN_K_NULL) parts = parts//" at "//fmt_vec(v)
+       out = parts
+    else if (dhas(stmt, "timeline_def")) then
+       ! TimelineStmt: implicit (authors never write it) -- print
+       ! the shot's cues bare, in source order, no header / "end".
+       v = dget(stmt, "body")
+       if (dyn_list_len(v) == 0) v = dget(stmt, "children")
+       do i = 1, dyn_list_len(v)
+          call format_stmt(dyn_list_at(v, i), body_line)
+          if (i > 1) out = out//achar(10)
+          out = out//body_line
+       end do
+    else if (dhas(stmt, "cue")) then
+       ! CueStmt: '[with|at ..|after ..] <target> <verb-s> [args]
+       ! [props] [in|for <duration>] [ease <name>] [loop <mode>]'.
+       ! The parser's shape (SS2.1): "action" is a FIELD holding
+       ! the canonical BASE-form verb (or a custom action name
+       ! for `does`, or "enter" for 'walks in from', or "wait"
+       ! with a null target); the verb arguments ride the PROPS
+       ! bag (to / on / from / target / expression / hand /
+       ! object / give_to / direction), as do duration and
+       ! duration_unit -- none of those internal keys may print.
+       parts = fmt_timing_prefix(stmt)
+       act = dstr(stmt, "action", "")
+       if (len(act) == 0) act = dstr(stmt, "verb", "")
+       if (act == "wait") then
+          ! The SS1.4 pause: 'wait <duration>', duration bare.
+          parts = parts//"wait"//fmt_duration_bare(stmt)
+          out = parts
+          return
+       end if
+       parts = parts//dstr(stmt, "target", "")
+       select case (trim(act))
+       case ("walk")
+          parts = parts//" walks to "//fmt_dest(dget(props, "to"))
+       case ("enter")
+          parts = parts//" walks in from "// &
+                  fmt_dest(dget(props, "from"))
+       case ("run")
+          parts = parts//" runs to "//fmt_dest(dget(props, "to"))
+       case ("move")
+          parts = parts//" moves to "//fmt_dest(dget(props, "to"))
+       case ("wave")
+          parts = parts//" waves"
+          sp = dstr(props, "hand", "")
+          if (sp == "left" .or. sp == "right") then
+             parts = parts//" "//trim(sp)//" hand"
+          else if (sp == "both") then
+             parts = parts//" both hands"
+          end if
+       case ("sit")
+          parts = parts//" sits"
+          if (dnonnull(props, "on")) &
+             parts = parts//" on "//dstr(props, "on", "")
+       case ("stand")
+          parts = parts//" stands"
+       case ("jump")
+          parts = parts//" jumps"
+       case ("nod")
+          parts = parts//" nods"
+       case ("fall")
+          parts = parts//" falls"
+       case ("look")
+          parts = parts//" looks at "// &
+                  fmt_dest(dget(props, "target"))
+       case ("point")
+          parts = parts//" points at "// &
+                  fmt_dest(dget(props, "target"))
+       case ("face")
+          v = dget(props, "expression")
+          if (v%kind == DYN_K_STR) then
+             parts = parts//" faces "//v%s
+          else
+             parts = parts//" faces "// &
+                     fmt_dest(dget(props, "target"))
+          end if
+       case ("shake")
+          parts = parts//" shakes head"
+       case ("dance")
+          parts = parts//" dances"
+       case ("sleep")
+          parts = parts//" sleeps"
+       case ("smile")
+          parts = parts//" smiles"
+       case ("pick")
+          parts = parts//" picks up "//dstr(props, "object", "")
+       case ("give")
+          parts = parts//" gives "//dstr(props, "object", "")// &
+                  " to "//dstr(props, "give_to", "")
+       case ("tap")
+          parts = parts//" taps foot"
+       case ("spin")
+          parts = parts//" spins"
+       case ("exit")
+          parts = parts//" exits"
+          if (dnonnull(props, "direction")) &
+             parts = parts//" "//dstr(props, "direction", "")
+       case default
+          ! A custom action name (SS1.3 `does <name>`); the
+          ! parser stores the name itself in "action".
+          parts = parts//" does "//trim(act)
+       end select
+       call fmt_extra_props(props, &
+            ",to,on,from,target,expression,hand,object,give_to,"// &
+            "direction,duration,duration_unit,ease,loop,", &
+            body_line)
+       if (len(body_line) > 0) parts = parts//" "//body_line
+       ! Movement verbs take "in <duration>", the rest "for".
+       select case (trim(act))
+       case ("walk", "enter", "run", "move", "exit")
+          parts = parts//fmt_duration_tail(stmt, "in")
+       case default
+          parts = parts//fmt_duration_tail(stmt, "for")
+       end select
+       v = dget(props, "ease")
+       if (v%kind == DYN_K_STR) &
+          parts = parts//" ease "//canon_ease(v%s)
+       parts = parts//fmt_loop_tail(props)
+       out = parts
+    else if (dhas(stmt, "cam_move")) then
+       ! CamMoveStmt: '[timing] camera <move> [target] [props]
+       ! [in <duration>] [ease <name>]'.  The parser's shape
+       ! (SS2.1): "move" is a FIELD holding follow / zoom_in /
+       ! zoom_out / pan / orbit / look; the followed name rides
+       ! "follow", a named target rides "target_name", a vec3
+       ! target rides "to_look" (the fov / to_pos fields are
+       ! null on parsed nodes -- they are desugar's homes).
+       parts = fmt_timing_prefix(stmt)//"camera"
+       act = dstr(stmt, "move", "")
+       if (len(act) == 0) act = dstr(stmt, "action", "")
+       select case (trim(act))
+       case ("follow")
+          parts = parts//" follows "//dstr(stmt, "follow", "")
+       case ("zoom_in", "zoom_out")
+          if (act == "zoom_in") then
+             parts = parts//" zooms in"
+          else
+             parts = parts//" zooms out"
+          end if
+          if (dnonnull(stmt, "target_name")) then
+             parts = parts//" on "//dstr(stmt, "target_name", "")
+          else if (dnonnull(stmt, "to_look")) then
+             parts = parts//" on "//fmt_vec(dget(stmt, "to_look"))
+          end if
+       case ("pan")
+          parts = parts//" pans to "
+          if (dnonnull(stmt, "target_name")) then
+             parts = parts//dstr(stmt, "target_name", "")
+          else
+             parts = parts//fmt_vec(dget(stmt, "to_look"))
+          end if
+       case ("orbit")
+          parts = parts//" orbits "
+          if (dnonnull(stmt, "target_name")) then
+             parts = parts//dstr(stmt, "target_name", "")
+          else
+             parts = parts//fmt_vec(dget(stmt, "to_look"))
+          end if
+       case ("look")
+          parts = parts//" looks at "
+          if (dnonnull(stmt, "target_name")) then
+             parts = parts//dstr(stmt, "target_name", "")
+          else
+             parts = parts//fmt_vec(dget(stmt, "to_look"))
+          end if
+       case default
+          ! Foreign / desugared shapes: fall back to the followed
+          ! name, then a look target, then a position target.
+          if (dnonnull(stmt, "follow")) then
+             parts = parts//" follows "//dstr(stmt, "follow", "")
+          else if (dnonnull(stmt, "to_look")) then
+             parts = parts//" looks at "// &
+                     fmt_vec(dget(stmt, "to_look"))
+          else if (dnonnull(stmt, "to_pos")) then
+             parts = parts//" moves to "// &
+                     fmt_vec(dget(stmt, "to_pos"))
+          end if
+       end select
+       call fmt_extra_props(props, &
+            ",move,follow,target_name,duration,duration_unit,"// &
+            "ease,loop,", body_line)
+       if (len(body_line) > 0) parts = parts//" "//body_line
+       parts = parts//fmt_duration_tail(stmt, "in")
+       v = dget(stmt, "ease")
+       if (v%kind /= DYN_K_STR) v = dget(props, "ease")
+       if (v%kind == DYN_K_STR) &
+          parts = parts//" ease "//canon_ease(v%s)
+       parts = parts//fmt_loop_tail(props)
+       out = parts
+    else if (dhas(stmt, "say")) then
+       ! DialogueStmt: '[timing] <speaker> says "<content>"
+       ! [props] [for <duration>] [style]'; a speaker of
+       ! "caption" / "title" (or none) prints the SS1.6
+       ! screen-text forms instead.
+       parts = fmt_timing_prefix(stmt)
+       sp = dstr(stmt, "speaker", "")
+       if (sp == "caption" .or. len(sp) == 0) then
+          parts = parts//"caption"
+       else if (sp == "title") then
+          parts = parts//"title"
+       else
+          parts = parts//sp//" says"
+       end if
+       parts = parts//" "//quote_str(dstr(stmt, "content", ""))
+       ! The props bag also carries duration / duration_unit /
+       ! voice; only the style prints, and as its SS1.6 surface
+       ! form ('bubble only', not the stored word 'bubble').
+       call fmt_extra_props(props, &
+            ",style,duration,duration_unit,voice,", body_line)
+       if (len(body_line) > 0) parts = parts//" "//body_line
+       parts = parts//fmt_duration_tail(stmt, "for")
+       v = dget(props, "style")
+       if (v%kind == DYN_K_STR) then
+          select case (trim(v%s))
+          case ("bubble")
+             parts = parts//" bubble only"
+          case ("subtitle")
+             parts = parts//" subtitle only"
+          case default
+             parts = parts//" "//v%s
+          end select
+       end if
+       out = parts
+    else if (dhas(stmt, "transition")) then
+       ! TransitionStmt: the only standalone transition node the
+       ! parser emits is the SS1.7 closing cue, kind "fade_out",
+       ! whose surface form is the cue 'fade out [in <duration>]'
+       ! (with any timing prefix) -- there is no 'transition ...'
+       ! line in the grammar.  Any other kind is a foreign node
+       ! and keeps the bare fallback spelling.
+       if (dstr(stmt, "kind", "") == "fade_out") then
+          parts = fmt_timing_prefix(stmt)//"fade out"
+          call fmt_extra_props(props, &
+               ",duration,duration_unit,ease,loop,", body_line)
+          if (len(body_line) > 0) parts = parts//" "//body_line
+          parts = parts//fmt_duration_tail(stmt, "in")
+          v = dget(props, "ease")
+          if (v%kind == DYN_K_STR) &
+             parts = parts//" ease "//canon_ease(v%s)
+          parts = parts//fmt_loop_tail(props)
+       else
+          parts = "transition "//dstr(stmt, "kind", "cut")
+          v = dget(stmt, "duration")
+          if (v%kind == DYN_K_INT .or. v%kind == DYN_K_REAL) &
+             parts = parts//" "//fmt_num(v)//" "// &
+                     dur_unit_word(v, &
+                        dstr(stmt, "duration_unit", ""))
+       end if
+       out = parts
+    else if (dhas(stmt, "loop_block")) then
+       ! LoopBlockStmt: 'repeat <count> times' + body + "end".
+       ! The count is a number, or a string naming a `let`
+       ! binding (kept verbatim; desugar substitutes it); a null
+       ! count is the SS1.4 parallel block, 'together'.
+       v = dget(stmt, "count")
+       if (v%kind == DYN_K_INT .or. v%kind == DYN_K_REAL) then
+          parts = "repeat "//fmt_num(v)//" times"
+       else if (v%kind == DYN_K_STR) then
+          parts = "repeat "//v%s//" times"
+       else
+          parts = "together"
+       end if
+       out = parts
+       call append_body_lines(stmt, out)
+    else if (dhas(stmt, "let_name")) then
+       ! LetStmt: 'let <name> be <value>' (SS1.8) -- the value is
+       ! a field: a name prints bare, any other string quoted, a
+       ! list is an rgb colour (lp_colour's vec3 form) and prints
+       ! 'rgb r g b', and a number carries its "value_unit"
+       ! field -- a beats duration must print 'beats', or the
+       ! re-parse silently turns it into seconds.
+       parts = "let "//dstr(stmt, "let_name", "")//" be"
+       v = dget(stmt, "value")
+       if (v%kind == DYN_K_STR) then
+          if (is_ident(v%s)) then
+             parts = parts//" "//v%s
+          else
+             parts = parts//" "//quote_str(v%s)
+          end if
+       else if (v%kind == DYN_K_LIST) then
+          parts = parts//" "//fmt_colour_val(v)
+       else if (v%kind == DYN_K_INT .or. v%kind == DYN_K_REAL) then
+          if (dhas(stmt, "value_unit")) then
+             parts = parts//" "//fmt_num(v)//" "// &
+                     dur_unit_word(v, dstr(stmt, "value_unit", ""))
+          else
+             parts = parts//" "//fmt_num(v)
+          end if
+       else if (v%kind /= DYN_K_NULL) then
+          parts = parts//" "//fmt_num(v)
+       end if
+       out = parts
+    end if
+  end subroutine format_anim_stmt
+
   ! ------------------------------------------------------------------
   ! Emitters (cli.py _scene_text / _fortran_program_text /
   ! _json_v2_text / _json_legacy_text / _js_text / _html_text).
@@ -1772,6 +2476,49 @@ contains
     is_scene_line = (to_lower(w) == "scene")
   end function is_scene_line
 
+  ! Same shape as is_scene_line, for the word "film": true when the
+  ! first word of a (non-blank, non-comment) line is "film".
+  logical function is_film_line(raw)
+    character(len=*), intent(in) :: raw
+    character(len=:), allocatable :: s, w
+    s = strip_ws(raw)
+    is_film_line = .false.
+    if (len(s) == 0) return
+    if (s(1:1) == "#") return
+    if (len(s) >= 2) then
+       if (s(1:2) == "//") return
+    end if
+    w = first_word(s)
+    do while (len(w) > 0)
+       if (w(len(w):len(w)) /= ":") exit
+       w = w(1:len(w) - 1)
+    end do
+    is_film_line = (to_lower(w) == "film")
+  end function is_film_line
+
+  ! A file is a film file (ANIM-PLAN SS1.1) only when its FIRST
+  ! statement is "film": scan past blank lines and comments and
+  ! test the first remaining line.  Anything else -- including a
+  ! "film" word appearing later -- is legacy, and legacy chunking
+  ! must stay byte-identical.
+  logical function text_is_film(lines, n_lines)
+    character(len=:), allocatable, intent(in) :: lines(:)
+    integer, intent(in) :: n_lines
+    character(len=:), allocatable :: s
+    integer :: i
+    text_is_film = .false.
+    do i = 1, n_lines
+       s = strip_ws(trim(lines(i)))
+       if (len(s) == 0) cycle
+       if (s(1:1) == "#") cycle
+       if (len(s) >= 2) then
+          if (s(1:2) == "//") cycle
+       end if
+       text_is_film = is_film_line(trim(lines(i)))
+       return
+    end do
+  end function text_is_film
+
   subroutine scene_chunks(text, chunks, n_chunks, multi)
     character(len=*), intent(in) :: text
     character(len=:), allocatable, intent(out) :: chunks(:)
@@ -1779,6 +2526,7 @@ contains
     logical, intent(out) :: multi
     character(len=:), allocatable :: lines(:)
     integer :: starts(512), n_starts, n_lines, k, e, i
+    logical :: film_file
     call split_keepends(text, lines, n_lines)
     n_starts = 0
     do i = 1, n_lines
@@ -1790,6 +2538,20 @@ contains
     multi = (n_starts > 1)
     n_chunks = 0
     if (.not. multi) return
+    ! Film files (ANIM-PLAN SS0 fact 8, SS1.7, SS8 Q3/Q6): the
+    ! pre-scene prelude -- every line before the first "scene",
+    ! i.e. the "film" statement plus the film-level definitions
+    ! that precede it/follow it there (character declarations,
+    ! action definitions including their whole "end"-terminated
+    ! blocks, and let bindings, all copied verbatim in source
+    ! order) -- is film-level, not scene-1-level.  Q3 rules
+    ! characters are declared once per film, so that prelude must
+    ! head EVERY chunk, or chunk 2+ would start at their "scene"
+    ! line in legacy mode and their film lines (characters, cues)
+    ! would fail to parse (E103/E104).  Legacy (non-film) files
+    ! take the exact pre-existing path below: only chunk 1 gets
+    ! the prelude, byte-identical to before.
+    film_file = text_is_film(lines, n_lines)
     allocate (character(len=max(len(text), 1)) :: chunks(n_starts))
     do k = 1, n_starts
        if (k < n_starts) then
@@ -1800,11 +2562,16 @@ contains
        block
          character(len=:), allocatable :: acc
          acc = ""
-         if (k == 1) then
+         if (k == 1 .or. film_file) then
             do i = 1, starts(1) - 1
                acc = acc//trim(lines(i))
             end do
          end if
+         ! The chunk's own lines follow verbatim, starting with
+         ! its "scene" line -- so a scene's transition prop
+         ! (SS1.7 / Q6: transitions are per-chunk metadata riding
+         ! in the scene node's props bag) is never stripped by
+         ! chunking; it reaches the chunk's parse untouched.
          do i = starts(k), e
             acc = acc//trim(lines(i))
          end do
@@ -2019,7 +2786,9 @@ contains
     logical :: multi
     ! v3.0 Phase 6 (Seat X): incremental-build cache state.
     character(len=:), allocatable :: mpath
-    character(len=4096) :: dep_paths(512)
+    ! Heap-allocated: 8192 x 4096 chars is far too big for the
+    ! stack of this recursive subroutine.
+    character(len=4096), allocatable :: dep_paths(:)
     integer :: n_deps
     logical :: cache_hit, cacheable, cache_protected, manifestable
     type(error_bag_t) :: bag
@@ -2157,10 +2926,26 @@ contains
     ! still refreshes the manifest (it is a full build like any
     ! other); only the skip CHECK above honours --force.
     if (manifestable) then
+       if (.not. allocated(dep_paths)) allocate (dep_paths(8192))
        call collect_build_deps(path, ir, dep_paths, n_deps)
-       mpath = out_dir//"/.f3dc-manifest-"//stem
-       call driver_manifest_write(mpath, stem, names, dep_paths, &
-                                  n_deps)
+       if (dep_overflow_count > 0) then
+          ! A truncated dep list would prove a false "up to
+          ! date" later, so the overflow is a named error and no
+          ! manifest is written (the build's outputs are
+          ! unaffected; only the future skip is forfeited, as
+          ! with any manifest failure).
+          call err_line("error E502: build dependency list "// &
+               "overflow: "// &
+               trim(fmt_int(int(dep_overflow_count, int64)))// &
+               " dependencies did not fit the "// &
+               trim(fmt_int(int(size(dep_paths), int64)))// &
+               "-entry limit; skipping the incremental manifest "// &
+               "for this build")
+       else
+          mpath = out_dir//"/.f3dc-manifest-"//stem
+          call driver_manifest_write(mpath, stem, names, dep_paths, &
+                                     n_deps)
+       end if
     end if
     if (explain) then
        summary = explain_text()
@@ -2238,7 +3023,9 @@ contains
   !     texture + the Phase 4 normalmap / mr / emissivemap /
   !     occlusionmap), resolved against the scene's base_dir
   !     exactly as the preview watcher resolves them;
-  !   * <root>/runtime/f3d.js and f3d-webgl2.js and the viewer
+  !   * the whole runtime family the HTML emitter inlines
+  !     (<root>/runtime/f3d.js plus every runtime/f3d-*.js
+  !     sidecar -- ANIM-PLAN SS2.5 risk 1) and the viewer
   !     template candidates emit_html reads for the .html output;
   !   * the f3dc binary itself, so a compiler upgrade invalidates.
   ! Texture CONTENTS never reach the artifacts (only the resolved
@@ -2256,7 +3043,12 @@ contains
     do i = 1, n_deps
        if (trim(deps(i)) == ap) return
     end do
-    if (n_deps >= size(deps)) return
+    if (n_deps >= size(deps)) then
+       ! Never silent: count the drop; do_build turns a nonzero
+       ! count into a named E502 and skips the manifest write.
+       dep_overflow_count = dep_overflow_count + 1
+       return
+    end if
     n_deps = n_deps + 1
     deps(n_deps) = ap
   end subroutine dep_add
@@ -2301,13 +3093,40 @@ contains
     character(len=12) :: slot_keys(5)
     n_deps = 0
     deps = ""
+    dep_overflow_count = 0
     base_dir = dstr(ir, "base_dir", path_dirname(path))
     call dep_add(deps, n_deps, driver_abs_path(path))
     exe = arg_at(0)
     if (len_trim(exe) > 0) call dep_add(deps, n_deps, exe)
     call driver_repo_root(root)
-    call dep_add(deps, n_deps, root//"/runtime/f3d.js")
-    call dep_add(deps, n_deps, root//"/runtime/f3d-webgl2.js")
+    ! ANIM-PLAN SS2.5 risk 1: hash EVERY runtime file the HTML
+    ! emitter inlines, not just the core.  f3dc_emit_html inlines
+    ! runtime/f3d.js (emit_html_runtime_js, substituted into
+    ! {{F3D_JS}}) and runtime/f3d-webgl2.js (emit_html_webgl2_js,
+    ! {{WEBGL2_JS}}), and its header names the extension family
+    ! runtime/f3d-*.js as the runtime the viewer is assembled
+    ! from; the family is enumerated by the runtime aggregator
+    ! runtime/f3d.mjs (mirrored in tools/build_runtime.mjs's
+    ! MODULES): the core plus all fourteen sidecars.  Hashing the
+    ! whole family means a runtime-only fix -- e.g. a new
+    ! animation module -- can never be served a stale
+    ! "up to date" skip.  (f3d.min.js is a build artifact of
+    ! f3d.js, and f3d.mjs / f3d.d.ts are not inlined, so they
+    ! are not deps.)
+    block
+      character(len=*), parameter :: RUNTIME_DEPS(15) = &
+           [character(len=20) :: &
+           "f3d.js", "f3d-geo.js", "f3d-env.js", "f3d-pbr.js", &
+           "f3d-keys.js", "f3d-instanced.js", "f3d-post.js", &
+           "f3d-shader.js", "f3d-skin.js", "f3d-sprites-text.js", &
+           "f3d-particles.js", "f3d-webgl2.js", "f3d-xr.js", &
+           "f3d-raycast.js", "f3d-ortho.js"]
+      integer :: r
+      do r = 1, size(RUNTIME_DEPS)
+         call dep_add(deps, n_deps, &
+                      root//"/runtime/"//trim(RUNTIME_DEPS(r)))
+      end do
+    end block
     call dep_add(deps, n_deps, &
                  root//"/tools/f3dc/viewer_template.html")
     call dep_add(deps, n_deps, &

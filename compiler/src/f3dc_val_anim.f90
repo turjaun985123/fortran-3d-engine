@@ -33,6 +33,8 @@ contains
         character(:), allocatable :: akind, target, axis_s, ease_s
         real(real64) :: speed, duration
         logical :: has_speed, has_duration
+        real(real64) :: anim_start
+        logical :: has_anim_start
         integer(int64) :: fps
         logical :: has_fps
         call vfield(node, props, [character(12) :: "kind", &
@@ -42,12 +44,28 @@ contains
         else
           akind = to_lower(strip_ws(py_str(kind_raw)))
         end if
+        ! ANIM Wave 1 (ANIM-PLAN SS2.2/SS2.4): a timeline-resolved
+        ! AnimStmt carries a fields-bag `start`; such anims may use
+        ! the sentence verbs (ANIM_KINDS_EXT) beyond the legacy
+        ! ANIM_KINDS.  Legacy anims (no `start`) keep the legacy
+        ! rule and message, unchanged.
+        anim_start = 0.0_real64
+        has_anim_start = .false.
+        block
+          type(dyn) :: startv
+          call vfield(node, props, [character(12) :: "start"], &
+                      startv)
+          call get_num(startv, anim_start, has_anim_start)
+        end block
         if (.not. in_words(akind, ANIM_KINDS)) then
-          call verrn("E201", "animation kind " // &
-               py_repr(kind_raw) // &
-               " is missing or unknown; v1 has: " // &
-               join_words(ANIM_KINDS), node)
-          cycle
+          if (.not. (has_anim_start .and. &
+               in_words(akind, ANIM_KINDS_EXT))) then
+            call verrn("E201", "animation kind " // &
+                 py_repr(kind_raw) // &
+                 " is missing or unknown; v1 has: " // &
+                 join_words(ANIM_KINDS), node)
+            cycle
+          end if
         end if
         call vfield(node, props, [character(12) :: "target", &
              "target_name", "object", "name"], targetv)
@@ -66,10 +84,16 @@ contains
           target = vs%last_obj_name
         else if (target /= "all" .and. &
                  .not. dyn_dict_has(vs%names, target)) then
-          call verrn("E201", akind // " targets " // &
-               repr_str(target) // &
-               ", but no object is called that", node)
-          cycle
+          ! ANIM Wave 1: for a timeline-resolved anim the unknown-
+          ! target diagnostic is E209, raised by the timeline
+          ! section (ANIM-PLAN SS2.4 keeps E201 for plain anim/key
+          ! targets); do not double-report it here.
+          if (.not. has_anim_start) then
+            call verrn("E201", akind // " targets " // &
+                 repr_str(target) // &
+                 ", but no object is called that", node)
+            cycle
+          end if
         end if
         call vfield(node, props, [character(12) :: "axis"], axisv)
         if (axisv%kind /= DYN_K_NULL) then
@@ -145,6 +169,15 @@ contains
           call dyn_dict_set(ir_anim, "loop", loopv)
         else
           call dyn_dict_set(ir_anim, "loop", dyn_str("forever"))
+        end if
+        ! ANIM Wave 1: ir_anim `start` (ANIM-PLAN SS2.2).  Set only
+        ! when the resolved anim carries one and it is non-zero --
+        ! f3dc_ir's ir_anim_to_dict likewise omits a zero start, so
+        ! non-timeline scenes stay byte-stable.
+        if (has_anim_start) then
+          if (anim_start /= 0.0_real64) &
+            call dyn_dict_set(ir_anim, "start", &
+                 dyn_real(anim_start))
         end if
         call dyn_list_push(vs%ir_anims, ir_anim)
       end block

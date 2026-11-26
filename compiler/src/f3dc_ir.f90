@@ -238,6 +238,11 @@ module f3dc_ir
     type(ir_text) :: kind, target, axis
     type(ir_scalar) :: speed, duration, fps
     type(ir_text) :: ease, loop
+    ! ANIM Wave 1 (ANIM-PLAN SS2.2): absolute start time (seconds)
+    ! of a timeline-resolved animation.  Absent (kind DYN_K_NULL)
+    ! for legacy anims; ir_anim_to_dict emits it only when it is a
+    ! non-zero number, so non-timeline scenes stay byte-stable.
+    type(ir_scalar) :: start
   end type ir_anim
 
   type :: ir_output
@@ -1251,6 +1256,7 @@ contains
     anim%fps = scalar_field(d, "fps", dyn_int(30_int64))
     anim%ease = text_field(d, "ease", "linear")
     anim%loop = text_field(d, "loop", "forever")
+    anim%start = scalar_direct(d, "start")
   end function ir_anim_from_dict
 
   function ir_anim_to_dict(anim) result(d)
@@ -1265,6 +1271,16 @@ contains
     call dset(d, "fps", ir_scalar_to_dyn(anim%fps))
     call dset(d, "ease", text_to_dyn(anim%ease))
     call dset(d, "loop", text_to_dyn(anim%loop))
+    ! ANIM Wave 1: `start` is emitted only when present and
+    ! non-zero (ANIM-PLAN SS2.2) -- a legacy anim, or a timeline
+    ! anim starting at 0, serialises exactly as before.
+    if (anim%start%kind == DYN_K_INT) then
+      if (anim%start%i /= 0_int64) &
+        call dset(d, "start", ir_scalar_to_dyn(anim%start))
+    else if (anim%start%kind == DYN_K_REAL) then
+      if (anim%start%r /= 0.0_real64) &
+        call dset(d, "start", ir_scalar_to_dyn(anim%start))
+    end if
   end function ir_anim_to_dict
 
   function ir_output_from_dict(d) result(outp)

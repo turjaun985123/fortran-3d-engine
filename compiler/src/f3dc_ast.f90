@@ -82,6 +82,101 @@
 !                name and/or target + props + span + line, plus
 !                form-specific keys retained in the fields bag.
 !
+!   Animation-compiler statements (ANIM-PLAN SS2.1): each is
+!   recognised by ONE unique marker key, checked FIRST in
+!   classify_stmt before every older signature, so a new node can
+!   never be swallowed by an older one (a dialogue node's
+!   "content" would otherwise read as a TextStmt, a loopblock
+!   carrying "obj" + "mode" as a RepeatStmt, a cammove carrying
+!   "fov" + "pos" + "target" as a CameraStmt):
+!   FilmStmt     film_def, title, size, fps, tempo, span, line
+!   CharacterStmt char_def, name, props, body, span, line
+!   ActionDefStmt action_def, name, duration, body, span, line
+!   TimelineStmt timeline_def, body, span, line
+!   CueStmt      cue, target, action, timing, anchor, offset,
+!                duration, props, span, line
+!   CamMoveStmt  cam_move, from_pos, to_pos, from_look, to_look,
+!                follow, fov_from, fov_to, duration, ease,
+!                timing, anchor, offset, span, line
+!   DialogueStmt say, speaker, content, duration, timing,
+!                anchor, offset, props, span, line
+!   TransitionStmt transition, kind, duration, from_scene,
+!                to_scene, span, line
+!   LoopBlockStmt loop_block, count, body, span, line
+!   LetStmt      let_name, value, span, line
+!
+! ---------------------------------------------------------------------
+! KEY-HOME TABLE (ANIM-PLAN SS2.6): every key of every new node
+! above has exactly ONE home -- a typed field, the props bag, the
+! fields bag, or the children array.  Payload rides the props
+! bag; everything else rides the fields bag verbatim.  That
+! single-home rule is what keeps ast_program_from_dyn /
+! ast_program_to_dyn lossless for the new shapes.
+!
+!   Homes shared by all ten kinds:
+!     "name"        -> typed field (ast_stmt%name, when a string)
+!     "target"      -> typed field (ast_stmt%target, STRING or
+!                      null only; a vec3 target stays in the
+!                      fields bag -- see the SS2.6 trap below)
+!     "line"        -> typed field (ast_stmt%line)
+!     "span"        -> fields bag
+!     "props"       -> props bag (the dict itself, verbatim)
+!     marker key    -> fields bag (film_def / char_def /
+!                      action_def / timeline_def / cue / cam_move
+!                      / say / transition / loop_block /
+!                      let_name stay top-level in the fields bag,
+!                      so a round-tripped node still carries its
+!                      marker and re-classifies to the same kind)
+!     "body"        -> children (child_key "body"), for the four
+!                      container kinds: character, actiondef,
+!                      timeline, loopblock
+!
+!   film:       film_def, title, size, fps, tempo -> fields bag.
+!   character:  char_def -> fields bag; name -> typed field;
+!               body -> children; the payload keys colour,
+!               proportions, head, hair, face, wears, voice ->
+!               props bag (they live inside the "props" dict).
+!   actiondef:  action_def -> fields bag; name -> typed field;
+!               duration (declared value or null) -> fields bag;
+!               body -> children (cues with relative timing).
+!   timeline:   timeline_def -> fields bag; body -> children
+!               (the shot's cues in source order).
+!   cue:        cue -> fields bag; target -> typed field
+!               (string only); action, timing (at / then /
+!               after / with), anchor, offset, duration ->
+!               fields bag; the ordinary anim props
+!               (ANIM_PROP_WORDS: axis, speed, fps, ease, loop,
+!               amplitude, distance, amount, angle) -> props bag.
+!   cammove:    cam_move -> fields bag; from_pos, to_pos,
+!               from_look, to_look, follow, fov_from, fov_to,
+!               duration, ease, timing, anchor, offset ->
+!               fields bag.  "follow" is the string target name
+!               and deliberately does NOT use the key "target":
+!               from_look / to_look are vec3s, and a vec3 under
+!               "target" stays in the fields bag while a string
+!               under "target" lifts to the typed field, so one
+!               key cannot home both (SS2.6 target trap).
+!   dialogue:   say -> fields bag; speaker, content, duration
+!               (explicit value or null), timing, anchor,
+!               offset -> fields bag ("content" is a top-level
+!               fields-bag key, NOT the props bag: it is the
+!               TextStmt key, safe only because "say" is
+!               checked first); voice, style -> props bag.
+!   transition: transition -> fields bag; kind (cut / fade /
+!               dissolve / wipe / slide -- the node's own "kind"
+!               key, distinct from the derived class tag),
+!               duration, from_scene, to_scene -> fields bag.
+!   loopblock:  loop_block -> fields bag; count (value or null)
+!               -> fields bag; body -> children.  A loopblock
+!               never homes "obj" / "mode" (those would make it
+!               a RepeatStmt; the marker check runs first in any
+!               case).
+!   let:        let_name -> fields bag (the marker key AND the
+!               bound name: its value is the variable's name, so
+!               it is not lifted to the typed "name" field, which
+!               homes only the "name" key); value -> fields bag,
+!               verbatim, any dyn scalar or list.
+!
 ! The class tag in ast_stmt%kind is derived with the same key
 ! signatures f3dc_desugar's is_node uses (documented at
 ! classify_stmt below); a node matching no signature is "generic"
@@ -221,6 +316,20 @@ contains
   ! ==================================================================
   ! Class tag (mirrors f3dc_desugar's is_node key signatures)
   !
+  !   Animation-compiler kinds (ANIM-PLAN SS2.1) are checked
+  !   FIRST, each by its ONE unique marker key, before every
+  !   signature below:
+  !   FilmStmt     has "film_def"
+  !   CharacterStmt has "char_def"
+  !   ActionDefStmt has "action_def"
+  !   TimelineStmt has "timeline_def"
+  !   CueStmt      has "cue"
+  !   CamMoveStmt  has "cam_move"
+  !   DialogueStmt has "say" (before the "content" TextStmt shape)
+  !   TransitionStmt has "transition"
+  !   LoopBlockStmt has "loop_block" (never via "obj" + "mode")
+  !   LetStmt      has "let_name"
+  !
   !   ObjectStmt   has "prim"
   !   GroupStmt    has "children"
   !   RepeatStmt   has "obj" + "mode"
@@ -240,6 +349,48 @@ contains
     character(len=32) :: tag
     tag = "generic"
     if (node%kind /= DYN_K_DICT) return
+    ! Animation-compiler markers (ANIM-PLAN SS2.1): checked first,
+    ! before all existing signatures.
+    if (dyn_dict_has(node, "film_def")) then
+      tag = "film"
+      return
+    end if
+    if (dyn_dict_has(node, "char_def")) then
+      tag = "character"
+      return
+    end if
+    if (dyn_dict_has(node, "action_def")) then
+      tag = "actiondef"
+      return
+    end if
+    if (dyn_dict_has(node, "timeline_def")) then
+      tag = "timeline"
+      return
+    end if
+    if (dyn_dict_has(node, "cue")) then
+      tag = "cue"
+      return
+    end if
+    if (dyn_dict_has(node, "cam_move")) then
+      tag = "cammove"
+      return
+    end if
+    if (dyn_dict_has(node, "say")) then
+      tag = "dialogue"
+      return
+    end if
+    if (dyn_dict_has(node, "transition")) then
+      tag = "transition"
+      return
+    end if
+    if (dyn_dict_has(node, "loop_block")) then
+      tag = "loopblock"
+      return
+    end if
+    if (dyn_dict_has(node, "let_name")) then
+      tag = "let"
+      return
+    end if
     if (dyn_dict_has(node, "import_path")) then
       tag = "import"
       return
@@ -401,7 +552,10 @@ contains
   !> Append one child statement to an ast_stmt, doubling the
   !! children array when full, deep-copying the child.  The first
   !! append to a childless statement adopts "children" as its
-  !! child key (the GroupStmt spelling).
+  !! child key (the GroupStmt spelling) -- except the animation
+  !! container kinds (character / actiondef / timeline /
+  !! loopblock, ANIM-PLAN SS2.1), whose children live under
+  !! "body", so their first append adopts "body" instead.
   subroutine append_ast_child(stmt, child)
     type(ast_stmt), intent(inout) :: stmt
     type(ast_stmt), intent(in) :: child
@@ -424,7 +578,12 @@ contains
     stmt%n_children = stmt%n_children + 1
     stmt%children(stmt%n_children) = ast_stmt_copy(child)
     if (stmt%child_key == "") then
-      stmt%child_key = "children"
+      select case (trim(stmt%kind))
+      case ("character", "actiondef", "timeline", "loopblock")
+        stmt%child_key = "body"
+      case default
+        stmt%child_key = "children"
+      end select
       stmt%child_was_list = .true.
     end if
   end subroutine append_ast_child
@@ -590,9 +749,13 @@ contains
   !! Extracted into typed components: the class tag (classify_stmt),
   !! "name", "target", "line", the "props" bag, and the children
   !! (from "children" for a group, from "obj" for a repeat, from a
-  !! non-empty dict "body" list otherwise).  Every remaining key --
-  !! including "span" and the alias keys not used as the child
-  !! source -- is retained verbatim in the fields bag.
+  !! non-empty dict "body" list otherwise; the animation container
+  !! kinds -- character / actiondef / timeline / loopblock --
+  !! take "body" as their child key even when the list is empty,
+  !! so their child key survives the round-trip too).  Every
+  !! remaining key -- including "span", the new kinds' marker
+  !! keys and the alias keys not used as the child source -- is
+  !! retained verbatim in the fields bag.
   recursive function ast_stmt_from_dyn(node) result(stmt)
     type(dyn), intent(in) :: node
     type(ast_stmt) :: stmt
@@ -656,6 +819,11 @@ contains
     ! statement dict or a list of them.
     ! Otherwise: a "body" list of statement dicts when non-empty
     ! (a GroupStmt's "body" is always empty, so it stays a field).
+    ! The animation container kinds (character / actiondef /
+    ! timeline / loopblock) use "body" exclusively (ANIM-PLAN
+    ! SS2.6 child-key capture): theirs is taken even when empty,
+    ! so an empty container keeps child_key "body" and writes its
+    ! empty "body" list back in ast_stmt_to_dyn.
     if (dyn_dict_has(node, "children")) then
       v = dyn_dict_get(node, "children")
       if (v%kind == DYN_K_LIST) then
@@ -687,6 +855,12 @@ contains
           if (dyn_list_len(v) > 0) then
             elem = dyn_list_at(v, 1)
             if (elem%kind == DYN_K_DICT) take_body = .true.
+          else
+            select case (trim(stmt%kind))
+            case ("character", "actiondef", "timeline", &
+                  "loopblock")
+              take_body = .true.
+            end select
           end if
         end if
       end if

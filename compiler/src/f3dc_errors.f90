@@ -73,13 +73,19 @@ module f3dc_errors
   end type str_box_t
 
   ! ERROR_CODES: stable, append-only code -> short title (errors.py).
-  integer, parameter :: N_CODES = 22
+  ! ANIM Wave 1 (ANIM-PLAN SS2.4): E206-E213 + W203/W204 appended;
+  ! E2xx is the "validate: names/references" family and the new
+  ! timeline diagnostics belong to it.  E206/E212/E213 are raised
+  ! in desugar; the table entries live here regardless.
+  integer, parameter :: N_CODES = 32
   character(len=4), parameter :: CODE_KEYS(N_CODES) = [ &
     "E101", "E102", "E103", "E104", "E110", &
     "E201", "E202", "E203", "E204", "E205", &
-    "E301", "E302", "E303", "E401", "E402", &
-    "E501", "E502", "E504", "E820", "W101", &
-    "W102", "W201"]
+    "E206", "E207", "E208", "E209", "E210", &
+    "E211", "E212", "E213", "E301", "E302", &
+    "E303", "E401", "E402", "E501", "E502", &
+    "E504", "E820", "W101", "W102", "W201", &
+    "W203", "W204"]
   character(len=32), parameter :: CODE_TITLES(N_CODES) = [ &
     "unexpected token              ", &
     "expected number               ", &
@@ -91,6 +97,14 @@ module f3dc_errors
     "unknown primitive             ", &
     "texture not in v1             ", &
     "reserved keyword              ", &
+    "unknown action                ", &
+    "overlapping actions           ", &
+    "timeline overrun              ", &
+    "unknown character             ", &
+    "camera follow target missing  ", &
+    "dialogue undefined character  ", &
+    "custom-action recursion       ", &
+    "undefined/redefined variable  ", &
     "value out of range            ", &
     "non-positive size             ", &
     "fov range                     ", &
@@ -102,7 +116,9 @@ module f3dc_errors
     "security/limit violation      ", &
     "default injected              ", &
     "statement replaced            ", &
-    "animation defaulted           "]
+    "animation defaulted           ", &
+    "unused action                 ", &
+    "dialogue duration estimated   "]
 
 contains
 
@@ -111,8 +127,9 @@ contains
   ! ------------------------------------------------------------------
 
   pure integer function error_code_count()
-    error_code_count = 22  ! entries in the ERROR_CODES table (E504 is
-                           ! native-only: import cycle, v2.0 P3)
+    error_code_count = 32  ! entries in the ERROR_CODES table (E504 is
+                           ! native-only: import cycle, v2.0 P3;
+                           ! E206-E213/W203/W204 added by ANIM Wave 1)
   end function error_code_count
 
   !> Title for a code; found=.false. when the code is not in the table.

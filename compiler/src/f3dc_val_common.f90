@@ -45,6 +45,9 @@ module f3dc_val_common
   public :: node_span
   public :: verr
   public :: verrn
+  public :: verr_full
+  public :: vwarn_full
+  public :: program_is_film
   public :: istr
   public :: rstr
   public :: join_words
@@ -83,6 +86,7 @@ module f3dc_val_common
   public :: GEOM_PRIMS
   public :: MATERIALS
   public :: ANIM_KINDS
+  public :: ANIM_KINDS_EXT
   public :: LIGHT_KINDS_V1
   public :: CONTROLS_KINDS
   public :: EASES
@@ -114,6 +118,8 @@ module f3dc_val_common
   public :: C_SKIN
   public :: C_KEYS
   public :: C_KEY
+  public :: C_DIALOGUE
+  public :: C_FILM
 
   ! ------------------------------------------------------------ limits
   real(real64), parameter :: MAX_DIM = 1000.0_real64
@@ -140,13 +146,39 @@ module f3dc_val_common
        "lambert", "basic", "phong", "standard"]
   character(16), parameter :: ANIM_KINDS(7) = [character(16) :: &
        "spin", "bob", "pulse", "orbit", "move", "turn", "grow"]
+  ! ANIM Wave 1 (ANIM-PLAN SS1.3/SS2.4): the sentence verbs a
+  ! timeline-resolved AnimStmt may carry (canonical "-s" forms and
+  ! their base-form aliases).  Accepted by val_anim ONLY for anims
+  ! carrying a resolved `start` field; legacy anims keep the
+  ! ANIM_KINDS-only rule above, unchanged.
+  character(16), parameter :: ANIM_KINDS_EXT(40) = [character(16) :: &
+       "walks", "walk", "runs", "run", "enters", "enter", &
+       "waves", "wave", &
+       "sits", "sit", "stands", "stand", "jumps", "jump", &
+       "falls", "fall", "looks", "look", "faces", "face", &
+       "points", "point", "nods", "nod", "shakes", "shake", &
+       "dances", "dance", "sleeps", "sleep", "smiles", "smile", &
+       "picks", "pick", "gives", "give", "taps", "tap", &
+       "exits", "exit"]
   character(16), parameter :: LIGHT_KINDS_V1(4) = [character(16) :: &
        "directional", "ambient", "point", "spot"]
   character(16), parameter :: CONTROLS_KINDS(2) = [character(16) :: &
        "orbit", "none"]
-  character(16), parameter :: EASES(8) = [character(16) :: &
+  ! ANIM Wave 1 FIX (easing unification): BOTH spelling families
+  ! are accepted -- "ease-in/out/in-out" and "cubic-in/out/in-out"
+  ! name the same curves (ANIM-PLAN SS1.8).  This registry is
+  ! accept-only: it carries no canonicalisation, because the sole
+  ! consumer (val_anim) passes the accepted name verbatim into the
+  ! IR anim dict / .scene anim line, and the runtime evaluator
+  ! (ease_value in src/animation.f90) natively switches on the
+  ! cubic-* spellings -- so a newly accepted cubic-* name evaluates
+  ! as the intended cubic curve with no mapping, while every
+  ! previously valid ease-* name keeps its exact legacy emission
+  ! (byte-identical behaviour for previously valid programs).
+  character(16), parameter :: EASES(11) = [character(16) :: &
        "linear", "smooth", "in", "out", "ease", "ease-in", &
-       "ease-out", "ease-in-out"]
+       "ease-out", "ease-in-out", "cubic-in", "cubic-out", &
+       "cubic-in-out"]
   character(16), parameter :: RENDER_EXTS(2) = [character(16) :: &
        ".ppm", ".png"]
   character(16), parameter :: EXPORT_KINDS(3) = [character(16) :: &
@@ -172,7 +204,8 @@ module f3dc_val_common
        C_OUTPUT = 7, C_OBJECT = 8, C_GROUP = 9, C_SPRITE = 10, &
        C_TEXT = 11, C_PARTICLES = 12, C_FILTER = 13, &
        C_INSTANCE = 14, C_SHADERDEF = 15, C_MORPH = 16, &
-       C_BONE = 17, C_SKIN = 18, C_KEYS = 19, C_KEY = 20
+       C_BONE = 17, C_SKIN = 18, C_KEYS = 19, C_KEY = 20, &
+       C_DIALOGUE = 21, C_FILM = 22
 
   ! ------------------------------------------------------------- state
   ! One validate run at a time (the compiler is single-threaded);
@@ -185,6 +218,12 @@ module f3dc_val_common
     type(dyn) :: particles_nodes, keys_header_nodes, key_nodes
     type(dyn) :: filter_nodes, instance_nodes, shader_nodes
     type(dyn) :: morph_nodes, bone_nodes, skin_nodes
+    ! ANIM Wave 1: resolved dialogue survivors (marker "say"),
+    ! collected by classify_node (walk_nodes has no dialogue case;
+    ! see classify_node), and the film-mode flag the outputs
+    ! section consults for the .mp4 gate (ANIM-PLAN SS1.9 rule 7).
+    type(dyn) :: dialogue_nodes
+    logical :: has_film = .false.
     logical :: has_camera = .false., has_controls = .false.
     logical :: has_scene = .false.
     type(dyn) :: camera_node, controls_node
@@ -736,6 +775,77 @@ contains
   end subroutine verrn
 
 
+  !> ANIM Wave 1: an error carrying why/help lines (ANIM-PLAN
+  !! SS2.4: the timeline diagnostics populate why/help properly
+  !! rather than inheriting the validator's span-less style debt).
+  !! The span is attached when the node carries a real one, exactly
+  !! as verrn does.
+  subroutine verr_full(code, msg, node, why, help)
+    character(*), intent(in) :: code, msg, why, help
+    type(dyn), intent(in) :: node
+    type(span_t) :: sp
+    logical :: has
+    call node_span(node, sp, has)
+    if (has) then
+      call error_bag_add(vs%bag, make_diagnostic_span( &
+           code, "error", msg, sp, why, help))
+    else
+      call error_bag_add(vs%bag, make_diagnostic( &
+           code, "error", msg, why, help))
+    end if
+  end subroutine verr_full
+
+
+  !> Warning sibling of verr_full (W203/W204).
+  subroutine vwarn_full(code, msg, node, why, help)
+    character(*), intent(in) :: code, msg, why, help
+    type(dyn), intent(in) :: node
+    type(span_t) :: sp
+    logical :: has
+    call node_span(node, sp, has)
+    if (has) then
+      call error_bag_add(vs%bag, make_diagnostic_span( &
+           code, "warning", msg, sp, why, help))
+    else
+      call error_bag_add(vs%bag, make_diagnostic( &
+           code, "warning", msg, why, help))
+    end if
+  end subroutine vwarn_full
+
+
+  !> ANIM Wave 1: is this program a film (ANIM-PLAN SS1.1)?  The
+  !! primary signal is the film node (classify_node sets
+  !! vs%has_film when it sees the "film_def" marker).  Because
+  !! desugar owns the resolved stream, the resolved survivors are
+  !! accepted as equivalent proof: a dialogue node, an anim
+  !! carrying a resolved `start` field, or an "@camera" keys
+  !! header can only exist in a film.  Used by the outputs
+  !! section's .mp4 gate (SS1.9 rule 7); legacy programs have none
+  !! of these signals, so their behaviour is unchanged.
+  logical function program_is_film()
+    type(dyn) :: node, props, v
+    integer :: k
+    program_is_film = .true.
+    if (vs%has_film) return
+    if (dyn_list_len(vs%dialogue_nodes) > 0) return
+    do k = 1, dyn_list_len(vs%anim_nodes)
+      node = dyn_list_at(vs%anim_nodes, k)
+      if (dyn_dict_has(node, "start")) return
+      props = props_of(node)
+      if (dyn_dict_has(props, "start")) return
+    end do
+    do k = 1, dyn_list_len(vs%keys_header_nodes)
+      node = dyn_list_at(vs%keys_header_nodes, k)
+      props = props_of(node)
+      call vfield(node, props, [character(12) :: "target"], v)
+      if (v%kind == DYN_K_STR) then
+        if (v%s == "@camera") return
+      end if
+    end do
+    program_is_film = .false.
+  end function program_is_film
+
+
   !> Ints formatted the way Python %s renders them.
   function istr(i) result(out)
     integer(int64), intent(in) :: i
@@ -902,6 +1012,42 @@ contains
     character(:), allocatable :: kind
     cat = C_UNKNOWN
     if (node%kind /= DYN_K_DICT) return
+    ! ANIM Wave 1 (ANIM-PLAN SS2.1/SS2.6): the new marker keys are
+    ! checked FIRST, before every older signature, so a new node
+    ! can never be swallowed by one -- a dialogue node carries
+    ! "content" (the C_TEXT signature), a cue carries
+    ! "target"+"loop" (the C_KEYS signature), a cammove can carry
+    ! camera-shaped fields.  Only two survivors of desugar reach
+    ! the validator: dialogue (marker "say") and the film header.
+    ! walk_nodes (f3dc_val_object) has no case for the new
+    ! categories, so classify_node itself collects dialogue nodes
+    ! into vs%dialogue_nodes and records the film flag in
+    ! vs%has_film; classify_node is called exactly once per node
+    ! by the walk, so the collection cannot double-count.  The
+    ! remaining markers never survive desugar (SS2.2); if one is
+    ! seen anyway it is C_UNKNOWN (ignored), never misclassified.
+    if (dyn_dict_has(node, "say")) then
+      cat = C_DIALOGUE
+      if (vs%dialogue_nodes%kind == DYN_K_LIST) &
+        call dyn_list_push(vs%dialogue_nodes, node)
+      return
+    end if
+    if (dyn_dict_has(node, "film_def")) then
+      cat = C_FILM
+      vs%has_film = .true.
+      return
+    end if
+    if (dyn_dict_has(node, "char_def") .or. &
+        dyn_dict_has(node, "action_def") .or. &
+        dyn_dict_has(node, "timeline_def") .or. &
+        dyn_dict_has(node, "cue") .or. &
+        dyn_dict_has(node, "cam_move") .or. &
+        dyn_dict_has(node, "transition") .or. &
+        dyn_dict_has(node, "loop_block") .or. &
+        dyn_dict_has(node, "let_name")) then
+      cat = C_UNKNOWN
+      return
+    end if
     if (dyn_dict_has(node, "amount")) then
       cat = C_FILTER
       return
@@ -1164,10 +1310,18 @@ contains
   !> Python scene.extensions[key] = payload, only when the payload
   !! dict is non-empty (the env payload itself is a
   !! DISPATCH(ext_lights_env) product, still deferred).
+  !! ANIM Wave 1: a non-empty LIST payload is also accepted -- the
+  !! timeline section's "dialogue" extension is a list of cue
+  !! dicts (ANIM-PLAN SS2.3).  Existing dict callers are
+  !! unaffected: a dict still needs at least one entry.
   subroutine set_scene_extension(key, payload)
     character(*), intent(in) :: key
     type(dyn), intent(in) :: payload
-    if (dyn_dict_len(payload) == 0) return
+    if (payload%kind == DYN_K_LIST) then
+      if (dyn_list_len(payload) == 0) return
+    else if (dyn_dict_len(payload) == 0) then
+      return
+    end if
     call dyn_dict_set(vs%ext_stash, key, payload)
   end subroutine set_scene_extension
 
