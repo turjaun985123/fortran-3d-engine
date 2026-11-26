@@ -161,6 +161,74 @@ Recorded at Wave 1 close (audit of the landed front-end):
 
 ## Per-wave log
 
+### Wave 5, first scope — Plugin externalization (user ruling) (2026-11-26) ✅
+
+- Scope delivered (6 agents: design E1, proof tests E2, package
+  data I1, loader I2, interpreter I3 + coordinator integration):
+  **stickman is no longer built in.** `plugins/stickman/plugin.json`
+  (44 KB) and `plugins/humanoid/plugin.json` (skeleton) are
+  external packages in the repo — manifest (`format: 1`, id,
+  version, capabilities) + channels, verb→channel maps, character
+  prop schemas, rig record, expression codes, and all 20 parametric
+  templates as DATA (schema in `docs/PLUGINS.md`, ADR-PLUGIN-1:
+  JSON, parsed by the existing `ir_json_parse`; no new parser,
+  zero-Python holds). **Core keeps only mechanism:**
+  `f3dc_plugins.f90` lost both registration blocks and every
+  `TPL_*` constant and gained the loader (search list =
+  `F3DC_PLUGIN_PATH` when set — empty string loads nothing — else
+  `[<repo_root>/plugins, ./plugins]`, canonical-key deduped;
+  malformed/duplicate packages skipped with the new **W205**
+  warning, never a crash); `f3dc_anim_resolve.f90` lost all 20
+  per-verb subroutines and gained ONE generic interpreter (keys/osc
+  steps, expression mini-language, guard conditions — no verb-name
+  conditionals); the duplicated expression-code maps in the
+  resolver and the timeline emitter are gone (package data via
+  `plugin_expression_code`). The one `stickman` literal remaining
+  in `compiler/src` is the language-level `DEFAULT_PLUGIN_ID`
+  constant (spec, not data — it is what lets the absent-plugin
+  diagnostic name the plugin, as the ruling's proof requires);
+  acceptance grep over `compiler/src` for
+  stickman/humanoid/`TPL_*` returns exactly that one line.
+  **New diagnostic E214** ("plugin not loaded", form A names the
+  character + plugin id) at the validator's per-character check.
+  Two schema completions were proven necessary by a differential
+  harness (old resolver vs new interpreter, 53 cases, keys +
+  cursor + expression compared exactly): guarded cursor-update
+  entries (`exit`'s ±6 side offset; amendment recorded in
+  PLUGINS.md) and branch-exclusivity guards in the `face` template
+  — with both data fixes the harness is **53/53** and
+  `anim-golden`'s `.timeline.json` is byte-identical.
+- **Absent-plugin proof (the ruling's gate):**
+  `tests/e2e/test_plugin_external_e2e.sh` — **8/8 PASS**: present
+  world resolves + emits `"plugin":"stickman"` IR; absent world
+  (`F3DC_PLUGIN_PATH=""`) fails the film with E214 naming
+  `stickman`, emits no timeline, while non-film scenes and a
+  characterless film still build; malformed package fails
+  cleanly (diagnostic, no crash/hang). E214 + W205 are also
+  registered in the diagnostics census (`property_tests` codes
+  section, bespoke env-controlled blocks; census now 33 of 38
+  triggered, 5 documented-unreachable).
+- **IR compatibility: NO format change** (plugin ids were already
+  carried; resolution is compile-time against loaded packages).
+  No ADR-5 amendment needed.
+- Fix-forward inside the scope: the loader's first dedupe used a
+  `realpath` subprocess per search dir per invocation and the
+  property driver timed out in-suite; replaced with one `pwd`
+  capture + string-canonical keys (per-invocation loader cost
+  ~0.03 s). The same dedupe also fixed a real bug: running from
+  the repo root enumerated `./plugins` twice and W205-warned
+  every package as a spurious duplicate.
+- Gates: full suite PASS (native incl. anim 169/169 + curated +
+  properties/census, compiler-js 254, e2e 85, fortran 47, ir 64;
+  golden SKIP by design) with **zero pin rebakes** — byte-identity
+  in the present world is total; legacy golden `28b6a81d…`
+  verified unchanged (G3a method); zero Python; concat lint 0.
+  CI verdict recorded in the wave close report.
+- Carried forward: template bodies are not expression-validated
+  at load time (a bad expression inside a template surfaces at
+  resolution, not as a load-time W205) — robustness-wave polish.
+  Wave 5 continues with its second scope: video export.
+
 ### Wave 4 — Preview playback (2026-11-26) ✅
 
 - Scope delivered (4 agents + coordinator integration): **Transport
