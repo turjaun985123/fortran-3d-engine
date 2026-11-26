@@ -2811,7 +2811,7 @@ contains
     call dyn_dict_set(phprops, "character", dyn_bool(.true.))
     ! ANIM Wave 2 flag 4: the placeholder carries the character's
     ! PLUGIN id (registry default -- characters declare no plugin
-    ! in the Wave-2 language) instead of a core humanoid
+    ! in the Wave-2 language) instead of a core rig
     ! assumption, plus the character's full declared props under
     ! "char_props" so the validator's schema-driven character
     ! checks (f3dc_val_timeline) can see them on the resolved

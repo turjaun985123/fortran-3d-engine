@@ -48,7 +48,8 @@ module f3dc_val_timeline
        DYN_K_BOOL, DYN_K_INT, DYN_K_REAL, DYN_K_STR, &
        DYN_K_LIST, DYN_K_DICT
   use f3dc_val_common
-  use f3dc_plugins, only: plugin_default_id, plugin_capability, &
+  use f3dc_plugins, only: plugin_default_id, plugin_exists, &
+       plugin_capability, &
        plugin_prop_by_name, plugin_prop_value_ok, &
        plugin_prop_allowed_csv, plugin_prop_names_csv
   use f3dc_str, only: to_lower, char_list, char_list_len, &
@@ -155,10 +156,10 @@ contains
 
   !> True when `nm` may speak dialogue (E211).  ANIM Wave 2
   !! flag 5: the rule is expressed via the PLUGIN REGISTRY, not a
-  !! core humanoid assumption -- a dialogue speaker must be a
+  !! core rig assumption -- a dialogue speaker must be a
   !! character whose plugin declares the "speaks" capability.
-  !! (The stickman plugin declares it, so Wave-1 behaviour for
-  !! stickman characters is unchanged.)
+  !! (The default character plugin declares it, so Wave-1
+  !! behaviour for its characters is unchanged.)
   logical function speaker_is_character(nm)
     character(*), intent(in) :: nm
     logical :: is_char
@@ -276,6 +277,68 @@ contains
       end do
     end do
   end subroutine check_character_props
+
+
+  !> Wave 5 (plugin externalization, docs/PLUGINS.md SS5): E214
+  !! -- a character whose plugin is not loaded.  Characters,
+  !! their props and their actions are declared by external
+  !! plugin packages; when the package a character belongs to
+  !! is absent from the loaded registry the core cannot check
+  !! or animate the character at all, so this is an error, once
+  !! per character, at the character's span.  The character's
+  !! plugin id is the id its placeholder declares (props
+  !! "plugin", stamped by desugar from the registry default --
+  !! the language default, f3dc_plugins' DEFAULT_PLUGIN_ID,
+  !! when the registry itself supplies it); form A names that
+  !! id.  Form B covers the empty default: no id resolved and
+  !! no plugin loaded, so there is no honest plugin name to
+  !! report.
+  subroutine check_character_plugins()
+    type(dyn) :: node, props, v, nv
+    character(:), allocatable :: pid, cname
+    integer :: k
+    do k = 1, dyn_list_len(vs%object_nodes)
+      node = dyn_list_at(vs%object_nodes, k)
+      props = props_of(node)
+      v = dyn_dict_get(props, "character")
+      if (v%kind /= DYN_K_BOOL .or. .not. v%b) cycle
+      v = dyn_dict_get(props, "plugin")
+      if (v%kind == DYN_K_STR .and. len(v%s) > 0) then
+        pid = v%s
+      else
+        pid = plugin_default_id()
+      end if
+      nv = dyn_dict_get(node, "name")
+      if (nv%kind == DYN_K_STR) then
+        cname = nv%s
+      else
+        cname = ""
+      end if
+      if (len(pid) == 0) then
+        call verr_full("E214", &
+             "character " // repr_str(cname) // &
+             " has no plugin: no character plugin is loaded", &
+             node, &
+             "characters, their props and their actions are " // &
+             "declared by plugins; the core language does not " // &
+             "define them", &
+             "install a character plugin package under " // &
+             "plugins/ or set F3DC_PLUGIN_PATH to a directory " // &
+             "containing one")
+      else if (.not. plugin_exists(pid)) then
+        call verr_full("E214", &
+             "character " // repr_str(cname) // &
+             " belongs to plugin " // repr_str(pid) // &
+             ", which is not loaded", node, &
+             "characters, their props and their actions are " // &
+             "declared by plugins; the core language does not " // &
+             "define them", &
+             "install the '" // pid // "' plugin package " // &
+             "(plugins/" // pid // "/plugin.json) or add its " // &
+             "parent directory to F3DC_PLUGIN_PATH")
+      end if
+    end do
+  end subroutine check_character_plugins
 
 
   !> The with-exemption for E207 (see the header note).
@@ -1057,6 +1120,7 @@ contains
     ! placeholders, so legacy scenes without characters are
     ! untouched.
     call check_character_props()
+    call check_character_plugins()
     ! ANIM Wave 2 slice B1: capture the Timeline IR fragment for
     ! every program (film or not) before the legacy fast path --
     ! the emitter needs it exactly when this section's own checks

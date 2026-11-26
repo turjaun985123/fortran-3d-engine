@@ -61,7 +61,9 @@ program f3dc
   use, intrinsic :: iso_fortran_env, only: output_unit, error_unit, &
        int64, real64
   use f3dc_str, only: fmt_int, fmt_real, to_lower, path_stem, &
-       path_dirname, path_basename, path_extension
+       path_dirname, path_basename, path_extension, &
+       char_list, char_list_len, char_list_at
+  use f3dc_plugins, only: plugin_configure, plugin_take_warnings
   use f3dc_dyn, only: dyn, dyn_null, dyn_bool, dyn_int, dyn_real, &
        dyn_str, dyn_list, dyn_dict, dyn_copy, dyn_assign, dyn_list_push, &
        dyn_list_len, dyn_list_at, dyn_dict_set, dyn_dict_get, &
@@ -4139,6 +4141,32 @@ contains
   ! ------------------------------------------------------------------
   ! Dispatch (cli.py _dispatch + main).  The ONE select case.
   ! ------------------------------------------------------------------
+  ! Wave 5 (docs/PLUGINS.md SS4/SS6): drain the plugin loader's
+  ! collected warnings into stderr as W205 diagnostics, in the
+  ! house format, once.  Draining forces the one-time package
+  ! load, so this runs at dispatch entry, before any command
+  ! output; with only well-formed packages (or none) it prints
+  ! nothing and no command's behaviour changes.
+  subroutine drain_plugin_warnings()
+    type(error_bag_t) :: bag
+    type(char_list) :: msgs
+    character(len=:), allocatable :: text
+    integer :: k
+    call plugin_take_warnings(msgs)
+    if (char_list_len(msgs) == 0) return
+    do k = 1, char_list_len(msgs)
+       call error_bag_add(bag, make_diagnostic( &
+            "W205", "warning", char_list_at(msgs, k), &
+            why="a plugin package must be a directory "// &
+                "plugins/<id>/ containing a plugin.json this "// &
+                "compiler can read", &
+            help="fix the package or remove it from the plugin "// &
+                 "search path"))
+    end do
+    text = error_bag_format_text(bag, error_bag_use_color())
+    if (len(text) > 0) call err_line(text)
+  end subroutine drain_plugin_warnings
+
   subroutine dispatch(code)
     integer, intent(out) :: code
     integer :: nargs
@@ -4147,6 +4175,17 @@ contains
     integer :: port, bench_runs
     logical :: bench_json
     code = 0
+    ! Wave 5 (docs/PLUGINS.md SS4): resolve the repo root once and
+    ! configure the plugin loader before dispatching any command,
+    ! so build / check / fmt / preview (preview_serve is entered
+    ! only from here -- f3dc_preview has no entry of its own) all
+    ! see the same registry; then drain loader warnings once.
+    block
+      character(len=:), allocatable :: root
+      call driver_repo_root(root)
+      call plugin_configure(root)
+    end block
+    call drain_plugin_warnings()
     nargs = command_argument_count()
     if (nargs == 0) then
        call discover_scene(scene, found)

@@ -1,21 +1,66 @@
-! f3dc_plugins.f90 -- Forge3D plugin registry (ANIM Wave 2, slice A1).
+! f3dc_plugins.f90 -- Forge3D plugin loader + registry.
 !
 ! The all-rounder scope correction (docs/ANIM-WAVES.md, user ruling
-! 2026-11-26): Forge3D is NOT a stickman compiler.  The core
-! language / compiler / Timeline IR stay rig- and character-type
-! agnostic; character rigs, action sets and feature packs register
-! as PLUGINS.  The stickman engine is the first plugin (id
-! "stickman") -- a proof case, not a core assumption.
+! 2026-11-26): Forge3D is NOT a single-character-type compiler.
+! The core language / compiler / Timeline IR stay rig- and
+! character-type agnostic; character rigs, action verb sets,
+! character prop schemas and feature capabilities are declared by
+! PLUGINS.  Since Wave 5 (docs/PLUGINS.md, ADR-PLUGIN-1) a plugin
+! is an EXTERNAL PACKAGE on disk -- a directory <id>/ holding one
+! plugin.json manifest+declarations file -- loaded by this module
+! at run time.  No plugin's data (no verb, channel, prop,
+! expression name, rig record or template body) lives in core
+! source; this module holds only the loader and the registry
+! MECHANISM, plus the query surface the rest of the compiler has
+! always used (parser, desugar, validator, resolver, emitter call
+! the same procedures with the same signatures; only where the
+! answers come from changed: a package file, not a registration
+! block compiled into the binary).
 !
-! This module is a LEAF: it depends only on f3dc_dyn / f3dc_str, so
-! every stage (parser, desugar, validator, fmt via the CLI) can
-! query it without a dependency cycle.  It holds the registry of
-! plugin records.  A plugin declares:
+! Loader semantics (docs/PLUGINS.md SS4):
+!   * plugin_configure(root) is called once by the CLI with the
+!     driver_repo_root; the first registry query then loads.
+!   * Search list: if the environment variable F3DC_PLUGIN_PATH
+!     is SET (whatever its value), its colon-separated entries
+!     are the whole list -- the empty string loads nothing.  If
+!     it is UNSET, the list is [<repo_root>/plugins, ./plugins]
+!     (or just ./plugins when no root was configured, e.g. a
+!     caller that linked the modules directly).
+!   * Within each search directory, package directories are
+!     enumerated in lexicographic order; a package registers
+!     whole or not at all.  The first package with a given id
+!     wins; a later duplicate is skipped with a W205 warning.
+!     A malformed package (missing/unreadable/invalid plugin.json,
+!     format /= 1, manifest id /= directory name, a required key
+!     of the wrong type, a verb naming a missing template, a
+!     registry limit exceeded) is skipped with one W205 warning
+!     naming the package directory and the reason.  The loader
+!     NEVER stops the process and never crashes on bad package
+!     data: a skipped package simply does not exist as far as the
+!     registry is concerned (a film that then needs it is the
+!     validator's E214, docs/PLUGINS.md SS5).
+!   * Warnings are collected here; the CLI drains them once via
+!     plugin_take_warnings() and prints them as W205 diagnostics.
 !
-!   * id            -- its stable identifier ("stickman").
-!   * channels      -- the rig channel ids it owns ("body", "face").
-!   * verbs         -- its action verb set; every spelling maps to
-!                      the channel that verb animates.
+! A plugin declares:
+!   * id            -- its stable identifier (== directory name).
+!   * version       -- its own version string (opaque to core).
+!   * channels      -- the generic channel ids its verbs animate.
+!   * verbs         -- its action verb set; every spelling (form)
+!                      maps to the channel that verb animates and
+!                      to a template name (or none: the verb's
+!                      actions stay unresolved).
+!   * templates     -- template bodies by name, carried as dyn
+!                      data for the resolver's generic template
+!                      interpreter (plugin_template query).
+!   * rig           -- the plugin-owned rig description, carried
+!                      opaquely into the Timeline IR Character
+!                      "rig" payload (plugin_rig returns the
+!                      package's rig sub-tree verbatim).
+!   * rig_channels  -- the published per-channel key vocabulary a
+!                      resolved action track may carry, each with
+!                      its value form ("deg" | "value").
+!   * expression_codes -- expression name -> numeric code map.
 !   * prop schema   -- character prop name -> kind, so character
 !                      prop parsing/validation is data-driven:
 !                      kind is one of
@@ -23,7 +68,7 @@
 !                                     IS the value; several flag
 !                                     entries may share one prop
 !                                     name -- the alternatives of
-!                                     one prop, e.g. proportions)
+!                                     one prop)
 !                        "enum"       one word from an allowed list
 !                        "word"       one word, stored lower-cased
 !                        "free"       one word/name, stored verbatim
@@ -38,37 +83,9 @@
 !                      the prop name; for all other kinds they are
 !                      the same word) and whether it may repeat.
 !   * capabilities  -- named abilities other stages ask about
-!                      instead of hardcoding rules (e.g. "speaks":
-!                      characters of this plugin may speak dialogue,
-!                      ANIM-PLAN SS2.4 E211).
-!
-! Registration is LAZY and IDEMPOTENT: every public query calls
-! ensure_plugins() first, which registers the built-ins exactly
-! once.  That way ALL entry points (build / check / fmt, the typed
-! and dyn pipelines alike) see a populated registry without any
-! stage owning an init call.
-!
-! Wave 3 (slice S1): plugins also publish a RIG-CHANNEL
-! vocabulary -- the per-channel key names a resolved action track
-! may carry in the Timeline IR -- plus, per verb, a TEMPLATE id
-! naming the resolver template that turns the verb into keys
-! (0 = none: the verb stays unresolved).  The resolver itself
-! lives in f3dc_anim_resolve; this module only holds the data.
-!
-! The stickman rig-channel vocabulary (published; see
-! docs/PLUGINS.md):
-!   root.x, root.y, root.z   (value, world units)
-!   root.face                (value_deg, yaw offset)
-!   torso                    (value_deg, in-plane tilt)
-!   head.pitch, head.yaw     (value_deg)
-!   arm.l.upper, arm.l.fore, arm.r.upper, arm.r.fore (value_deg)
-!   leg.l.thigh, leg.l.shin, leg.r.thigh, leg.r.shin (value_deg)
-!   face.expr                (value; 0 neutral, 1 happy, 2 sad,
-!                             3 determined, 4 surprised)
-! Angle convention: 0 = limb hanging straight down; positive
-! rotates the down-vector toward the character's right (+u in
-! the figure plane).  A right-arm raise (wave) is therefore
-! arm.r.upper -> +150 and a left-arm raise arm.l.upper -> -150.
+!                      instead of hardcoding rules (e.g. a plugin
+!                      may declare that its characters may speak
+!                      dialogue, ANIM-PLAN SS2.4 E211).
 !
 ! ease_canonical() also lives here: the single spelling authority
 ! for easing names (Wave-2 must-fix flag 6, ANIM-PLAN SS3.4).  The
@@ -80,13 +97,21 @@ module f3dc_plugins
   use f3dc_str, only: char_list, char_list_append, char_list_len, &
        char_list_at, to_lower, str_builder, sb_init, sb_add, &
        sb_text, sb_len, int_list, int_list_append, int_list_len, &
-       int_list_at
-  use, intrinsic :: iso_fortran_env, only: int64
-  use f3dc_dyn, only: dyn, dyn_dict, dyn_str, dyn_null, dyn_copy, &
-       dyn_assign, dyn_dict_set, DYN_K_NULL
+       int_list_at, fmt_int
+  use, intrinsic :: iso_fortran_env, only: int64, real64
+  use f3dc_dyn, only: dyn, dyn_null, dyn_copy, dyn_assign, &
+       dyn_dict_get, dyn_dict_has, dyn_dict_len, dyn_dict_key_at, &
+       dyn_list_len, dyn_list_at, &
+       DYN_K_NULL, DYN_K_BOOL, DYN_K_INT, DYN_K_REAL, DYN_K_STR, &
+       DYN_K_LIST, DYN_K_DICT
+  use f3dc_ir, only: ir_json_parse
+  use f3dc_driver, only: driver_run_capture, driver_quote, &
+       driver_is_dir, driver_file_exists
   implicit none
   private
 
+  public :: plugin_configure
+  public :: plugin_take_warnings
   public :: plugin_default_id
   public :: plugin_exists
   public :: plugin_capability
@@ -102,32 +127,19 @@ module f3dc_plugins
   public :: plugin_rig_channel_count
   public :: plugin_rig_channel_at
   public :: plugin_rig_channel_form
-  public :: plugin_template_id
+  public :: plugin_template
+  public :: plugin_expression_code
   public :: ease_canonical
 
-  ! Resolver template ids (per-verb, parallel to the verb list;
-  ! TPL_NONE = the verb has no template and stays unresolved).
-  integer, parameter, public :: TPL_NONE = 0
-  integer, parameter, public :: TPL_WALK = 1
-  integer, parameter, public :: TPL_RUN = 2
-  integer, parameter, public :: TPL_ENTER = 3
-  integer, parameter, public :: TPL_WAVE = 4
-  integer, parameter, public :: TPL_SIT = 5
-  integer, parameter, public :: TPL_STAND = 6
-  integer, parameter, public :: TPL_JUMP = 7
-  integer, parameter, public :: TPL_FALL = 8
-  integer, parameter, public :: TPL_LOOK = 9
-  integer, parameter, public :: TPL_FACE = 10
-  integer, parameter, public :: TPL_POINT = 11
-  integer, parameter, public :: TPL_NOD = 12
-  integer, parameter, public :: TPL_SHAKE = 13
-  integer, parameter, public :: TPL_DANCE = 14
-  integer, parameter, public :: TPL_SLEEP = 15
-  integer, parameter, public :: TPL_SMILE = 16
-  integer, parameter, public :: TPL_PICK = 17
-  integer, parameter, public :: TPL_GIVE = 18
-  integer, parameter, public :: TPL_TAP = 19
-  integer, parameter, public :: TPL_EXIT = 20
+  ! COORDINATOR AMENDMENT (Wave 5, slice I2) to docs/PLUGINS.md:
+  ! the language's default character plugin id remains a
+  ! language-level constant -- it is language spec (the id a
+  ! character belongs to when neither the scene nor the registry
+  ! default resolution says otherwise), not plugin data.  This
+  ! named constant is the ONE place core source names it; every
+  ! other plugin datum comes from package files.
+  character(len=*), parameter, public :: DEFAULT_PLUGIN_ID = &
+       "stickman"
 
   integer, parameter :: MAX_PLUGINS = 16
   integer, parameter :: MAX_PROPS = 32
@@ -142,17 +154,26 @@ module f3dc_plugins
   end type prop_rec
 
   type :: plugin_rec
-    character(32) :: id = ""
+    character(64) :: id = ""
+    character(64) :: version = ""
+    character(1024) :: origin = ""  ! package dir it loaded from
     type(dyn) :: rig  ! plugin-owned rig description (Timeline IR
-                      ! Character "rig" payload), a dyn dict; null
-                      ! when the plugin declares none.
+                      ! Character "rig" payload), the package's
+                      ! "rig" sub-tree verbatim; null when the
+                      ! plugin declares none.
+    type(dyn) :: templates  ! the package's "templates" object
+                            ! (template name -> template body dyn),
+                            ! or null when it declares none.
     type(char_list) :: channels
     type(char_list) :: verbs
     type(char_list) :: verb_channels  ! parallel to verbs
-    type(int_list) :: verb_templates  ! parallel to verbs; TPL_*
+    type(char_list) :: verb_templates ! parallel to verbs: template
+                                      ! name, "" = no template
     type(char_list) :: rig_channels   ! published rig channels
     type(char_list) :: rig_ch_forms   ! parallel: "deg" | "value"
     type(char_list) :: caps
+    type(char_list) :: expr_names     ! expression_codes keys
+    type(int_list) :: expr_codes      ! parallel: numeric codes
     type(prop_rec) :: props(MAX_PROPS)
     integer :: nprops = 0
   end type plugin_rec
@@ -161,192 +182,679 @@ module f3dc_plugins
   integer :: n_plugins = 0
   logical :: plugins_ready = .false.
 
+  ! Loader configuration / warning collection (module state).
+  logical :: configured = .false.
+  character(:), allocatable :: configured_root
+  type(char_list) :: load_warnings
+  integer :: warnings_drained = 0
+
 contains
 
   ! ---------------------------------------------------------------
-  ! Registration (built-ins).  Idempotent: a second call is a no-op.
+  ! Loader configuration + warning drain.
+  ! ---------------------------------------------------------------
+
+  !> Record the repo root the loader anchors its default search
+  !! list on.  Called once by the CLI at program entry (with the
+  !! driver_repo_root); idempotent, and a no-op once loading has
+  !! happened.  Loading itself stays lazy (ensure_plugins).
+  subroutine plugin_configure(root)
+    character(*), intent(in) :: root
+    if (configured .or. plugins_ready) return
+    configured = .true.
+    configured_root = root
+  end subroutine plugin_configure
+
+  !> Drain the loader warnings collected so far: MSGS receives
+  !! every warning not returned by an earlier drain (message texts
+  !! only; the CLI wraps them as W205 diagnostics).  Draining
+  !! forces the one-time load, so the CLI can drain at entry,
+  !! before any command output.
+  subroutine plugin_take_warnings(msgs)
+    type(char_list), intent(out) :: msgs
+    integer :: k
+    call ensure_plugins()
+    do k = warnings_drained + 1, char_list_len(load_warnings)
+      call char_list_append(msgs, char_list_at(load_warnings, k))
+    end do
+    warnings_drained = char_list_len(load_warnings)
+  end subroutine plugin_take_warnings
+
+  subroutine add_warning(msg)
+    character(*), intent(in) :: msg
+    call char_list_append(load_warnings, msg)
+  end subroutine add_warning
+
+  ! ---------------------------------------------------------------
+  ! The loader.  Load-once: the first registry query (or warning
+  ! drain) triggers it when configuration happened; with no
+  ! configuration the F3DC_PLUGIN_PATH-or-./plugins fallback list
+  ! applies (docs/PLUGINS.md SS4).
   ! ---------------------------------------------------------------
   subroutine ensure_plugins()
-    integer :: p
+    type(char_list) :: dirs
+    character(:), allocatable :: env
+    integer :: st, ln, i, a
     if (plugins_ready) return
     plugins_ready = .true.
-    ! The stickman plugin: EXACTLY Wave 1's behaviour, as data.
-    ! Channels/verbs/channels-per-verb mirror the old core tables
-    ! (ANIM_KINDS_EXT in f3dc_val_common, tl_channel in
-    ! f3dc_desugar); the prop schema mirrors the old core branches
-    ! of parse_character in f3dc_parser.
-    p = add_plugin("stickman")
-    ! The stickman rig description, as published for the Timeline
-    ! IR (docs/TIMELINE-FORMAT.md, Character "rig"): plugin-owned
-    ! vocabulary, carried opaquely by the core format.
+    call get_environment_variable("F3DC_PLUGIN_PATH", length=ln, &
+                                  status=st)
+    if (st == 0) then
+      ! Set (whatever its value): the value IS the whole list;
+      ! the empty string means an empty list -- load nothing.
+      if (ln > 0) then
+        allocate (character(len=ln) :: env)
+        call get_environment_variable("F3DC_PLUGIN_PATH", env, &
+                                      status=st)
+        a = 1
+        do i = 1, ln + 1
+          if (i > ln .or. env(i:i) == ":") then
+            if (i > a) call char_list_append(dirs, env(a:i - 1))
+            a = i + 1
+          end if
+        end do
+      end if
+    else
+      if (configured) &
+        call char_list_append(dirs, &
+                              trim(configured_root)//"/plugins")
+      call char_list_append(dirs, "./plugins")
+    end if
+    ! Dedupe by canonical key: when the CWD is the repo root,
+    ! "./plugins" IS "<root>/plugins", and enumerating it twice
+    ! would re-load every package and report each as a spurious
+    ! duplicate (W205).  The same applies to repeated entries in
+    ! F3DC_PLUGIN_PATH.  Keys are string-canonical (see canon_key)
+    ! -- deliberately NOT a realpath subprocess per directory:
+    ! the loader runs on every f3dc invocation and must stay
+    ! cheap.
     block
-      type(dyn) :: rig
-      rig = dyn_dict()
-      call dyn_dict_set(rig, "kind", dyn_str("stick"))
-      call dyn_dict_set(rig, "topology", dyn_str("humanoid11"))
-      call dyn_assign(plugins(p)%rig, rig)
+      type(char_list) :: seen
+      character(:), allocatable :: d, key, cwd, out, err
+      integer :: k, rc
+      logical :: dup, timed_out
+      call driver_run_capture("pwd", "", 0, rc, out, err, &
+                              timed_out)
+      if (rc == 0 .and. len_trim(out) > 0) then
+        cwd = trim(out)
+        if (cwd(len(cwd):len(cwd)) == achar(10)) &
+          cwd = cwd(1:len(cwd) - 1)
+      else
+        cwd = ""
+      end if
+      do i = 1, char_list_len(dirs)
+        d = char_list_at(dirs, i)
+        key = canon_key(d, cwd)
+        dup = .false.
+        do k = 1, char_list_len(seen)
+          if (char_list_at(seen, k) == key) dup = .true.
+        end do
+        if (dup) cycle
+        call char_list_append(seen, key)
+        call load_search_dir(d)
+      end do
     end block
-    call char_list_append(plugins(p)%channels, "body")
-    call char_list_append(plugins(p)%channels, "face")
-    call char_list_append(plugins(p)%caps, "speaks")
-    ! Verb set = the Wave-1 ANIM_KINDS_EXT list (canonical "-s"
-    ! forms and their base-form aliases).  smile/face animate the
-    ! "face" channel; everything else animates "body".
-    call reg_verbs(p, "walks", "walk", "body", TPL_WALK)
-    call reg_verbs(p, "runs", "run", "body", TPL_RUN)
-    call reg_verbs(p, "enters", "enter", "body", TPL_ENTER)
-    call reg_verbs(p, "waves", "wave", "body", TPL_WAVE)
-    call reg_verbs(p, "sits", "sit", "body", TPL_SIT)
-    call reg_verbs(p, "stands", "stand", "body", TPL_STAND)
-    call reg_verbs(p, "jumps", "jump", "body", TPL_JUMP)
-    call reg_verbs(p, "falls", "fall", "body", TPL_FALL)
-    call reg_verbs(p, "looks", "look", "body", TPL_LOOK)
-    call reg_verbs(p, "faces", "face", "face", TPL_FACE)
-    call reg_verbs(p, "points", "point", "body", TPL_POINT)
-    call reg_verbs(p, "nods", "nod", "body", TPL_NOD)
-    call reg_verbs(p, "shakes", "shake", "body", TPL_SHAKE)
-    call reg_verbs(p, "dances", "dance", "body", TPL_DANCE)
-    call reg_verbs(p, "sleeps", "sleep", "body", TPL_SLEEP)
-    call reg_verbs(p, "smiles", "smile", "face", TPL_SMILE)
-    call reg_verbs(p, "picks", "pick", "body", TPL_PICK)
-    call reg_verbs(p, "gives", "give", "body", TPL_GIVE)
-    call reg_verbs(p, "taps", "tap", "body", TPL_TAP)
-    call reg_verbs(p, "exits", "exit", "body", TPL_EXIT)
-    ! The published rig-channel vocabulary (see the header).
-    call reg_rig_channel(p, "root.x", "value")
-    call reg_rig_channel(p, "root.y", "value")
-    call reg_rig_channel(p, "root.z", "value")
-    call reg_rig_channel(p, "root.face", "deg")
-    call reg_rig_channel(p, "torso", "deg")
-    call reg_rig_channel(p, "head.pitch", "deg")
-    call reg_rig_channel(p, "head.yaw", "deg")
-    call reg_rig_channel(p, "arm.l.upper", "deg")
-    call reg_rig_channel(p, "arm.l.fore", "deg")
-    call reg_rig_channel(p, "arm.r.upper", "deg")
-    call reg_rig_channel(p, "arm.r.fore", "deg")
-    call reg_rig_channel(p, "leg.l.thigh", "deg")
-    call reg_rig_channel(p, "leg.l.shin", "deg")
-    call reg_rig_channel(p, "leg.r.thigh", "deg")
-    call reg_rig_channel(p, "leg.r.shin", "deg")
-    call reg_rig_channel(p, "face.expr", "value")
-    ! Character prop schema (ANIM-PLAN SS1.2), in declaration
-    ! order.  `proportions` is one prop with three flag surface
-    ! words; `height` is its numeric escape hatch.
-    call add_prop(p, "proportions", "flag", "tall", "", &
-                  .false., .true.)
-    call add_prop(p, "proportions", "flag", "short", "", &
-                  .false., .true.)
-    call add_prop(p, "proportions", "flag", "kid", "", &
-                  .false., .true.)
-    call add_prop(p, "height", "number", "height", "", &
-                  .false., .true.)
-    call add_prop(p, "head", "enum", "head", &
-                  "round,square,oval", .false., .true.)
-    call add_prop(p, "hair", "word", "hair", "", .false., .true.)
-    call add_prop(p, "face", "enum", "face", &
-                  "happy,sad,determined,surprised,neutral", &
-                  .false., .true.)
-    call add_prop(p, "wears", "itemcolour", "wears", "", &
-                  .true., .true.)
-    call add_prop(p, "holds", "free", "holds", "", &
-                  .false., .false.)
-
-    ! The humanoid plugin: a SKELETON registration (Wave 3 S1).
-    ! It proves the registry is plugin-shaped, not stickman-
-    ! shaped: same verb set and channels, "speaks" capability,
-    ! a humanoid rig description -- but NO rig channels and NO
-    ! templates, so its actions stay unresolved in the IR.
-    ! Its character prop schema is proportions/height only.
-    p = add_plugin("humanoid")
-    block
-      type(dyn) :: rig
-      rig = dyn_dict()
-      call dyn_dict_set(rig, "kind", dyn_str("humanoid"))
-      call dyn_dict_set(rig, "topology", dyn_str("humanoid11"))
-      call dyn_assign(plugins(p)%rig, rig)
-    end block
-    call char_list_append(plugins(p)%channels, "body")
-    call char_list_append(plugins(p)%channels, "face")
-    call char_list_append(plugins(p)%caps, "speaks")
-    call reg_verbs(p, "walks", "walk", "body", TPL_NONE)
-    call reg_verbs(p, "runs", "run", "body", TPL_NONE)
-    call reg_verbs(p, "enters", "enter", "body", TPL_NONE)
-    call reg_verbs(p, "waves", "wave", "body", TPL_NONE)
-    call reg_verbs(p, "sits", "sit", "body", TPL_NONE)
-    call reg_verbs(p, "stands", "stand", "body", TPL_NONE)
-    call reg_verbs(p, "jumps", "jump", "body", TPL_NONE)
-    call reg_verbs(p, "falls", "fall", "body", TPL_NONE)
-    call reg_verbs(p, "looks", "look", "body", TPL_NONE)
-    call reg_verbs(p, "faces", "face", "face", TPL_NONE)
-    call reg_verbs(p, "points", "point", "body", TPL_NONE)
-    call reg_verbs(p, "nods", "nod", "body", TPL_NONE)
-    call reg_verbs(p, "shakes", "shake", "body", TPL_NONE)
-    call reg_verbs(p, "dances", "dance", "body", TPL_NONE)
-    call reg_verbs(p, "sleeps", "sleep", "body", TPL_NONE)
-    call reg_verbs(p, "smiles", "smile", "face", TPL_NONE)
-    call reg_verbs(p, "picks", "pick", "body", TPL_NONE)
-    call reg_verbs(p, "gives", "give", "body", TPL_NONE)
-    call reg_verbs(p, "taps", "tap", "body", TPL_NONE)
-    call reg_verbs(p, "exits", "exit", "body", TPL_NONE)
-    call add_prop(p, "proportions", "flag", "tall", "", &
-                  .false., .true.)
-    call add_prop(p, "proportions", "flag", "short", "", &
-                  .false., .true.)
-    call add_prop(p, "proportions", "flag", "kid", "", &
-                  .false., .true.)
-    call add_prop(p, "height", "number", "height", "", &
-                  .false., .true.)
   end subroutine ensure_plugins
 
-  integer function add_plugin(id) result(idx)
-    character(*), intent(in) :: id
-    if (n_plugins >= MAX_PLUGINS) then
-      idx = MAX_PLUGINS
+  !> Canonical key of a search directory for dedupe: absolute
+  !! paths key as themselves (trailing slash stripped); relative
+  !! paths key as <cwd>/<path> with a leading "./" removed.  Two
+  !! spellings of the same directory through "." segments agree;
+  !! ".." segments are not folded (a search list repeating a
+  !! directory via ".." re-enumerates it -- harmless: package
+  !! loads are idempotent and duplicate ids from DIFFERENT
+  !! directories still warn as designed).
+  function canon_key(dir, cwd) result(key)
+    character(*), intent(in) :: dir, cwd
+    character(:), allocatable :: key, d
+    d = dir
+    if (len(d) > 1) then
+      if (d(len(d):len(d)) == "/") d = d(1:len(d) - 1)
+    end if
+    if (len(d) >= 1 .and. d(1:1) == "/") then
+      key = d
+    else
+      if (len(d) >= 2) then
+        if (d(1:2) == "./") d = d(3:)
+      end if
+      if (len(cwd) > 0) then
+        key = cwd//"/"//d
+      else
+        key = d
+      end if
+    end if
+  end function canon_key
+
+  !> Enumerate the package directories of one search directory in
+  !! lexicographic order and load each.  A nonexistent or
+  !! non-directory entry is skipped silently (search-path
+  !! tolerance, like PATH).
+  subroutine load_search_dir(dir)
+    character(*), intent(in) :: dir
+    character(len=256) :: names(4096)
+    character(len=256) :: tmp
+    character(:), allocatable :: out, err, line
+    integer :: rc, n, i, j, pos, start
+    logical :: timed_out
+    n = 0
+    call driver_run_capture("ls -1 "//driver_quote(dir), "", 0, &
+                            rc, out, err, timed_out)
+    if (rc /= 0) return
+    ! Split the listing into lines.
+    start = 1
+    do pos = 1, len(out) + 1
+      if (pos > len(out) .or. out(pos:pos) == achar(10)) then
+        if (pos > start .and. n < 4096) then
+          line = out(start:pos - 1)
+          if (len(line) > 0) then
+            if (line(len(line):len(line)) == achar(13)) &
+              line = line(1:len(line) - 1)
+          end if
+          if (len(line) > 0) then
+            n = n + 1
+            names(n) = line
+          end if
+        end if
+        start = pos + 1
+      end if
+    end do
+    ! Lexicographic order by directory name (insertion sort; the
+    ! listing is usually sorted already, so this is near-free and
+    ! makes the order locale-independent).
+    do i = 2, n
+      tmp = names(i)
+      j = i - 1
+      do while (j >= 1)
+        if (.not. (names(j) > tmp)) exit
+        names(j + 1) = names(j)
+        j = j - 1
+      end do
+      names(j + 1) = tmp
+    end do
+    do i = 1, n
+      if (driver_is_dir(dir//"/"//trim(names(i)))) &
+        call load_package(dir//"/"//trim(names(i)), &
+                          trim(names(i)))
+    end do
+  end subroutine load_search_dir
+
+  !> Read a whole file as text (stream read); OK=.false. when the
+  !! file cannot be opened or read.
+  subroutine read_text_file(path, text, ok)
+    character(*), intent(in) :: path
+    character(:), allocatable, intent(out) :: text
+    logical, intent(out) :: ok
+    integer :: unit, ios, sz
+    logical :: there
+    ok = .false.
+    inquire (file=path, exist=there, size=sz)
+    if (.not. there) then
+      text = ""
       return
     end if
-    n_plugins = n_plugins + 1
-    idx = n_plugins
-    plugins(idx)%id = id
-  end function add_plugin
+    open (newunit=unit, file=path, access="stream", &
+          form="unformatted", status="old", iostat=ios)
+    if (ios /= 0) then
+      text = ""
+      return
+    end if
+    allocate (character(len=max(sz, 0)) :: text)
+    if (sz > 0) read (unit, iostat=ios) text
+    close (unit)
+    ok = (ios == 0)
+  end subroutine read_text_file
 
-  subroutine reg_verbs(p, sform, base, channel, template)
-    integer, intent(in) :: p
-    character(*), intent(in) :: sform, base, channel
-    integer, intent(in) :: template
-    call char_list_append(plugins(p)%verbs, sform)
-    call char_list_append(plugins(p)%verb_channels, channel)
-    call int_list_append(plugins(p)%verb_templates, &
-                         int(template, int64))
-    call char_list_append(plugins(p)%verbs, base)
-    call char_list_append(plugins(p)%verb_channels, channel)
-    call int_list_append(plugins(p)%verb_templates, &
-                         int(template, int64))
-  end subroutine reg_verbs
+  !> Load one package directory into the registry.  Any defect
+  !! skips the WHOLE package with one W205 warning (collected, not
+  !! printed here); this subroutine never stops the process.
+  subroutine load_package(pkgdir, dirname)
+    character(*), intent(in) :: pkgdir, dirname
+    type(dyn) :: root, v, item, sub
+    character(:), allocatable :: text, idstr, tname, reason
+    logical :: ok, bad
+    integer :: p, i, dup
+    bad = .false.
+    reason = ""
+    if (.not. driver_file_exists(pkgdir//"/plugin.json")) then
+      call add_warning("plugin package '"//pkgdir// &
+                       "' skipped: plugin.json is missing")
+      return
+    end if
+    call read_text_file(pkgdir//"/plugin.json", text, ok)
+    if (.not. ok) then
+      call add_warning("plugin package '"//pkgdir// &
+                       "' skipped: plugin.json is unreadable")
+      return
+    end if
+    call ir_json_parse(text, root, ok)
+    if (.not. ok) then
+      call add_warning("plugin package '"//pkgdir// &
+                       "' skipped: plugin.json is not valid JSON")
+      return
+    end if
+    if (root%kind /= DYN_K_DICT) then
+      call add_warning("plugin package '"//pkgdir//"' skipped: "// &
+                       "plugin.json top level is not an object")
+      return
+    end if
+    ! format: exactly 1 loads; another integral value is the
+    ! documented unsupported-format warning; anything else is a
+    ! malformed manifest.
+    v = dyn_dict_get(root, "format")
+    select case (v%kind)
+    case (DYN_K_INT)
+      if (v%i /= 1) then
+        call add_warning("plugin package '"//pkgdir//"' skipped: "// &
+                         "package format "// &
+                         trim(fmt_int(v%i))// &
+                         " is not supported by this compiler")
+        return
+      end if
+    case (DYN_K_REAL)
+      if (v%r == 1.0_real64) then
+        continue
+      else if (v%r == aint(v%r)) then
+        call add_warning("plugin package '"//pkgdir//"' skipped: "// &
+                         "package format "// &
+                         trim(fmt_int(int(v%r, int64)))// &
+                         " is not supported by this compiler")
+        return
+      else
+        bad = .true.
+        reason = "manifest key 'format' is missing or has the "// &
+                 "wrong type"
+      end if
+    case default
+      bad = .true.
+      reason = "manifest key 'format' is missing or has the "// &
+               "wrong type"
+    end select
+    if (bad) then
+      call add_warning("plugin package '"//pkgdir//"' skipped: "// &
+                       reason)
+      return
+    end if
+    ! id: a string equal to the directory name.
+    v = dyn_dict_get(root, "id")
+    if (v%kind /= DYN_K_STR) then
+      call add_warning("plugin package '"//pkgdir//"' skipped: "// &
+                       "manifest key 'id' is missing or has the "// &
+                       "wrong type")
+      return
+    end if
+    idstr = v%s
+    if (idstr /= dirname) then
+      call add_warning("plugin package '"//pkgdir//"' skipped: "// &
+                       "manifest id '"//idstr// &
+                       "' does not match directory name '"// &
+                       dirname//"'")
+      return
+    end if
+    dup = find_plugin(idstr)
+    if (dup > 0) then
+      call add_warning("plugin '"//idstr//"' in '"//pkgdir// &
+                       "' skipped: already loaded from '"// &
+                       trim(plugins(dup)%origin)//"'")
+      return
+    end if
+    if (n_plugins >= MAX_PLUGINS) then
+      call add_warning("plugin package '"//pkgdir//"' skipped: "// &
+                       "registry limit of "// &
+                       trim(fmt_int(int(MAX_PLUGINS, int64)))// &
+                       " plugins reached")
+      return
+    end if
+    ! Build into the next slot; n_plugins only advances on full
+    ! success, so a failed package leaves no partial registration.
+    p = n_plugins + 1
+    plugins(p) = plugin_rec()
+    plugins(p)%id = idstr
+    plugins(p)%origin = pkgdir
+    ! version: opaque metadata, recorded never compared.
+    v = dyn_dict_get(root, "version")
+    if (v%kind == DYN_K_STR) plugins(p)%version = v%s
+    ! rig: carried opaquely, verbatim (object or null).
+    if (dyn_dict_has(root, "rig")) then
+      v = dyn_dict_get(root, "rig")
+      if (v%kind /= DYN_K_DICT .and. v%kind /= DYN_K_NULL) then
+        call malformed(pkgdir, &
+                       "manifest key 'rig' has the wrong type")
+        return
+      end if
+      call dyn_assign(plugins(p)%rig, dyn_copy(v))
+    end if
+    ! templates: object of template bodies, stored verbatim for
+    ! the resolver's interpreter; may be absent (no templates).
+    if (dyn_dict_has(root, "templates")) then
+      v = dyn_dict_get(root, "templates")
+      if (v%kind /= DYN_K_DICT) then
+        call malformed(pkgdir, &
+                       "manifest key 'templates' has the wrong type")
+        return
+      end if
+      call dyn_assign(plugins(p)%templates, dyn_copy(v))
+    end if
+    ! capabilities + channels: string lists.
+    call load_str_list(root, "capabilities", plugins(p)%caps, &
+                       bad, reason)
+    if (bad) then
+      call malformed(pkgdir, reason)
+      return
+    end if
+    call load_str_list(root, "channels", plugins(p)%channels, &
+                       bad, reason)
+    if (bad) then
+      call malformed(pkgdir, reason)
+      return
+    end if
+    ! rig_channels: [{"name","form"}], form in {"deg","value"}.
+    v = dyn_dict_get(root, "rig_channels")
+    if (v%kind /= DYN_K_LIST) then
+      call malformed(pkgdir, "manifest key 'rig_channels' is "// &
+                     "missing or has the wrong type")
+      return
+    end if
+    do i = 1, dyn_list_len(v)
+      item = dyn_list_at(v, i)
+      if (item%kind /= DYN_K_DICT) then
+        call malformed(pkgdir, "rig channel record "// &
+                       trim(fmt_int(int(i, int64)))//" is malformed")
+        return
+      end if
+      sub = dyn_dict_get(item, "name")
+      if (sub%kind /= DYN_K_STR) then
+        call malformed(pkgdir, "rig channel record "// &
+                       trim(fmt_int(int(i, int64)))//" is malformed")
+        return
+      end if
+      tname = sub%s
+      sub = dyn_dict_get(item, "form")
+      if (sub%kind /= DYN_K_STR) then
+        call malformed(pkgdir, "rig channel record "// &
+                       trim(fmt_int(int(i, int64)))//" is malformed")
+        return
+      end if
+      if (sub%s /= "deg" .and. sub%s /= "value") then
+        call malformed(pkgdir, "rig channel record "// &
+                       trim(fmt_int(int(i, int64)))//" is malformed")
+        return
+      end if
+      call char_list_append(plugins(p)%rig_channels, tname)
+      call char_list_append(plugins(p)%rig_ch_forms, sub%s)
+    end do
+    ! expression_codes: {name: number} (optional key).
+    if (dyn_dict_has(root, "expression_codes")) then
+      v = dyn_dict_get(root, "expression_codes")
+      if (v%kind /= DYN_K_DICT) then
+        call malformed(pkgdir, "manifest key 'expression_codes' "// &
+                       "has the wrong type")
+        return
+      end if
+      call load_expr_codes(p, v, bad, reason)
+      if (bad) then
+        call malformed(pkgdir, reason)
+        return
+      end if
+    end if
+    ! props: array of prop records, in declaration order.
+    v = dyn_dict_get(root, "props")
+    if (v%kind /= DYN_K_LIST) then
+      call malformed(pkgdir, "manifest key 'props' is missing "// &
+                     "or has the wrong type")
+      return
+    end if
+    do i = 1, dyn_list_len(v)
+      item = dyn_list_at(v, i)
+      call load_prop(p, item, i, bad, reason)
+      if (bad) then
+        call malformed(pkgdir, reason)
+        return
+      end if
+    end do
+    ! verbs: array of {"forms":[...], "channel", "template"}.
+    v = dyn_dict_get(root, "verbs")
+    if (v%kind /= DYN_K_LIST) then
+      call malformed(pkgdir, "manifest key 'verbs' is missing "// &
+                     "or has the wrong type")
+      return
+    end if
+    do i = 1, dyn_list_len(v)
+      item = dyn_list_at(v, i)
+      call load_verb(p, item, i, bad, reason)
+      if (bad) then
+        call malformed(pkgdir, reason)
+        return
+      end if
+    end do
+    n_plugins = p
+  end subroutine load_package
 
-  !> Publish one rig channel of plugin `p`: NAME plus its value
-  !! form, "deg" (emitted as value_deg) or "value" (value).
-  subroutine reg_rig_channel(p, name, form)
-    integer, intent(in) :: p
-    character(*), intent(in) :: name, form
-    call char_list_append(plugins(p)%rig_channels, name)
-    call char_list_append(plugins(p)%rig_ch_forms, form)
-  end subroutine reg_rig_channel
+  !> Emit the malformed-package W205 for PKGDIR with REASON.
+  subroutine malformed(pkgdir, reason)
+    character(*), intent(in) :: pkgdir, reason
+    call add_warning("plugin package '"//pkgdir//"' skipped: "// &
+                     reason)
+  end subroutine malformed
 
-  subroutine add_prop(p, name, kind, surface, allowed, multi, lower)
-    integer, intent(in) :: p
-    character(*), intent(in) :: name, kind, surface, allowed
-    logical, intent(in) :: multi, lower
+  !> Load a required string-list key into LIST.
+  subroutine load_str_list(root, key, list, bad, reason)
+    type(dyn), intent(in) :: root
+    character(*), intent(in) :: key
+    type(char_list), intent(inout) :: list
+    logical, intent(out) :: bad
+    character(:), allocatable, intent(out) :: reason
+    type(dyn) :: v, item
     integer :: i
-    if (plugins(p)%nprops >= MAX_PROPS) return
-    i = plugins(p)%nprops + 1
-    plugins(p)%nprops = i
-    plugins(p)%props(i)%name = name
-    plugins(p)%props(i)%kind = kind
-    plugins(p)%props(i)%surface = surface
-    plugins(p)%props(i)%allowed = allowed
-    plugins(p)%props(i)%multi = multi
-    plugins(p)%props(i)%lower = lower
-  end subroutine add_prop
+    bad = .false.
+    reason = ""
+    v = dyn_dict_get(root, key)
+    if (v%kind /= DYN_K_LIST) then
+      bad = .true.
+      reason = "manifest key '"//key//"' is missing or has the "// &
+               "wrong type"
+      return
+    end if
+    do i = 1, dyn_list_len(v)
+      item = dyn_list_at(v, i)
+      if (item%kind /= DYN_K_STR) then
+        bad = .true.
+        reason = "manifest key '"//key//"' is missing or has "// &
+                 "the wrong type"
+        return
+      end if
+      call char_list_append(list, item%s)
+    end do
+  end subroutine load_str_list
+
+  !> Load the expression_codes object of slot P.
+  subroutine load_expr_codes(p, v, bad, reason)
+    integer, intent(in) :: p
+    type(dyn), intent(in) :: v
+    logical, intent(out) :: bad
+    character(:), allocatable, intent(out) :: reason
+    type(dyn) :: val
+    character(:), allocatable :: key
+    integer :: i
+    bad = .false.
+    reason = ""
+    do i = 1, dyn_dict_len(v)
+      key = dyn_dict_key_at(v, i)
+      val = dyn_copy(dyn_dict_get(v, key))
+      select case (val%kind)
+      case (DYN_K_INT)
+        call char_list_append(plugins(p)%expr_names, key)
+        call int_list_append(plugins(p)%expr_codes, val%i)
+      case (DYN_K_REAL)
+        call char_list_append(plugins(p)%expr_names, key)
+        call int_list_append(plugins(p)%expr_codes, &
+                             int(nint(val%r), int64))
+      case default
+        bad = .true.
+        reason = "expression_codes entry '"//key// &
+                 "' is not a number"
+        return
+      end select
+    end do
+  end subroutine load_expr_codes
+
+  !> Load one prop record (ITEM, the IDX-th of the props array)
+  !! into slot P.
+  subroutine load_prop(p, item, idx, bad, reason)
+    integer, intent(in) :: p, idx
+    type(dyn), intent(in) :: item
+    logical, intent(out) :: bad
+    character(:), allocatable, intent(out) :: reason
+    type(dyn) :: f, al, el
+    character(:), allocatable :: allowed_csv
+    integer :: i, slot
+    bad = .false.
+    reason = ""
+    if (item%kind /= DYN_K_DICT) then
+      bad = .true.
+      reason = "prop record "//trim(fmt_int(int(idx, int64)))// &
+               " is malformed"
+      return
+    end if
+    if (plugins(p)%nprops >= MAX_PROPS) then
+      bad = .true.
+      reason = "prop schema exceeds the registry limit of "// &
+               trim(fmt_int(int(MAX_PROPS, int64)))//" records"
+      return
+    end if
+    slot = plugins(p)%nprops + 1
+    f = dyn_dict_get(item, "name")
+    if (f%kind /= DYN_K_STR) then
+      bad = .true.
+      reason = "prop record "//trim(fmt_int(int(idx, int64)))// &
+               " is malformed"
+      return
+    end if
+    plugins(p)%props(slot)%name = f%s
+    f = dyn_dict_get(item, "kind")
+    if (f%kind /= DYN_K_STR) then
+      bad = .true.
+      reason = "prop record "//trim(fmt_int(int(idx, int64)))// &
+               " is malformed"
+      return
+    end if
+    select case (f%s)
+    case ("flag", "enum", "word", "free", "number", "colour", &
+          "itemcolour")
+      plugins(p)%props(slot)%kind = f%s
+    case default
+      bad = .true.
+      reason = "prop record "//trim(fmt_int(int(idx, int64)))// &
+               " is malformed"
+      return
+    end select
+    f = dyn_dict_get(item, "surface")
+    if (f%kind /= DYN_K_STR) then
+      bad = .true.
+      reason = "prop record "//trim(fmt_int(int(idx, int64)))// &
+               " is malformed"
+      return
+    end if
+    plugins(p)%props(slot)%surface = f%s
+    ! allowed: array of strings -> comma-joined ("" when absent).
+    allowed_csv = ""
+    if (dyn_dict_has(item, "allowed")) then
+      al = dyn_dict_get(item, "allowed")
+      if (al%kind /= DYN_K_LIST) then
+        bad = .true.
+        reason = "prop record "//trim(fmt_int(int(idx, int64)))// &
+                 " is malformed"
+        return
+      end if
+      do i = 1, dyn_list_len(al)
+        el = dyn_list_at(al, i)
+        if (el%kind /= DYN_K_STR) then
+          bad = .true.
+          reason = "prop record "//trim(fmt_int(int(idx, int64)))// &
+                   " is malformed"
+          return
+        end if
+        if (i > 1) allowed_csv = allowed_csv//","
+        allowed_csv = allowed_csv//el%s
+      end do
+    end if
+    plugins(p)%props(slot)%allowed = allowed_csv
+    f = dyn_dict_get(item, "multi")
+    if (f%kind == DYN_K_BOOL) plugins(p)%props(slot)%multi = f%b
+    f = dyn_dict_get(item, "lower")
+    if (f%kind == DYN_K_BOOL) plugins(p)%props(slot)%lower = f%b
+    plugins(p)%nprops = slot
+  end subroutine load_prop
+
+  !> Load one verb record (ITEM, the IDX-th of the verbs array)
+  !! into slot P: every form spelling becomes one registry entry.
+  subroutine load_verb(p, item, idx, bad, reason)
+    integer, intent(in) :: p, idx
+    type(dyn), intent(in) :: item
+    logical, intent(out) :: bad
+    character(:), allocatable, intent(out) :: reason
+    type(dyn) :: forms, f, el
+    character(:), allocatable :: channel, tname
+    integer :: i
+    bad = .false.
+    reason = ""
+    if (item%kind /= DYN_K_DICT) then
+      bad = .true.
+      reason = "verb record "//trim(fmt_int(int(idx, int64)))// &
+               " is malformed"
+      return
+    end if
+    forms = dyn_dict_get(item, "forms")
+    if (forms%kind /= DYN_K_LIST .or. dyn_list_len(forms) == 0) &
+      then
+      bad = .true.
+      reason = "verb record "//trim(fmt_int(int(idx, int64)))// &
+               " is malformed"
+      return
+    end if
+    f = dyn_dict_get(item, "channel")
+    if (f%kind /= DYN_K_STR) then
+      bad = .true.
+      reason = "verb record "//trim(fmt_int(int(idx, int64)))// &
+               " is malformed"
+      return
+    end if
+    channel = f%s
+    tname = ""
+    if (dyn_dict_has(item, "template")) then
+      f = dyn_dict_get(item, "template")
+      select case (f%kind)
+      case (DYN_K_NULL)
+        tname = ""
+      case (DYN_K_STR)
+        tname = f%s
+        if (plugins(p)%templates%kind /= DYN_K_DICT .or. &
+            .not. dyn_dict_has(plugins(p)%templates, tname)) then
+          bad = .true.
+          reason = "verb record "// &
+                   trim(fmt_int(int(idx, int64)))// &
+                   " names unknown template '"//tname//"'"
+          return
+        end if
+      case default
+        bad = .true.
+        reason = "verb record "//trim(fmt_int(int(idx, int64)))// &
+                 " is malformed"
+        return
+      end select
+    end if
+    do i = 1, dyn_list_len(forms)
+      el = dyn_list_at(forms, i)
+      if (el%kind /= DYN_K_STR) then
+        bad = .true.
+        reason = "verb record "//trim(fmt_int(int(idx, int64)))// &
+                 " is malformed"
+        return
+      end if
+      call char_list_append(plugins(p)%verbs, el%s)
+      call char_list_append(plugins(p)%verb_channels, channel)
+      call char_list_append(plugins(p)%verb_templates, tname)
+    end do
+  end subroutine load_verb
 
   integer function find_plugin(id) result(idx)
     character(*), intent(in) :: id
@@ -378,14 +886,21 @@ contains
   ! ---------------------------------------------------------------
 
   !> The plugin a character belongs to when its declaration names
-  !! none: the first registered plugin.
+  !! none.  Resolution: the language default plugin (see
+  !! DEFAULT_PLUGIN_ID) when it is loaded; otherwise the first
+  !! loaded plugin (first-loaded-wins, the registry default);
+  !! with an empty registry the language default id is still
+  !! returned, so the character carries the id it is missing and
+  !! the validator can name it (E214, docs/PLUGINS.md SS5).
   function plugin_default_id() result(id)
     character(:), allocatable :: id
     call ensure_plugins()
-    if (n_plugins > 0) then
+    if (find_plugin(DEFAULT_PLUGIN_ID) > 0) then
+      id = DEFAULT_PLUGIN_ID
+    else if (n_plugins > 0) then
       id = trim(plugins(1)%id)
     else
-      id = ""
+      id = DEFAULT_PLUGIN_ID
     end if
   end function plugin_default_id
 
@@ -395,7 +910,7 @@ contains
     plugin_exists = find_plugin(id) > 0
   end function plugin_exists
 
-  !> Does plugin `id` declare capability `cap` (e.g. "speaks")?
+  !> Does plugin `id` declare capability `cap`?
   logical function plugin_capability(id, cap)
     character(*), intent(in) :: id, cap
     integer :: p
@@ -406,8 +921,8 @@ contains
     plugin_capability = list_has(plugins(p)%caps, cap)
   end function plugin_capability
 
-  !> Is `verb` in ANY registered plugin's action verb set?  (The
-  !! union query that replaces the core ANIM_KINDS_EXT table.)
+  !> Is `verb` in ANY loaded plugin's action verb set?  (The union
+  !! query that replaces the core ANIM_KINDS_EXT table.)
   logical function plugin_is_verb(verb)
     character(*), intent(in) :: verb
     integer :: p
@@ -443,8 +958,7 @@ contains
   end subroutine plugin_verb_channel
 
   !> How many rig channels plugin `id` publishes (0 when the
-  !! plugin is unknown or publishes none, e.g. the humanoid
-  !! skeleton).
+  !! plugin is unknown or publishes none).
   integer function plugin_rig_channel_count(id)
     character(*), intent(in) :: id
     integer :: p
@@ -500,28 +1014,67 @@ contains
     end do
   end subroutine plugin_rig_channel_form
 
-  !> The resolver template id (TPL_*) for `verb` under plugin
-  !! `id`; TPL_NONE when the verb is unknown to the plugin or
-  !! has no template (its actions stay unresolved).
-  integer function plugin_template_id(id, verb)
+  !> The template body for `verb` under plugin `id`: the dyn
+  !! sub-tree the package's "templates" object holds under the
+  !! template name the verb record declares, copied verbatim.
+  !! found=.false. (and TEMPLATE a null dyn) when the plugin is
+  !! unknown, the verb is unknown to it, or the verb declares no
+  !! template (its actions stay unresolved).  This replaces the
+  !! old integer template-id query: template ids were never
+  !! emitted and are now package data, not core constants.
+  subroutine plugin_template(id, verb, template, found)
     character(*), intent(in) :: id, verb
+    type(dyn), intent(out) :: template
+    logical, intent(out) :: found
     integer :: p, k
+    character(:), allocatable :: tname
     call ensure_plugins()
-    plugin_template_id = TPL_NONE
+    template = dyn_null()
+    found = .false.
     p = find_plugin(id)
     if (p == 0) return
     do k = 1, char_list_len(plugins(p)%verbs)
       if (char_list_at(plugins(p)%verbs, k) == verb) then
-        plugin_template_id = &
-          int(int_list_at(plugins(p)%verb_templates, k))
+        tname = char_list_at(plugins(p)%verb_templates, k)
+        if (len(tname) == 0) return
+        if (plugins(p)%templates%kind /= DYN_K_DICT) return
+        if (.not. dyn_dict_has(plugins(p)%templates, tname)) &
+          return
+        call dyn_assign(template, &
+                        dyn_copy(dyn_dict_get( &
+                                 plugins(p)%templates, tname)))
+        found = .true.
         return
       end if
     end do
-  end function plugin_template_id
+  end subroutine plugin_template
+
+  !> The numeric code plugin `id` assigns to expression `name`
+  !! (its package "expression_codes" map); found=.false. when the
+  !! plugin declares no such expression (or none at all).
+  subroutine plugin_expression_code(id, name, code, found)
+    character(*), intent(in) :: id, name
+    integer, intent(out) :: code
+    logical, intent(out) :: found
+    integer :: p, k
+    call ensure_plugins()
+    code = 0
+    found = .false.
+    p = find_plugin(id)
+    if (p == 0) return
+    do k = 1, char_list_len(plugins(p)%expr_names)
+      if (char_list_at(plugins(p)%expr_names, k) == name) then
+        code = int(int_list_at(plugins(p)%expr_codes, k))
+        found = .true.
+        return
+      end if
+    end do
+  end subroutine plugin_expression_code
 
   !> The plugin-owned rig description declared by plugin `id`
-  !! (Timeline IR Character "rig"); found=.false. when the plugin
-  !! is unknown or declares no rig.
+  !! (Timeline IR Character "rig"): the package's "rig" sub-tree,
+  !! returned verbatim; found=.false. when the plugin is unknown
+  !! or declares no rig.
   subroutine plugin_rig(id, rig, found)
     character(*), intent(in) :: id
     type(dyn), intent(out) :: rig
@@ -537,7 +1090,7 @@ contains
     found = .true.
   end subroutine plugin_rig
 
-  !> The channel of the plugin that owns `verb` (first registered
+  !> The channel of the plugin that owns `verb` (first loaded
   !! owner wins); "" when no plugin owns it.
   function plugin_channel_for_verb(verb) result(channel)
     character(*), intent(in) :: verb

@@ -44,7 +44,7 @@ module f3dc_emit_timeline
   use f3dc_emit_common, only: fmt_num_real, sha256_file_hex, &
        named_color
   use f3dc_plugins, only: plugin_rig, plugin_verb_channel, &
-       ease_canonical
+       plugin_default_id, plugin_expression_code, ease_canonical
   use f3dc_anim_resolve, only: anim_resolve
   implicit none
   private
@@ -563,25 +563,6 @@ contains
     end do
   end function scene_character_plugin
 
-  !> The face.expr code of an expression name (plugin
-  !! vocabulary: 0 neutral, 1 happy, 2 sad, 3 determined,
-  !! 4 surprised); 0 for anything else.
-  real(real64) function expr_code_of(name) result(code)
-    character(*), intent(in) :: name
-    select case (name)
-    case ("happy")
-      code = 1.0_real64
-    case ("sad")
-      code = 2.0_real64
-    case ("determined")
-      code = 3.0_real64
-    case ("surprised")
-      code = 4.0_real64
-    case default
-      code = 0.0_real64
-    end select
-  end function expr_code_of
-
   !> A character's declaration facts in FRAG: DECL = its `at`
   !! position, EXPR0 = the face.expr code of its declared
   !! starting `face`.  Defaults (origin / neutral) when the
@@ -592,8 +573,10 @@ contains
     real(real64), intent(out) :: decl(3), expr0
     type(dyn) :: v, centry, cprops, at
     integer :: j, m
-    logical :: has
+    logical :: has, found
     real(real64) :: x
+    integer :: icode
+    character(:), allocatable :: pid
     decl = 0.0_real64
     expr0 = 0.0_real64
     v = dget(frag, "characters")
@@ -609,7 +592,16 @@ contains
           if (has) decl(m) = x
         end do
       end if
-      expr0 = expr_code_of(dstr(cprops, "face", ""))
+      ! The starting face.expr code is plugin vocabulary: ask
+      ! the character's plugin (docs/PLUGINS.md SS1.2).  A
+      ! plugin with no expression vocabulary, or an unknown
+      ! expression name, leaves the neutral 0 -- exactly what
+      ! the deleted hard-coded map produced.
+      pid = dstr(centry, "plugin", "")
+      if (len(pid) == 0) pid = plugin_default_id()
+      call plugin_expression_code(pid, &
+           dstr(cprops, "face", ""), icode, found)
+      if (found) expr0 = real(icode, real64)
       return
     end do
   end subroutine char_decl

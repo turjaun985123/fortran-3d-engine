@@ -156,7 +156,7 @@ module f3dc_val_common
   ! Action sets register with the PLUGIN REGISTRY (f3dc_plugins);
   ! core keeps only the resolution mechanism -- anim_kind_ext()
   ! below, the union query over every registered plugin's verbs
-  ! (the stickman plugin registers exactly the Wave-1 list).
+  ! (the default character plugin registers exactly the Wave-1 list).
   character(16), parameter :: LIGHT_KINDS_V1(4) = [character(16) :: &
        "directional", "ambient", "point", "spot"]
   character(16), parameter :: CONTROLS_KINDS(2) = [character(16) :: &
