@@ -48,6 +48,28 @@
 ! and dyn pipelines alike) see a populated registry without any
 ! stage owning an init call.
 !
+! Wave 3 (slice S1): plugins also publish a RIG-CHANNEL
+! vocabulary -- the per-channel key names a resolved action track
+! may carry in the Timeline IR -- plus, per verb, a TEMPLATE id
+! naming the resolver template that turns the verb into keys
+! (0 = none: the verb stays unresolved).  The resolver itself
+! lives in f3dc_anim_resolve; this module only holds the data.
+!
+! The stickman rig-channel vocabulary (published; see
+! docs/PLUGINS.md):
+!   root.x, root.y, root.z   (value, world units)
+!   root.face                (value_deg, yaw offset)
+!   torso                    (value_deg, in-plane tilt)
+!   head.pitch, head.yaw     (value_deg)
+!   arm.l.upper, arm.l.fore, arm.r.upper, arm.r.fore (value_deg)
+!   leg.l.thigh, leg.l.shin, leg.r.thigh, leg.r.shin (value_deg)
+!   face.expr                (value; 0 neutral, 1 happy, 2 sad,
+!                             3 determined, 4 surprised)
+! Angle convention: 0 = limb hanging straight down; positive
+! rotates the down-vector toward the character's right (+u in
+! the figure plane).  A right-arm raise (wave) is therefore
+! arm.r.upper -> +150 and a left-arm raise arm.l.upper -> -150.
+!
 ! ease_canonical() also lives here: the single spelling authority
 ! for easing names (Wave-2 must-fix flag 6, ANIM-PLAN SS3.4).  The
 ! canonical set is: linear, smooth, in, out, cubic-in, cubic-out,
@@ -57,7 +79,9 @@
 module f3dc_plugins
   use f3dc_str, only: char_list, char_list_append, char_list_len, &
        char_list_at, to_lower, str_builder, sb_init, sb_add, &
-       sb_text, sb_len
+       sb_text, sb_len, int_list, int_list_append, int_list_len, &
+       int_list_at
+  use, intrinsic :: iso_fortran_env, only: int64
   use f3dc_dyn, only: dyn, dyn_dict, dyn_str, dyn_null, dyn_copy, &
        dyn_assign, dyn_dict_set, DYN_K_NULL
   implicit none
@@ -75,7 +99,35 @@ module f3dc_plugins
   public :: plugin_prop_value_ok
   public :: plugin_prop_allowed_csv
   public :: plugin_prop_names_csv
+  public :: plugin_rig_channel_count
+  public :: plugin_rig_channel_at
+  public :: plugin_rig_channel_form
+  public :: plugin_template_id
   public :: ease_canonical
+
+  ! Resolver template ids (per-verb, parallel to the verb list;
+  ! TPL_NONE = the verb has no template and stays unresolved).
+  integer, parameter, public :: TPL_NONE = 0
+  integer, parameter, public :: TPL_WALK = 1
+  integer, parameter, public :: TPL_RUN = 2
+  integer, parameter, public :: TPL_ENTER = 3
+  integer, parameter, public :: TPL_WAVE = 4
+  integer, parameter, public :: TPL_SIT = 5
+  integer, parameter, public :: TPL_STAND = 6
+  integer, parameter, public :: TPL_JUMP = 7
+  integer, parameter, public :: TPL_FALL = 8
+  integer, parameter, public :: TPL_LOOK = 9
+  integer, parameter, public :: TPL_FACE = 10
+  integer, parameter, public :: TPL_POINT = 11
+  integer, parameter, public :: TPL_NOD = 12
+  integer, parameter, public :: TPL_SHAKE = 13
+  integer, parameter, public :: TPL_DANCE = 14
+  integer, parameter, public :: TPL_SLEEP = 15
+  integer, parameter, public :: TPL_SMILE = 16
+  integer, parameter, public :: TPL_PICK = 17
+  integer, parameter, public :: TPL_GIVE = 18
+  integer, parameter, public :: TPL_TAP = 19
+  integer, parameter, public :: TPL_EXIT = 20
 
   integer, parameter :: MAX_PLUGINS = 16
   integer, parameter :: MAX_PROPS = 32
@@ -97,6 +149,9 @@ module f3dc_plugins
     type(char_list) :: channels
     type(char_list) :: verbs
     type(char_list) :: verb_channels  ! parallel to verbs
+    type(int_list) :: verb_templates  ! parallel to verbs; TPL_*
+    type(char_list) :: rig_channels   ! published rig channels
+    type(char_list) :: rig_ch_forms   ! parallel: "deg" | "value"
     type(char_list) :: caps
     type(prop_rec) :: props(MAX_PROPS)
     integer :: nprops = 0
@@ -137,26 +192,43 @@ contains
     ! Verb set = the Wave-1 ANIM_KINDS_EXT list (canonical "-s"
     ! forms and their base-form aliases).  smile/face animate the
     ! "face" channel; everything else animates "body".
-    call reg_verbs(p, "walks", "walk", "body")
-    call reg_verbs(p, "runs", "run", "body")
-    call reg_verbs(p, "enters", "enter", "body")
-    call reg_verbs(p, "waves", "wave", "body")
-    call reg_verbs(p, "sits", "sit", "body")
-    call reg_verbs(p, "stands", "stand", "body")
-    call reg_verbs(p, "jumps", "jump", "body")
-    call reg_verbs(p, "falls", "fall", "body")
-    call reg_verbs(p, "looks", "look", "body")
-    call reg_verbs(p, "faces", "face", "face")
-    call reg_verbs(p, "points", "point", "body")
-    call reg_verbs(p, "nods", "nod", "body")
-    call reg_verbs(p, "shakes", "shake", "body")
-    call reg_verbs(p, "dances", "dance", "body")
-    call reg_verbs(p, "sleeps", "sleep", "body")
-    call reg_verbs(p, "smiles", "smile", "face")
-    call reg_verbs(p, "picks", "pick", "body")
-    call reg_verbs(p, "gives", "give", "body")
-    call reg_verbs(p, "taps", "tap", "body")
-    call reg_verbs(p, "exits", "exit", "body")
+    call reg_verbs(p, "walks", "walk", "body", TPL_WALK)
+    call reg_verbs(p, "runs", "run", "body", TPL_RUN)
+    call reg_verbs(p, "enters", "enter", "body", TPL_ENTER)
+    call reg_verbs(p, "waves", "wave", "body", TPL_WAVE)
+    call reg_verbs(p, "sits", "sit", "body", TPL_SIT)
+    call reg_verbs(p, "stands", "stand", "body", TPL_STAND)
+    call reg_verbs(p, "jumps", "jump", "body", TPL_JUMP)
+    call reg_verbs(p, "falls", "fall", "body", TPL_FALL)
+    call reg_verbs(p, "looks", "look", "body", TPL_LOOK)
+    call reg_verbs(p, "faces", "face", "face", TPL_FACE)
+    call reg_verbs(p, "points", "point", "body", TPL_POINT)
+    call reg_verbs(p, "nods", "nod", "body", TPL_NOD)
+    call reg_verbs(p, "shakes", "shake", "body", TPL_SHAKE)
+    call reg_verbs(p, "dances", "dance", "body", TPL_DANCE)
+    call reg_verbs(p, "sleeps", "sleep", "body", TPL_SLEEP)
+    call reg_verbs(p, "smiles", "smile", "face", TPL_SMILE)
+    call reg_verbs(p, "picks", "pick", "body", TPL_PICK)
+    call reg_verbs(p, "gives", "give", "body", TPL_GIVE)
+    call reg_verbs(p, "taps", "tap", "body", TPL_TAP)
+    call reg_verbs(p, "exits", "exit", "body", TPL_EXIT)
+    ! The published rig-channel vocabulary (see the header).
+    call reg_rig_channel(p, "root.x", "value")
+    call reg_rig_channel(p, "root.y", "value")
+    call reg_rig_channel(p, "root.z", "value")
+    call reg_rig_channel(p, "root.face", "deg")
+    call reg_rig_channel(p, "torso", "deg")
+    call reg_rig_channel(p, "head.pitch", "deg")
+    call reg_rig_channel(p, "head.yaw", "deg")
+    call reg_rig_channel(p, "arm.l.upper", "deg")
+    call reg_rig_channel(p, "arm.l.fore", "deg")
+    call reg_rig_channel(p, "arm.r.upper", "deg")
+    call reg_rig_channel(p, "arm.r.fore", "deg")
+    call reg_rig_channel(p, "leg.l.thigh", "deg")
+    call reg_rig_channel(p, "leg.l.shin", "deg")
+    call reg_rig_channel(p, "leg.r.thigh", "deg")
+    call reg_rig_channel(p, "leg.r.shin", "deg")
+    call reg_rig_channel(p, "face.expr", "value")
     ! Character prop schema (ANIM-PLAN SS1.2), in declaration
     ! order.  `proportions` is one prop with three flag surface
     ! words; `height` is its numeric escape hatch.
@@ -178,6 +250,52 @@ contains
                   .true., .true.)
     call add_prop(p, "holds", "free", "holds", "", &
                   .false., .false.)
+
+    ! The humanoid plugin: a SKELETON registration (Wave 3 S1).
+    ! It proves the registry is plugin-shaped, not stickman-
+    ! shaped: same verb set and channels, "speaks" capability,
+    ! a humanoid rig description -- but NO rig channels and NO
+    ! templates, so its actions stay unresolved in the IR.
+    ! Its character prop schema is proportions/height only.
+    p = add_plugin("humanoid")
+    block
+      type(dyn) :: rig
+      rig = dyn_dict()
+      call dyn_dict_set(rig, "kind", dyn_str("humanoid"))
+      call dyn_dict_set(rig, "topology", dyn_str("humanoid11"))
+      call dyn_assign(plugins(p)%rig, rig)
+    end block
+    call char_list_append(plugins(p)%channels, "body")
+    call char_list_append(plugins(p)%channels, "face")
+    call char_list_append(plugins(p)%caps, "speaks")
+    call reg_verbs(p, "walks", "walk", "body", TPL_NONE)
+    call reg_verbs(p, "runs", "run", "body", TPL_NONE)
+    call reg_verbs(p, "enters", "enter", "body", TPL_NONE)
+    call reg_verbs(p, "waves", "wave", "body", TPL_NONE)
+    call reg_verbs(p, "sits", "sit", "body", TPL_NONE)
+    call reg_verbs(p, "stands", "stand", "body", TPL_NONE)
+    call reg_verbs(p, "jumps", "jump", "body", TPL_NONE)
+    call reg_verbs(p, "falls", "fall", "body", TPL_NONE)
+    call reg_verbs(p, "looks", "look", "body", TPL_NONE)
+    call reg_verbs(p, "faces", "face", "face", TPL_NONE)
+    call reg_verbs(p, "points", "point", "body", TPL_NONE)
+    call reg_verbs(p, "nods", "nod", "body", TPL_NONE)
+    call reg_verbs(p, "shakes", "shake", "body", TPL_NONE)
+    call reg_verbs(p, "dances", "dance", "body", TPL_NONE)
+    call reg_verbs(p, "sleeps", "sleep", "body", TPL_NONE)
+    call reg_verbs(p, "smiles", "smile", "face", TPL_NONE)
+    call reg_verbs(p, "picks", "pick", "body", TPL_NONE)
+    call reg_verbs(p, "gives", "give", "body", TPL_NONE)
+    call reg_verbs(p, "taps", "tap", "body", TPL_NONE)
+    call reg_verbs(p, "exits", "exit", "body", TPL_NONE)
+    call add_prop(p, "proportions", "flag", "tall", "", &
+                  .false., .true.)
+    call add_prop(p, "proportions", "flag", "short", "", &
+                  .false., .true.)
+    call add_prop(p, "proportions", "flag", "kid", "", &
+                  .false., .true.)
+    call add_prop(p, "height", "number", "height", "", &
+                  .false., .true.)
   end subroutine ensure_plugins
 
   integer function add_plugin(id) result(idx)
@@ -191,14 +309,28 @@ contains
     plugins(idx)%id = id
   end function add_plugin
 
-  subroutine reg_verbs(p, sform, base, channel)
+  subroutine reg_verbs(p, sform, base, channel, template)
     integer, intent(in) :: p
     character(*), intent(in) :: sform, base, channel
+    integer, intent(in) :: template
     call char_list_append(plugins(p)%verbs, sform)
     call char_list_append(plugins(p)%verb_channels, channel)
+    call int_list_append(plugins(p)%verb_templates, &
+                         int(template, int64))
     call char_list_append(plugins(p)%verbs, base)
     call char_list_append(plugins(p)%verb_channels, channel)
+    call int_list_append(plugins(p)%verb_templates, &
+                         int(template, int64))
   end subroutine reg_verbs
+
+  !> Publish one rig channel of plugin `p`: NAME plus its value
+  !! form, "deg" (emitted as value_deg) or "value" (value).
+  subroutine reg_rig_channel(p, name, form)
+    integer, intent(in) :: p
+    character(*), intent(in) :: name, form
+    call char_list_append(plugins(p)%rig_channels, name)
+    call char_list_append(plugins(p)%rig_ch_forms, form)
+  end subroutine reg_rig_channel
 
   subroutine add_prop(p, name, kind, surface, allowed, multi, lower)
     integer, intent(in) :: p
@@ -309,6 +441,83 @@ contains
       end if
     end do
   end subroutine plugin_verb_channel
+
+  !> How many rig channels plugin `id` publishes (0 when the
+  !! plugin is unknown or publishes none, e.g. the humanoid
+  !! skeleton).
+  integer function plugin_rig_channel_count(id)
+    character(*), intent(in) :: id
+    integer :: p
+    call ensure_plugins()
+    plugin_rig_channel_count = 0
+    p = find_plugin(id)
+    if (p == 0) return
+    plugin_rig_channel_count = &
+      char_list_len(plugins(p)%rig_channels)
+  end function plugin_rig_channel_count
+
+  !> The IDX-th (1-based) published rig channel of plugin `id`:
+  !! NAME and its value FORM ("deg" | "value"); found=.false.
+  !! when out of range / unknown plugin.
+  subroutine plugin_rig_channel_at(id, idx, name, form, found)
+    character(*), intent(in) :: id
+    integer, intent(in) :: idx
+    character(:), allocatable, intent(out) :: name, form
+    logical, intent(out) :: found
+    integer :: p
+    call ensure_plugins()
+    name = ""
+    form = ""
+    found = .false.
+    p = find_plugin(id)
+    if (p == 0) return
+    if (idx < 1 .or. &
+        idx > char_list_len(plugins(p)%rig_channels)) return
+    name = char_list_at(plugins(p)%rig_channels, idx)
+    form = char_list_at(plugins(p)%rig_ch_forms, idx)
+    found = .true.
+  end subroutine plugin_rig_channel_at
+
+  !> The value form of one published rig channel of plugin
+  !! `id`; found=.false. when the plugin does not publish it.
+  subroutine plugin_rig_channel_form(id, channel, form, found)
+    character(*), intent(in) :: id, channel
+    character(:), allocatable, intent(out) :: form
+    logical, intent(out) :: found
+    integer :: p, k
+    call ensure_plugins()
+    form = ""
+    found = .false.
+    p = find_plugin(id)
+    if (p == 0) return
+    do k = 1, char_list_len(plugins(p)%rig_channels)
+      if (char_list_at(plugins(p)%rig_channels, k) == channel) &
+        then
+        form = char_list_at(plugins(p)%rig_ch_forms, k)
+        found = .true.
+        return
+      end if
+    end do
+  end subroutine plugin_rig_channel_form
+
+  !> The resolver template id (TPL_*) for `verb` under plugin
+  !! `id`; TPL_NONE when the verb is unknown to the plugin or
+  !! has no template (its actions stay unresolved).
+  integer function plugin_template_id(id, verb)
+    character(*), intent(in) :: id, verb
+    integer :: p, k
+    call ensure_plugins()
+    plugin_template_id = TPL_NONE
+    p = find_plugin(id)
+    if (p == 0) return
+    do k = 1, char_list_len(plugins(p)%verbs)
+      if (char_list_at(plugins(p)%verbs, k) == verb) then
+        plugin_template_id = &
+          int(int_list_at(plugins(p)%verb_templates, k))
+        return
+      end if
+    end do
+  end function plugin_template_id
 
   !> The plugin-owned rig description declared by plugin `id`
   !! (Timeline IR Character "rig"); found=.false. when the plugin

@@ -17,9 +17,11 @@
 !
 ! Canonical time is integer frames: frame = round(seconds *
 ! fps_num / fps_den), fps gcd-reduced.  Sentence-verb action cues
-! are emitted with "resolved": false and NO keys -- resolving
-! them to joint keys is Wave 3 plugin work (ANIM-PLAN SS3.4);
-! hosts must report such spans as unmapped, never approximate.
+! are resolved to joint keys by the Wave-3 action resolver
+! (f3dc_anim_resolve) whenever the character's plugin publishes
+! a template for the verb; a cue that cannot be resolved keeps
+! the Wave-2 form -- "resolved": false and NO keys -- and hosts
+! must report such spans as unmapped, never approximate.
 !
 ! Serialisation is this module's own writer (not json_dumps):
 ! alphabetical object keys at every level, compact separators,
@@ -43,6 +45,7 @@ module f3dc_emit_timeline
        named_color
   use f3dc_plugins, only: plugin_rig, plugin_verb_channel, &
        ease_canonical
+  use f3dc_anim_resolve, only: anim_resolve
   implicit none
   private
   public :: tl_reset, tl_add_scene, tl_finalize
@@ -451,6 +454,25 @@ contains
            dyn_copy(dyn_dict_get(cprops, "height")))
     if (dyn_dict_len(props_out) > 0) &
       call dyn_dict_set(rec, "proportions", props_out)
+    ! Identity (Wave 3 S1): the declaration's identity props --
+    ! head / hair / face / wears / holds -- copied verbatim into
+    ! an optional "identity" object; omitted when the
+    ! declaration carries none of them.
+    block
+      type(dyn) :: ident
+      character(8) :: ikeys(5)
+      integer :: q
+      ikeys = [character(8) :: "head", "hair", "face", &
+               "wears", "holds"]
+      ident = dyn_dict()
+      do q = 1, 5
+        if (dyn_dict_has(cprops, trim(ikeys(q)))) &
+          call dyn_dict_set(ident, trim(ikeys(q)), &
+               dyn_copy(dyn_dict_get(cprops, trim(ikeys(q)))))
+      end do
+      if (dyn_dict_len(ident) > 0) &
+        call dyn_dict_set(rec, "identity", ident)
+    end block
     ! Voice, when a voice prop exists.
     v = dyn_dict_get(cprops, "voice")
     if (v%kind == DYN_K_STR) then
@@ -541,6 +563,119 @@ contains
     end do
   end function scene_character_plugin
 
+  !> The face.expr code of an expression name (plugin
+  !! vocabulary: 0 neutral, 1 happy, 2 sad, 3 determined,
+  !! 4 surprised); 0 for anything else.
+  real(real64) function expr_code_of(name) result(code)
+    character(*), intent(in) :: name
+    select case (name)
+    case ("happy")
+      code = 1.0_real64
+    case ("sad")
+      code = 2.0_real64
+    case ("determined")
+      code = 3.0_real64
+    case ("surprised")
+      code = 4.0_real64
+    case default
+      code = 0.0_real64
+    end select
+  end function expr_code_of
+
+  !> A character's declaration facts in FRAG: DECL = its `at`
+  !! position, EXPR0 = the face.expr code of its declared
+  !! starting `face`.  Defaults (origin / neutral) when the
+  !! fragment carries no entry.
+  subroutine char_decl(frag, name, decl, expr0)
+    type(dyn), intent(in) :: frag
+    character(*), intent(in) :: name
+    real(real64), intent(out) :: decl(3), expr0
+    type(dyn) :: v, centry, cprops, at
+    integer :: j, m
+    logical :: has
+    real(real64) :: x
+    decl = 0.0_real64
+    expr0 = 0.0_real64
+    v = dget(frag, "characters")
+    do j = 1, dyn_list_len(v)
+      centry = dyn_list_at(v, j)
+      if (dstr(centry, "name", "") /= name) cycle
+      cprops = dget(centry, "char_props")
+      at = dyn_dict_get(cprops, "at")
+      if (at%kind /= DYN_K_LIST) at = dyn_dict_get(cprops, "pos")
+      if (at%kind == DYN_K_LIST) then
+        do m = 1, min(3, dyn_list_len(at))
+          call dnum_at(at, m, x, has)
+          if (has) decl(m) = x
+        end do
+      end if
+      expr0 = expr_code_of(dstr(cprops, "face", ""))
+      return
+    end do
+  end subroutine char_decl
+
+  !> The resolver's OTHERS table for a scene: one {name, pos}
+  !! dict per declared character, at declaration positions.
+  function scene_others(frag) result(others)
+    type(dyn), intent(in) :: frag
+    type(dyn) :: others
+    type(dyn) :: v, centry, entry, carr
+    integer :: j, m
+    real(real64) :: decl(3), expr0
+    others = dyn_list()
+    v = dget(frag, "characters")
+    do j = 1, dyn_list_len(v)
+      centry = dyn_list_at(v, j)
+      if (len(dstr(centry, "name", "")) == 0) cycle
+      call char_decl(frag, dstr(centry, "name", ""), decl, &
+                     expr0)
+      entry = dyn_dict()
+      call dyn_dict_set(entry, "name", &
+           dyn_str(dstr(centry, "name", "")))
+      carr = dyn_list()
+      do m = 1, 3
+        call dyn_list_push(carr, dyn_real(decl(m)))
+      end do
+      call dyn_dict_set(entry, "pos", carr)
+      call dyn_list_push(others, entry)
+    end do
+  end function scene_others
+
+  !> Read character NAME's root cursor from the per-scene
+  !! CURSORS dict, initialising it (declaration position +
+  !! declared expression) on first sight.
+  subroutine cursor_get(cursors, name, decl, expr0, cur, exprv)
+    type(dyn), intent(inout) :: cursors
+    character(*), intent(in) :: name
+    real(real64), intent(in) :: decl(3), expr0
+    real(real64), intent(out) :: cur(3), exprv
+    type(dyn) :: entry
+    logical :: has
+    if (dyn_dict_has(cursors, name)) then
+      entry = dyn_dict_get(cursors, name)
+      call dnum(entry, "x", cur(1), has)
+      call dnum(entry, "y", cur(2), has)
+      call dnum(entry, "z", cur(3), has)
+      call dnum(entry, "expr", exprv, has)
+    else
+      cur = decl
+      exprv = expr0
+    end if
+  end subroutine cursor_get
+
+  subroutine cursor_set(cursors, name, cur, exprv)
+    type(dyn), intent(inout) :: cursors
+    character(*), intent(in) :: name
+    real(real64), intent(in) :: cur(3), exprv
+    type(dyn) :: entry
+    entry = dyn_dict()
+    call dyn_dict_set(entry, "x", dyn_real(cur(1)))
+    call dyn_dict_set(entry, "y", dyn_real(cur(2)))
+    call dyn_dict_set(entry, "z", dyn_real(cur(3)))
+    call dyn_dict_set(entry, "expr", dyn_real(exprv))
+    call dyn_dict_set(cursors, name, entry)
+  end subroutine cursor_set
+
   ! ----------------------------------------------------------------
   ! Per-scene span / tracks / dialogue construction.  CURSOR is
   ! the running timeline frame offset (in/out).  Frames are
@@ -559,6 +694,7 @@ contains
     logical, intent(inout) :: any_content
     character(:), allocatable, intent(inout) :: err
     type(dyn) :: span, bindings, v, anim, trk
+    type(dyn) :: cursors, others
     character(:), allocatable :: sname, sid, cid
     integer(int64) :: start_frame, dur_frames
     real(real64) :: dur_sec, x, y
@@ -708,7 +844,11 @@ contains
     end if
     call dyn_list_push(spans, span)
 
-    ! ---- tracks: actions + verbs from the resolved anims
+    ! ---- tracks: actions + verbs from the resolved anims.
+    ! Wave 3 S1: per-character root cursors for the action
+    ! resolver, reset for THIS scene (declaration positions).
+    cursors = dyn_dict()
+    others = scene_others(frag)
     v = dget(frag, "anims")
     do j = 1, dyn_list_len(v)
       anim = dyn_list_at(v, j)
@@ -738,8 +878,12 @@ contains
         is_char = scene_character(frag, tgt, cid)
         t = dyn_dict()
         if (has_start .and. is_char) then
-          ! Character cue -> "action" track, unresolved (Wave 3
-          ! resolves sentence verbs to joint keys).
+          ! Character cue -> "action" track.  Wave 3 S1: the
+          ! plugin resolver turns the cue into keys when the
+          ! character's plugin publishes a template for the
+          ! verb; on success "keys" is set and "resolved" is
+          ! omitted, on failure the Wave-2 form is kept exactly
+          ! ("resolved": false, no keys).
           call dyn_dict_set(t, "kind", dyn_str("action"))
           call dyn_dict_set(t, "scene", dyn_str(sid))
           call dyn_dict_set(t, "character", dyn_str(cid))
@@ -758,7 +902,31 @@ contains
           if (params%kind == DYN_K_DICT .and. &
               dyn_dict_len(params) > 0) &
             call dyn_dict_set(t, "params", params)
-          call dyn_dict_set(t, "resolved", dyn_bool(.false.))
+          block
+            type(dyn) :: rparams, rkeys
+            real(real64) :: decl(3), expr0, cur(3), exprv
+            logical :: rok
+            if (params%kind == DYN_K_DICT) then
+              call dyn_assign(rparams, params)
+            else
+              rparams = dyn_dict()
+            end if
+            call char_decl(frag, tgt, decl, expr0)
+            call cursor_get(cursors, tgt, decl, expr0, cur, &
+                            exprv)
+            call anim_resolve( &
+                 scene_character_plugin(frag, tgt), kind, &
+                 rparams, ease_canonical(dstr(anim, "ease", &
+                 "linear")), sf, ef, fps_num, fps_den, decl, &
+                 cur, exprv, others, rkeys, rok)
+            if (rok) then
+              call dyn_dict_set(t, "keys", rkeys)
+              call cursor_set(cursors, tgt, cur, exprv)
+            else
+              call dyn_dict_set(t, "resolved", &
+                   dyn_bool(.false.))
+            end if
+          end block
         else
           ! Scene-object animation -> "verb" track (the IR form
           ! of the scene formats' animations[]).

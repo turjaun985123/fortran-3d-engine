@@ -3210,10 +3210,11 @@ contains
     ! f3d.js, and f3d.mjs / f3d.d.ts are not inlined, so they
     ! are not deps.)
     block
-      character(len=*), parameter :: RUNTIME_DEPS(15) = &
+      character(len=*), parameter :: RUNTIME_DEPS(16) = &
            [character(len=20) :: &
            "f3d.js", "f3d-geo.js", "f3d-env.js", "f3d-pbr.js", &
-           "f3d-keys.js", "f3d-instanced.js", "f3d-post.js", &
+           "f3d-keys.js", "f3d-timeline.js", "f3d-instanced.js", &
+           "f3d-post.js", &
            "f3d-shader.js", "f3d-skin.js", "f3d-sprites-text.js", &
            "f3d-particles.js", "f3d-webgl2.js", "f3d-xr.js", &
            "f3d-raycast.js", "f3d-ortho.js"]
