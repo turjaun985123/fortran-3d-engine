@@ -1,0 +1,7 @@
+scene "s" size 640 480 background white
+camera at 0 3 10 look 0 1 0
+cube box red at 0 0 0 size 2
+keys box duration 2 loop once
+key box at 0 pos 0 0 0 rot 0 0 0 scale 1
+key box at 2 pos 3 0 0 rot 0 90 0 scale 2 ease smooth
+render "keys.png"

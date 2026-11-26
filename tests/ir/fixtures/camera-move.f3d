@@ -1,0 +1,8 @@
+film "Pan" size 640 480 fps 24
+scene "room" background white
+camera at 0 3 10 look 0 1 0
+plane ground gray at 0 -2 0 size 16
+cube door red at 5 0 0 size 2
+camera pans to door in 3 seconds ease smooth
+camera zooms out in 1 second
+render "pan.mp4"

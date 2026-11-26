@@ -1,0 +1,10 @@
+film "Gate Scene" size 640 480 fps 24
+scene "gate" background white
+camera at 0 3 10 look 0 1 0
+plane ground gray at 0 -2 0 size 16
+character mira blue at -2 0 2
+character finn yellow at 2 0 2 short
+mira waves for 2 seconds
+mira says "Finn — over here!" for 2 seconds
+camera zooms in on finn in 2 seconds ease smooth
+render "gate.mp4"

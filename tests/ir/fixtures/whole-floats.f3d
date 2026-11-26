@@ -1,0 +1,7 @@
+scene "s" size 640 480 background white
+camera at 0 3 10 look 0 1 0
+cube box red at 0 0 0 size 2
+keys box duration 2 loop once
+key box at 0 pos -0 0 0 rot -0 0 0 scale 1
+key box at 2 pos 60.0 0.5 0 rot 0 -0.0 0 scale 2.0 ease smooth
+render "wf.png"

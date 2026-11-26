@@ -1,0 +1,14 @@
+film "Two Rooms" size 640 480 fps 30
+scene "kitchen" background white
+camera at 0 3 10 look 0 1 0
+plane ground gray at 0 -2 0 size 16
+character rafi green at 0 0 2
+rafi jumps for 1 second
+scene "garden" background black
+camera at 0 3 10 look 0 1 0
+plane ground gray at 0 -2 0 size 16
+character rafi green at 0 0 2
+character mira pink at 3 0 2 kid
+mira says "Outside at last!" for 2 seconds
+rafi waves for 1 second
+render "two-rooms.mp4"

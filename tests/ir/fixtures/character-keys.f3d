@@ -1,0 +1,8 @@
+scene "s" size 640 480 background white
+camera at 0 3 10 look 0 1 0
+plane ground gray at 0 -2 0 size 16
+character lloyd blue at -5 0 2 tall head round
+keys lloyd duration 2 loop once
+key lloyd at 0 pos -5 0 2 rot 0 0 0 scale 1
+key lloyd at 2 pos 5 0 2 rot 0 90 0 scale 1 ease smooth
+render "x.png"

@@ -1,0 +1,11 @@
+film "Duet" size 640 480 fps 24
+scene "stage" background white
+camera at 0 3 10 look 0 1 0
+plane ground gray at 0 -2 0 size 16
+character lloyd blue at -3 0 2
+character mira pink at 3 0 2
+together
+  lloyd dances for 2 seconds
+  mira dances for 2 seconds
+end
+render "duet.mp4"

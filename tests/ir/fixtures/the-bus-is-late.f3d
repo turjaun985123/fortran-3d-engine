@@ -1,0 +1,28 @@
+film "The Bus Is Late" size 1280 720 fps 24
+let wait-time be 3 seconds
+
+action celebrate
+  it jumps
+  it waves both hands
+  it spins speed 360
+end
+
+scene "bus stop" background white
+camera at 0 3 10 look 0 1 0
+plane ground gray at 0 -2 0 size 16
+cube bench gray at -2 0 0 size 2
+cube bus yellow at -14 0 0 size 4
+place stop at 3 0 2
+character rafi green at -2 0 2 short face determined
+
+rafi sits on bench for wait-time
+repeat 2 times
+  rafi taps foot for 1 second
+end
+bus moves to stop in 4 seconds ease out
+with rafi stands for 1 second
+rafi says "Finally!" for 2 seconds
+rafi does celebrate for 2 seconds
+rafi walks to bus in 2 seconds
+
+render "the-bus-is-late.mp4"

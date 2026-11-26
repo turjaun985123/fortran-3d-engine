@@ -1,0 +1,32 @@
+film "The Lost Key" size 1280 720 fps 24
+
+scene "park" background white transition fade 1 second
+camera at 0 3 10 look 0 1 0
+plane ground gray at 0 -2 0 size 16
+cube bench gray at 2 0 0 size 2
+cube key yellow at 2 -1 1 size 0.3
+character lloyd blue at -5 0 2 tall head round wears cap red
+
+caption "One sunny morning, Lloyd lost his key." for 2 seconds
+lloyd walks to bench in 3 seconds ease smooth
+lloyd picks up key for 1 second
+lloyd says "Found it!" for 2 seconds
+
+scene "home" background black transition dissolve 1 second
+camera at 0 3 10 look 0 1 0
+plane ground gray at 0 -2 0 size 16
+character lloyd blue at -3 0 2 tall head round wears cap red
+character mira pink at 3 0 2 kid head round hair bun
+
+mira says "You found it!" for 2 seconds
+together
+  lloyd dances for 3 seconds
+  mira dances for 3 seconds
+  camera orbits lloyd in 3 seconds ease smooth
+end
+camera zooms out in 1 second
+lloyd smiles for 1 second
+with mira smiles for 1 second
+with fade out in 1 second
+
+render "the-lost-key.mp4"

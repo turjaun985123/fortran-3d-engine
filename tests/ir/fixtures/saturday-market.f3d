@@ -1,0 +1,23 @@
+film "Saturday Market" size 1280 720 fps 24
+
+scene "market" background white transition fade 1 second
+camera at 0 3 10 look 0 1 0
+plane ground gray at 0 -2 0 size 16
+cube stall red at 3 0 0 size 2
+sphere mango orange at 3 1 0 radius 0.3
+place stall-front at 1 0 2
+character lloyd blue at -5 0 2 tall head round wears cap red
+character mira pink at 4 0 2 kid head round hair bun
+
+lloyd walks to stall-front in 4 seconds ease smooth
+with camera follows lloyd
+lloyd waves for 2 seconds
+with mira waves for 2 seconds
+lloyd says "Good morning, Mira!" for 2 seconds
+mira says "The mangoes look fresh today!" for 3 seconds
+camera zooms in on stall in 2 seconds ease smooth
+mira picks up mango for 1 second
+mira smiles for 1 second
+with fade out in 1 second
+
+render "saturday-market.mp4"

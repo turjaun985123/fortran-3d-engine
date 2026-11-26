@@ -1,0 +1,9 @@
+film "Bhor" size 640 480 fps 24
+scene "bari" background white
+camera at 0 3 10 look 0 1 0
+plane ground gray at 0 -2 0 size 16
+character lloyd blue at -5 0 2 tall head round wears cap red
+character mira pink at 4 0 2 kid head round hair bun
+lloyd says "শুভ সকাল, মীরা!" for 2 seconds
+mira says "আমগুলো দেখো!" for 2 seconds
+render "bhor.mp4"

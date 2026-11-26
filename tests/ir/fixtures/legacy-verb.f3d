@@ -1,0 +1,5 @@
+scene "s" size 640 480 background white
+camera at 0 3 10 look 0 1 0
+cube box red at 0 0 0 size 2
+spin box axis y speed 90 duration 2
+render "spin.png"

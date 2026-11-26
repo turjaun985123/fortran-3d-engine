@@ -29,6 +29,13 @@
 #   e) Golden-image check via tests/golden/check_image.f90 if a
 #      golden image is present.
 #
+#   f) Timeline IR contract layer under tests/ir/ -- standalone
+#      Node.js contract tests (tests/ir/run_ir_tests.js): the
+#      purpose schema + validator, golden IR fixtures built with
+#      the real bin/f3dc, a host-simulation consumer, adversarial
+#      conformance cases, and a corpus sweep over the native anim
+#      build cases.  Skipped loudly if node is absent.
+#
 # Every layer reports PASS, FAIL or SKIP.  A missing/empty layer is a
 # SKIP (with a reason), never a failure.  The process exits non-zero
 # if and only if at least one layer FAILs.
@@ -346,18 +353,57 @@ run_golden_layer() {
 }
 
 # ---------------------------------------------------------------------------
+# (f) Timeline IR contract layer: tests/ir/run_ir_tests.js via node
+# ---------------------------------------------------------------------------
+
+run_ir_layer() {
+    label="ir (Timeline IR contract, Node.js, tests/ir/)"
+    if [ ! -d tests/ir ]; then
+        record $SKIP "$label" "directory tests/ir does not exist yet"; return
+    fi
+    if [ ! -f tests/ir/run_ir_tests.js ]; then
+        record $SKIP "$label" "no run_ir_tests.js under tests/ir"; return
+    fi
+    if ! command -v node >/dev/null 2>&1; then
+        echo "    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+        echo "    SKIP: node not available (IR contract checks cannot run)"
+        echo "    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+        record $SKIP "$label" "node not available"; return
+    fi
+    if [ ! -x bin/f3dc ]; then
+        echo "    bin/f3dc missing -- building via \`make f3dc\`"
+        if ! run_with_timeout 600 make f3dc || [ ! -x bin/f3dc ]; then
+            record $FAIL "$label" "bin/f3dc missing and \`make f3dc\` failed"; return
+        fi
+    fi
+    out=$(run_with_timeout $T_LONG node tests/ir/run_ir_tests.js 2>&1)
+    code=$?
+    printf '%s\n' "$out" | sed 's/^/    /'
+    n=$(printf '%s\n' "$out" | sed -n 's/.*PASS (\([0-9][0-9]*\) tests).*/\1/p' | tail -n 1)
+    case $n in ''|*[!0-9]*) n=0 ;; esac
+    if [ $code -ne 0 ]; then
+        record $FAIL "$label" "IR contract suite failed"; return
+    fi
+    if [ $n -eq 0 ]; then
+        record $FAIL "$label" "IR suite present but 0 tests ran"; return
+    fi
+    record $PASS "$label" "Timeline IR contract suite passed ($n tests)"
+}
+
+# ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
 
 echo "Forge3D test run -- repo root: $REPO_ROOT"
 
-for layer in native compiler e2e fortran golden; do
+for layer in native compiler e2e fortran golden ir; do
     case $layer in
         native)   lbl="native compiler (black-box, tests/native/)" ;;
         compiler) lbl="compiler-js + governance (Node.js, tests/compiler/)" ;;
         e2e)      lbl="e2e (native subprocess, tests/e2e/)" ;;
         fortran)  lbl="fortran (tests/fortran/*.f90)" ;;
         golden)   lbl="golden (tests/golden/check_image.f90)" ;;
+        ir)       lbl="ir (Timeline IR contract, Node.js, tests/ir/)" ;;
     esac
     echo ""
     echo "== $lbl =="
