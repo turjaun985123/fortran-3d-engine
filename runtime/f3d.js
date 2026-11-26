@@ -176,7 +176,15 @@ function create(el,scene){
   var canvas=el&&el.tagName==='CANVAS'?el:null,host=el;
   if(!canvas){canvas=document.createElement('canvas');if(host)host.appendChild(canvas);}
   var ctx=canvas.getContext('2d');
+  // Wave 4 transport (ANIM-PLAN 4.4): the compiled viewer bootstrap
+  // may carry a timeline descriptor {duration, fps, frames} on the
+  // scene (scene.timeline, or scene.viewer.timeline), or as the
+  // F3D_TIMELINE global next to F3D_SCENE. Capture it before
+  // normScene(), whose legacy conversions rebuild the scene object.
+  // The IR shape ({fps:{num,den}, duration_frames}) is also accepted.
+  var tlDesc=(scene&&(scene.timeline||(scene.viewer&&scene.viewer.timeline)))||g.F3D_TIMELINE||null;
   scene=normScene(scene||g.F3D_SCENE||{objects:[{prim:'cube'}]});
+  if(!tlDesc)tlDesc=scene.timeline||(scene.viewer&&scene.viewer.timeline)||null;
   var objs=(scene.objects||[]).map(build);
   var cam=scene.camera||{},eye0=v3(cam.pos||cam.position,[3,2.5,4]),tgt0=v3(cam.target,[0,0,0]),
     up=v3(cam.up,[0,1,0]),fov=cam.fov||60,near=cam.near||0.1,far=cam.far||100;
@@ -244,12 +252,56 @@ function create(el,scene){
   if(canvas.addEventListener){canvas.addEventListener('pointerdown',down);canvas.addEventListener('pointermove',move);
     canvas.addEventListener('pointerup',up2);canvas.addEventListener('pointercancel',up2);
     canvas.addEventListener('wheel',wheel,{passive:false});canvas.addEventListener('dblclick',function(){yaw=pitch=0;dist=1;if(!playing)render();});}
-  var api={canvas:canvas,scene:scene,play:function(){if(!playing){playing=true;t0=Date.now()-time*1000;raf=requestAnimationFrame(loop);}return api;},
+  // ---- Wave 4 transport helpers (ANIM-PLAN 4.4) ----
+  // Effective rate for time->frame: the timeline descriptor's fps
+  // first (a plain number, or the IR rational {num, den}, or
+  // frames/duration), then scene.fps, then the first animation's
+  // fps, then the scene-format default of 30.
+  function fpsNow(){
+    if(tlDesc){
+      if(+tlDesc.fps>0)return +tlDesc.fps;
+      if(tlDesc.fps&&+tlDesc.fps.num>0&&+tlDesc.fps.den>0)return +tlDesc.fps.num/+tlDesc.fps.den;
+      if(+tlDesc.frames>0&&+tlDesc.duration>0)return +tlDesc.frames/+tlDesc.duration;
+      if(+tlDesc.duration_frames>0&&+tlDesc.duration>0)return +tlDesc.duration_frames/+tlDesc.duration;}
+    if(+scene.fps>0)return +scene.fps;
+    if(anims.length&&+anims[0].fps>0)return +anims[0].fps;
+    return 30;}
+  // Known duration in seconds, or null when unknown: the timeline
+  // descriptor's duration (or its frame count at the effective
+  // rate), else scene.duration.
+  function durationNow(){
+    if(tlDesc){
+      if(tlDesc.duration!=null&&isFinite(+tlDesc.duration)&&+tlDesc.duration>=0)return +tlDesc.duration;
+      var fr=tlDesc.frames!=null?+tlDesc.frames:+tlDesc.duration_frames;
+      if(isFinite(fr)&&fr>=0)return fr/fpsNow();}
+    if(scene.duration!=null&&isFinite(+scene.duration)&&+scene.duration>=0)return +scene.duration;
+    return null;}
+  // Current integer frame. The repo's time->frame derivation is
+  // round(t * fps) (the nint rule of f3dc_emit_timeline / the
+  // scene-format frame-count rule), never floor.
+  function frameNow(){return Math.round(time*fpsNow());}
+  // seek(t): set the current time to exactly t, clamped to
+  // [0, duration] when a duration is known (otherwise only clamped
+  // below at 0). Evaluation is a pure function of absolute t (the
+  // Wave-3 evaluator principle), so the seek only assigns `time`
+  // and re-bases t0 -- no accumulated state -- and seek(t) twice
+  // yields the identical frame. While paused, one frame at t is
+  // rendered through the existing paused-render path; while
+  // playing, the re-based t0 makes the loop continue from t.
+  function seek(t){
+    var nt=+t;if(!isFinite(nt))nt=0;
+    nt=Math.max(0,nt);
+    var du=durationNow();if(du!=null)nt=Math.min(nt,du);
+    time=nt;t0=Date.now()-time*1000;
+    return render();}
+  var api={canvas:canvas,scene:scene,timeline:tlDesc,play:function(){if(!playing){playing=true;t0=Date.now()-time*1000;raf=requestAnimationFrame(loop);}return api;},
     pause:function(){playing=false;if(raf)cancelAnimationFrame(raf);return api;},
+    seek:seek,time:function(){return time;},frame:frameNow,
     setTime:function(t){time=t;return render();},render:render,autoFrame:function(){autoFrame();return render();},
     destroy:function(){destroyed=true;api.pause();
       if(canvas.removeEventListener){canvas.removeEventListener('pointerdown',down);canvas.removeEventListener('pointermove',move);canvas.removeEventListener('pointerup',up2);canvas.removeEventListener('wheel',wheel);}}};
   render(0);if(anims.length)api.play();
+  if(typeof window!=="undefined")window.F3DViewer=api;
   return api;}
 // ---- worldTris(scene, t): flat world-space triangles in the
 // core tri format ([a,b,c,faceIdx,color,normals?]) for time t,

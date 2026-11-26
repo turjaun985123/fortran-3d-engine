@@ -114,8 +114,12 @@ declare interface F3DScene {
 declare interface F3DPlayer {
   canvas?: unknown;
   scene?: F3DScene;
+  timeline?: { duration?: number; duration_frames?: number; frames?: number; fps?: number | { num: number; den: number } } | null;
   play(): void;
   pause(): void;
+  seek(t: number): void;
+  time(): number;
+  frame(): number;
   setTime(t: number): void;
   render(t?: number): void;
   destroy(): void;
