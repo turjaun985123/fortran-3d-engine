@@ -25,6 +25,45 @@ extreme level. The stickman engine is **one plugin**.
   superiority axes). An axis counts as "better" only with a
   measurement or a shipped feature behind it.
 
+## Plugin externalization (user ruling, 2026-11-26) — read second
+
+**"Stickman will be a plugin for our main engine — NOT built-in."**
+The user explicitly rejects the Wave 2/3 state where stickman is
+registered as data tables inside the core module
+`f3dc_plugins.f90`: registration-as-data inside the core binary
+still counts as built-in. This ruling **supersedes the Wave 2/3
+"registered as pure data" framing** wherever it appears below
+(the Wave 2/3 log entries stand as history; their framing does
+not). Required end state:
+
+- **Plugins are external packages on disk:** a directory with a
+  manifest (id, version, capabilities) plus its declarations —
+  channels, verb→channel maps and parametric templates, character
+  prop schemas, rig record — in a data format the compiler LOADS
+  at run time. The core keeps only the loader + registry
+  mechanism. Package format is a design call for the
+  externalization wave, recorded in `docs/PLUGINS.md` (and an ADR
+  note if it touches the contract surface); zero-Python holds.
+- **Stickman ships as a normal external package** (e.g.
+  `plugins/stickman/`), loaded like any other plugin. No stickman
+  data remains in core source. Humanoid likewise becomes an
+  external package when its depth waves (W19–24) arrive.
+- **Proof tests are the gate:** (a) a suite run with the stickman
+  package ABSENT — the core still works, and a film using a
+  stickman character fails with a clean diagnostic naming the
+  missing plugin (new E-code via the census if needed); (b) with
+  the package present, the full suite passes exactly as today.
+  Byte-identical outputs in both worlds.
+- **IR compatibility:** the frozen Timeline IR already carries
+  plugin ids, so no format change is expected; resolution happens
+  at compile time against loaded plugins. Any genuine format
+  consequence goes through the ADR-5 additive path and is flagged
+  before landing.
+- **Slotting:** externalization is the FIRST scope of Wave 5
+  (ahead of video export), and it MUST land before the Wave 6
+  v4.0.0 release prep — **v4.0.0 does not ship with stickman
+  built in.**
+
 ## Invariants (every wave, no exceptions)
 
 - Full `./tests/run_tests.sh` green with every layer genuinely
@@ -50,7 +89,7 @@ extreme level. The stickman engine is **one plugin**.
 | W2 | **Timeline IR v1 + ADR-5 + contract FREEZE**; plugin registry foundation (plugin ids in IR, generic channel keys); `docs/ALLROUNDER-MATRIX.md`; Wave-1 stickman-hardcoding flags (below) all resolved BEFORE the freeze |
 | W3 | Engine animation evaluation; **stickman plugin** (Approach A figure, rig, action set) as the first registered plugin; general humanoid rig plugin skeleton |
 | W4 | Preview playback (seek/scrub, `/__timeline`, subtitle overlay, diagnostics drawer) |
-| W5 | Video export (film-mode `.mp4` assembly, transitions honoured in export, `.srt` sidecar) |
+| W5 | **FIRST: plugin externalization (user ruling 2026-11-26 — stickman becomes an external package under `plugins/`, core keeps loader+registry only, absent-plugin proof tests)**; then video export (film-mode `.mp4` assembly, transitions honoured in export, `.srt` sidecar) |
 | W6 | Verification + **v4.0.0 release prep** (tag/Release on user nod) |
 
 ### Waves 7–12 — language & library growth
@@ -187,8 +226,12 @@ Recorded at Wave 1 close (audit of the landed front-end):
 - Gates: full suite PASS (native incl. anim 169/169 + curated +
   properties/fmt, compiler-js 254, e2e 77, fortran 47, ir 64;
   golden SKIP by design); legacy golden `28b6a81d…` verified
-  unchanged by hand (G3a method); zero Python; CI verdict recorded
-  in the wave close report.
+  unchanged by hand (G3a method); zero Python. CI: first run
+  `45803947996` failed ONLY the concat lint (one self-concat site
+  in the new emit_html inlining code); fixed forward onto
+  `str_builder` (byte-identical output, native pins unmoved) in
+  `6ddbebb`; run `45805606686` **SUCCESS** — all 4 jobs green,
+  verified twice at job/step level (G3a–G3e + G4 all green).
 - Carried forward: (i) **multi-scene films do not preview** — the
   preview compiles a file as a single scene (pre-existing: it has
   never done `do_build`'s chunk splitting), so a two-scene film
