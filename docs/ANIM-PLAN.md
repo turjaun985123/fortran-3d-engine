@@ -1534,6 +1534,56 @@ bend it.
 
 ## 8. Open questions for the user (rulings needed before/during build)
 
+**ALL RULINGS APPROVED 2026-11-26** — the user approved every
+recommendation below as a bundle ("সব recommendation approve — Wave 1
+শুরু করো"). Each question is marked with its ruling.
+
+- **Q1 — APPROVED 2026-11-26:** ship as **v4.0.0** (at the Wave 6
+  release; no version bump in earlier waves).
+- **Q2 — APPROVED 2026-11-26:** film mode + sequential-by-default cues
+  approved; the keyword is **`film`**.
+- **Q3 — APPROVED 2026-11-26:** characters declared **once per film**;
+  shot-level `character` lines override placement only.
+- **Q4 — APPROVED 2026-11-26:** dialogue v1 = bubble + subtitle +
+  timing, **no TTS voice**.
+- **Q5 — APPROVED 2026-11-26:** stickman **Approach A** (procedural
+  geometry, disc head, yaw-only billboard) approved in principle; the
+  final look is judged from Wave 3 renders.
+- **Q6 — APPROVED 2026-11-26:** transitions = per-chunk **metadata**
+  honoured by player/export assembly (option a).
+- **Q7 — APPROVED 2026-11-26:** StykAnimate's first integration =
+  CLI artifacts + bake-on-import, 3D-only data report-and-drop, no IR
+  round-trip, Forge3D owns the action/rig-channel registry, pipeline
+  default fps **24** on both sides. (Needed before host work only.)
+
+**SCOPE CORRECTION — USER RULING 2026-11-26 (supersedes the
+stickman-first framing wherever it conflicts):** *"Eta sudhu stickman
+er jonno hobe na — eta Blender er thekeo valo ebong marattok leveler
+hote hobe, all rounder; ar stickman engine ekta plugin er moto hobe."*
+This platform is **not stickman-only**: the target is an **all-rounder
+animation platform, better than Blender**, and the stickman engine
+becomes **one plugin**. Consequences:
+
+- **Plugin architecture is a core design pillar:** a plugin
+  registry/API through which character rigs, action sets, and feature
+  packs register. The stickman engine (Approach A figure, its actions,
+  its rig channels) is re-cast as the **first plugin** (id `stickman`).
+  Core language/compiler/IR must be rig-agnostic and
+  character-type-agnostic.
+- **Q5's framing is superseded:** Approach A still stands — as the
+  stickman *plugin's* rendering approach, not as a core assumption.
+- **Wave 2 constraint:** the Timeline IR must record plugin ids and
+  resolve actions to generic channel keys; it must NOT bake in
+  stickman topology, or the freeze locks the wrong contract.
+- **"Better than Blender" is a measured target:** Wave 2 writes
+  `docs/ALLROUNDER-MATRIX.md` (feature-coverage areas vs Blender +
+  superiority axes that count only with a measurement or a shipped
+  feature behind them).
+- The 50-wave roadmap lives in `docs/ANIM-WAVES.md` (plugin system +
+  general core first, stickman plugin as proof case, then coverage
+  waves per the matrix; StykAnimate consumes the stickman plugin +
+  core).
+
 1. **Q1 — Version number: ship as v4.0.0 (recommended) or v3.1.0?**
    A new public contract (Timeline IR) + a new language surface is a
    major by this project's own precedent (v2 = native break, v3 =
@@ -1589,3 +1639,10 @@ bend it.
   On approval, this plan's wave table becomes the build programme;
   ADR-5 is written at Wave 2 start; `docs/V4-GOLDENS.md` and
   `docs/TIMELINE-FORMAT.md` are created in their waves.
+- 2026-11-26 — **All §8 rulings APPROVED by the user (bundle approval
+  of every recommendation); Wave 1 started the same day.**
+- 2026-11-26 — **SCOPE CORRECTION (user): not stickman-only —
+  all-rounder platform, better than Blender; stickman engine becomes
+  a plugin.** Standing order the same day: **"Don't stop until 50
+  waves"** — Waves 1–6 per this plan, Waves 7–50 per
+  `docs/ANIM-WAVES.md`.

@@ -1,0 +1,154 @@
+# Forge3D Animation Platform — 50-Wave Programme (living doc)
+
+Standing order (user, 2026-11-26): **"Don't stop until 50 waves."**
+Waves 1–6 follow `docs/ANIM-PLAN.md`; Waves 7–50 are the extension
+roadmap below. This doc is updated with every wave: scope delivered,
+commits, CI run + verdict, gate status. Plan changes are recorded
+here with their reason — the invariants never change.
+
+## Scope correction (user ruling, 2026-11-26) — read first
+
+**This platform is NOT stickman-only.** The target is an
+**all-rounder animation platform, better than Blender**, at an
+extreme level. The stickman engine is **one plugin**.
+
+- **Plugin architecture is a core design pillar.** A plugin
+  registry/API lets character rigs, action sets, and feature packs
+  register with the core. The stickman engine (Approach A procedural
+  figure, its actions, its rig channels) is the **first plugin**
+  (id `stickman`) — the proof case, not a core assumption.
+- **Core stays rig-agnostic and character-type-agnostic:** the
+  language, compiler, and Timeline IR must not bake in stickman
+  topology, stickman-only channels, or stickman-named built-ins.
+- **"Better than Blender" is measured, never asserted:** Wave 2
+  writes `docs/ALLROUNDER-MATRIX.md` (feature coverage vs Blender +
+  superiority axes). An axis counts as "better" only with a
+  measurement or a shipped feature behind it.
+
+## Invariants (every wave, no exceptions)
+
+- Full `./tests/run_tests.sh` green with every layer genuinely
+  running (no silent SKIPs — the gfortran-vanishes trap is checked).
+- Legacy golden sha256
+  `28b6a81dd052a740f3a395ea41b3e0dd37e02eeff585a56fa90e05ac7697cec1`
+  **unchanged**.
+- Commit + push per wave (active gh account `turjaun985123`, secret
+  scan), CI watched to a job-level verdict, fix-forward until green.
+- Zero Python in this repo.
+- Character identity rules hold per plugin (a character's identity
+  props are locked against mid-film cue changes).
+- A wave that fails its gates is not "done" — it is fixed or
+  reported. Tags/GitHub Releases only with the user's nod.
+
+## Wave map
+
+### Waves 1–6 — per ANIM-PLAN (core + contract)
+
+| Wave | Scope |
+|---|---|
+| W1 | Language + compiler front-end: film mode, characters, actions, cues, camera moves, dialogue, transitions as nodes, loops, `let`; desugar timeline resolution; validator + E206–E213/W203–W204; cache fixes; corpus + census + property sweep |
+| W2 | **Timeline IR v1 + ADR-5 + contract FREEZE**; plugin registry foundation (plugin ids in IR, generic channel keys); `docs/ALLROUNDER-MATRIX.md`; Wave-1 stickman-hardcoding flags (below) all resolved BEFORE the freeze |
+| W3 | Engine animation evaluation; **stickman plugin** (Approach A figure, rig, action set) as the first registered plugin; general humanoid rig plugin skeleton |
+| W4 | Preview playback (seek/scrub, `/__timeline`, subtitle overlay, diagnostics drawer) |
+| W5 | Video export (film-mode `.mp4` assembly, transitions honoured in export, `.srt` sidecar) |
+| W6 | Verification + **v4.0.0 release prep** (tag/Release on user nod) |
+
+### Waves 7–12 — language & library growth
+
+Full built-in action library shipped as plugin packs: locomotion,
+gestures, emotions, two-character interactions, prop actions; easing
+library; camera grammar depth; dialogue/subtitle polish; transitions
+honoured across export paths.
+
+### Waves 13–18 — audio groundwork
+
+Sound/music cue lines in the language, the audio timing model,
+mixing metadata in the IR, **TTS hook only** — no shipped voice
+without a later user decision on samples.
+
+### Waves 19–24 — effects, environments & general coverage
+
+Weather, particles, day/night in film mode; reusable set/prop
+libraries; example films; general-rig coverage growth per
+ALLROUNDER-MATRIX (humanoid rig plugin depth, mesh/modeling growth,
+materials/lighting depth).
+
+### Waves 25–32 — StykAnimate integration
+
+In `~/workspace/StykAnimate-RS` (its own rules: CI-only verification,
+no local cargo builds): `timeline_import.rs` per ANIM-PLAN §3.9,
+bake-on-import, easing ends-at conversion + adversarial conformance
+tests, dialogue → SubtitleCue, characters → rig instances, MCP/dialog
+wiring. StykAnimate consumes the **stickman plugin + core**.
+
+### Waves 33–40 — robustness
+
+Fuzz the film pipeline (incl. the 24-hour zero-crash bar), big
+multi-scene stress films, performance work, diagnostics quality,
+manual + tutorials; compositing/post coverage per the matrix.
+
+### Waves 41–50 — polish & milestone releases
+
+Complete example film library as fixtures, language ergonomics
+passes from real usage, final hardening; version bumps per
+milestone, tags/Releases only with the user's nod.
+
+## Wave 2 must-fix flags (from Wave 1 — resolve BEFORE the IR freeze)
+
+Recorded at Wave 1 close (audit of the landed front-end):
+
+1. **Channels are literals in core desugar** (`channel` = body/face
+   stamped in `f3dc_desugar.f90`). Must resolve through the plugin
+   registry to generic channel keys before the IR can freeze.
+2. **Humanoid-flavoured character props live in the core parser**
+   (proportions/head/hair/face/wears in `f3dc_parser.f90`). Core
+   should keep name/colour/placement; prop schemas belong to the
+   registering plugin (stickman plugin declares these).
+3. **The extended verb list is a core table** (`ANIM_KINDS_EXT` in
+   `f3dc_val_common.f90`). Action sets must register via the plugin
+   registry; core keeps only the resolution mechanism.
+4. **Character placeholder objects** emitted by desugar carry
+   `character=true`; before the IR they must carry a plugin
+   reference (default plugin id `stickman`) instead of a core
+   humanoid assumption.
+5. **Speech/identity semantics in the validator** (E209/E211:
+   "only characters speak") must be expressed via registry
+   capabilities, not a core humanoid rule.
+6. **Easing names carry two spellings** (Wave 1 unification made
+   both registries accept `ease-in|out|in-out` and
+   `cubic-in|out|in-out` as aliases of the same curves). The
+   Timeline IR must emit ONE canonical spelling per curve, chosen
+   in Wave 2, or hosts will inherit the ambiguity.
+
+## Per-wave log
+
+### Wave 1 — Language + compiler front-end (2026-11-26) ✅
+
+- Scope delivered: film mode end-to-end through the front-end —
+  parser (film/character/place/action/cue/cammove/dialogue/
+  transition/loopblock/let, `at`/`with`/`after` timing, custom
+  actions with `it`), 10 typed-AST node kinds via marker keys,
+  desugar timeline resolution (0.5a/0.5b/0.5c), validator timeline
+  section + E206–E213/W203–W204, `ir_anim.start`, film-mode `.mp4`
+  gating, fmt round-trip for all new kinds, multi-scene film
+  chunk prelude, cache fixes (runtime dep family, dep cap),
+  unified easing registries. Tests: 162 anim corpus cases (198
+  artifact hashes), diagnostics census (36 codes), property
+  sweep incl. anim_strict/animprop; ratchet tightened 16/130 →
+  144/6 after the fmt fix.
+- Commits: `fe8147b` (compiler), `112cc3d` (tests), plus the docs
+  commit carrying this entry.
+- Gates: full suite PASS locally (native incl. anim 162/162,
+  compiler-js 190, e2e 65, fortran 41; golden layer SKIP by
+  design); legacy golden `28b6a81d…` verified unchanged by hand
+  (G3a method); zero Python; CI verdict for the final head is
+  recorded in the wave close report.
+- Scope-correction application: core stayed syntax-generic; the
+  five stickman-hardcoding flags above are the Wave 2 must-fix
+  list (plus easing-spelling canonicalisation, flag 6). Nothing
+  was generalised unsafely inside Wave 1.
+- Deviations found & fixed inside the wave: fmt round-trip
+  rewrite for anim forms; `enter` verb missing from the extended
+  registry; `gently` ease spelling; `let` in repeat counts;
+  `after` prefix implementation; easing registry split (anim vs
+  keyframe tracks); legacy AnimStmt `loop repeat(N)` fmt.
