@@ -77,11 +77,9 @@ program main
     ! v3.0 Phase 8: '--video <file.mp4>' state (scene mode only;
     ! single-image renders are unaffected).
     logical :: has_video
-    character(len=1024) :: video_file, video_pattern
-    character(len=2048) :: video_cmd
+    character(len=1024) :: video_file
     character(len=1024) :: arg_token
-    integer :: scan_i, scene_arg_idx, ff_status, ff_cmdstat, fps_int
-    logical :: ff_failed
+    integer :: scan_i, scene_arg_idx
     ! v3.0 Phase 9: write-failure detection state.  failed_frames
     ! counts frame writes that failed after frame 1 (a failed
     ! first frame is fatal immediately; see the frame loop).
@@ -561,62 +559,14 @@ program main
 
         ! v3.0 Phase 8: '--video <file.mp4>' -- assemble the
         ! numbered frame files just written into a video with
-        ! ffmpeg (image2 demuxer over '<base>_%04d<ext>' at the
-        ! scene fps, libx264 / yuv420p).  Only multi-frame renders
-        ! reach here; single-image renders are unaffected.  A
-        ! missing or failing ffmpeg is a note on stderr, never a
-        ! change of exit code, and the frame files are kept.
-        if (has_video) then
-            if (n_frames > 1) then
-                dot_pos = index(trim(sc%output_file), '.', &
-                                back=.true.)
-                if (dot_pos > 1) then
-                    base_name = sc%output_file(1:dot_pos - 1)
-                    ext_name = sc%output_file(dot_pos:)
-                else
-                    base_name = trim(sc%output_file)
-                    ext_name = ''
-                end if
-                write(video_pattern, '(A, A, A)') trim(base_name), &
-                    '_%04d', trim(ext_name)
-                ff_status = 0
-                ff_cmdstat = 0
-                call execute_command_line( &
-                    'ffmpeg -version > /dev/null 2>&1', &
-                    wait=.true., exitstat=ff_status, &
-                    cmdstat=ff_cmdstat)
-                ff_failed = .false.
-                if (ff_cmdstat /= 0) ff_failed = .true.
-                if (ff_status /= 0) ff_failed = .true.
-                if (ff_failed) then
-                    write(error_unit, '(A)') &
-                        'note: --video: ffmpeg not found; frame ' &
-                        // 'files kept, no video written to "' &
-                        // trim(video_file) // '"'
-                else
-                    fps_int = max(1, nint(fps_r))
-                    write(video_cmd, '(A, I0, A, A, A, A, A)') &
-                        'ffmpeg -y -framerate ', fps_int, &
-                        ' -f image2 -i ''', trim(video_pattern), &
-                        ''' -c:v libx264 -pix_fmt yuv420p ''', &
-                        trim(video_file), ''''
-                    ff_status = 0
-                    ff_cmdstat = 0
-                    call execute_command_line(trim(video_cmd), &
-                        wait=.true., exitstat=ff_status, &
-                        cmdstat=ff_cmdstat)
-                    ff_failed = .false.
-                    if (ff_cmdstat /= 0) ff_failed = .true.
-                    if (ff_status /= 0) ff_failed = .true.
-                    if (ff_failed) then
-                        write(error_unit, '(A)') &
-                            'note: --video: ffmpeg failed; frame ' &
-                            // 'files kept, no video written to "' &
-                            // trim(video_file) // '"'
-                    end if
-                end if
-            end if
-        end if
+        ! ffmpeg (see assemble_video below; shared with film
+        ! mode).  Only multi-frame renders reach here; single-
+        ! image renders are unaffected.  A missing or failing
+        ! ffmpeg never changes the exit code, and the frame
+        ! files are kept; a missing ffmpeg is a LOUD warning
+        ! naming the exact assembly command (Wave 5, X3).
+        if (has_video .and. n_frames > 1) &
+            call assemble_video(trim(sc%output_file), fps_r)
 
         print *, '============================================'
         print *, ' Scene rendering completed!'
@@ -1157,6 +1107,15 @@ contains
                 ' frame(s) failed to write; render incomplete'
             stop 1
         end if
+        ! Wave 5 (X3): '--video <file.mp4>' for films -- before
+        ! this, film mode ignored has_video entirely and exited 0
+        ! with no video and no message (silent success-without-
+        ! video).  Assemble the numbered frames just written at
+        ! the FILM fps, through the same helper as scene mode;
+        ! transitions are already rendered into those frames by
+        ! the film loop above, so they are in the video too.
+        if (has_video .and. nf > 1) &
+            call assemble_video(trim(film_output), fps_f)
         print *, '============================================'
         print *, ' Film rendering completed!'
         print *, '   Film:    ', trim(fstate%tl%name)
@@ -1164,6 +1123,79 @@ contains
         print *, '   Output:  ', trim(film_output)
         print *, '============================================'
     end subroutine run_film
+
+    ! v3.0 Phase 8 / Wave 5 (X3): assemble the numbered frame
+    ! files for output_file_arg ('<base>_NNNN<ext>', frame 1 also
+    ! in the un-numbered base file) into video_file (the global
+    ! --video value) with ffmpeg: image2 demuxer over the
+    ! '<base>_%04d<ext>' pattern at fps_arg, libx264 / yuv420p.
+    ! Failure contract (documented, ANIM-PLAN 4.5 + Wave 5):
+    !   * ffmpeg ABSENT from PATH: frames-only, exit code
+    !     unchanged (0 on an otherwise successful render), but
+    !     NEVER silent -- a loud stderr warning names ffmpeg,
+    !     states the frame files are kept, and prints the exact
+    !     assembly command the user can run after installing it.
+    !   * ffmpeg present but FAILING: frames kept + a stderr
+    !     note, exit code unchanged (the Phase-8 design).
+    ! Callers invoke this only for multi-frame renders whose
+    ! frames all wrote successfully (write failures stop 1
+    ! before assembly, in both scene and film mode).
+    subroutine assemble_video(output_file_arg, fps_arg)
+        character(len=*), intent(in) :: output_file_arg
+        real(dp), intent(in) :: fps_arg
+        character(len=1024) :: pat, bname, ename
+        character(len=2048) :: cmd
+        integer :: dpos, st, cst, fi
+        logical :: failed
+
+        dpos = index(trim(output_file_arg), '.', back=.true.)
+        if (dpos > 1) then
+            bname = output_file_arg(1:dpos - 1)
+            ename = output_file_arg(dpos:)
+        else
+            bname = trim(output_file_arg)
+            ename = ''
+        end if
+        write(pat, '(A, A, A)') trim(bname), '_%04d', trim(ename)
+        fi = max(1, nint(fps_arg))
+        write(cmd, '(A, I0, A, A, A, A, A)') &
+            'ffmpeg -y -framerate ', fi, &
+            ' -f image2 -i ''', trim(pat), &
+            ''' -c:v libx264 -pix_fmt yuv420p ''', &
+            trim(video_file), ''''
+        st = 0
+        cst = 0
+        call execute_command_line('ffmpeg -version > /dev/null 2>&1', &
+            wait=.true., exitstat=st, cmdstat=cst)
+        failed = .false.
+        if (cst /= 0) failed = .true.
+        if (st /= 0) failed = .true.
+        if (failed) then
+            write(error_unit, '(A)') &
+                'warning: --video: ffmpeg not found on PATH; ' &
+                // 'no video written to "' // trim(video_file) // '"'
+            write(error_unit, '(A)') &
+                'warning: --video: frame files kept ("' &
+                // trim(pat) // '" plus the un-numbered base file)'
+            write(error_unit, '(A)') &
+                'warning: --video: install ffmpeg, then assemble ' &
+                // 'the kept frames with: ' // trim(cmd)
+            return
+        end if
+        st = 0
+        cst = 0
+        call execute_command_line(trim(cmd), wait=.true., &
+            exitstat=st, cmdstat=cst)
+        failed = .false.
+        if (cst /= 0) failed = .true.
+        if (st /= 0) failed = .true.
+        if (failed) then
+            write(error_unit, '(A)') &
+                'note: --video: ffmpeg failed; frame ' &
+                // 'files kept, no video written to "' &
+                // trim(video_file) // '"'
+        end if
+    end subroutine assemble_video
 
     ! v3.0 Phase 8: binary PPM (P6) writer.  The shared PPM write
     ! point in renderer_3d (framebuffer_save_ppm, reached via
@@ -1301,6 +1333,8 @@ contains
         character(len=*), intent(in) :: filename
         logical, intent(out) :: ok_out
 
+        integer :: pu, pios
+
         ok_out = .false.
         if (binary_ppm) then
             if (.not. is_png_filename(filename)) then
@@ -1308,6 +1342,24 @@ contains
                 return
             end if
         end if
+        ! Wave 5 (X3): pre-flight writability probe.  The shared
+        ! writer carries no iostat, so an unwritable target (bad
+        ! directory, read-only location) used to abort the whole
+        ! program inside renderer_3d with a Fortran runtime error
+        ! before check_written_file could run.  Probe the open
+        ! here instead: on failure, report a clean diagnostic and
+        ! let the caller stop 1 (first frame) or count the loss
+        ! (later frames).  The probe creates/truncates the file;
+        ! the shared writer immediately rewrites it in full.
+        open(newunit=pu, file=trim(filename), status='replace', &
+             action='write', iostat=pios)
+        if (pios /= 0) then
+            write(error_unit, '(A, A, A, I0, A)') &
+                'error: failed to write "', trim(filename), &
+                '" (open failed, iostat ', pios, ')'
+            return
+        end if
+        close(pu)
         call framebuffer_save_image(fb_arg, filename)
         ok_out = check_written_file(filename)
     end subroutine save_frame_image
